@@ -458,10 +458,17 @@ final class PreviewController {
         onSelectWindow?(pid, win)
     }
 
-    /// 关闭窗口：走它自己的关闭按钮（等价于点红点），不会误关别的窗口。
+    /// 关闭窗口。
     ///
-    /// `WindowBridge.closeWindow` 内部已经用"窗口数量有没有减少"验过一遍，
-    /// 所以这里不再拿 AX 的返回值当结论 —— 重枚举之后卡片还在，才叫真的没关掉。
+    /// **卡片即点即消失（乐观 UI）**：早先要等「AX 关闭 → 200ms → 全量重枚举 → 重建」
+    /// 整条链跑完卡片才走，约 0.6~1 秒 —— 窗口其实早就关了，看着就是"点了没反应"。
+    /// 现在按下红叉立刻把卡片摘掉（剩不到 2 张就直接收预览），真正的关闭在后台跑；
+    /// 万一没关掉，reload 会把卡片放回来并给提示，账最终还是对得平。
+    ///
+    /// 真正的关闭走窗口自己的关闭按钮（等价于点红点），不会误关别的窗口。
+    /// `WindowBridge.closeWindow` 内部用"窗口数量有没有减少"验过一遍，
+    /// 这里再拿窗口服务器做二次确认：幽灵表面（微信挂屏幕外的主界面那类）
+    /// 本来就不存在，不该报错吓人。
     private func closeWindow(at index: Int) {
         guard let pid = currentPID, let win = window(at: index) else { return }
         guard WindowBridge.isTrusted else {
@@ -474,27 +481,49 @@ final class PreviewController {
         // 兜底点击是落在屏幕坐标上的，得告诉桥接层哪些矩形是自己面板，
         // 免得红点被预览面板压住时一厢情愿地点进自己的卡片里
         let avoid = [panel.frame, lastMainFrame].map { Self.cgRect($0) }
+
+        // 乐观移除：不等后台结果，先让界面动起来
+        removeItem(at: index)
+        if model.items.count < 2 { hide() }
+
         Task { [weak self] in
             let ok = await Task.detached(priority: .userInitiated) {
                 WindowBridge.closeWindow(pid: pid, axIndex: target.axIndex,
                                          frame: target.frame, title: target.title,
                                          avoid: avoid)
             }.value
-            guard let self, self.token == myToken else { return }
-            // 关闭动画要走几百毫秒，等一拍再重新枚举，免得刷新出还没走的旧窗口
+            guard let self else { return }
+            // 无论预览还在不在都刷新一遍引擎快照（等关闭动画落地）：
+            // 面板已收时也要让缓存里别留着刚关掉的幽灵，下次悬停才干净
             try? await Task.sleep(nanoseconds: 200_000_000)
-            guard self.token == myToken else { return }
             await self.engine.refresh(minInterval: 0, pids: [pid])
-            guard self.token == myToken else { return }
+            guard self.token == myToken, self.currentPID == pid else { return }
+            guard !ok else { return }
+            // 没关掉：把卡片放回来（引擎刚重枚举过，状态是新的）
             self.reload()
-            // 窗口服务器里还在，才叫真的没关掉。有些"窗口"只是枚举阶段的
-            // 幽灵表面（微信挂在屏幕外的主界面就属这类），点它当然没反应，
-            // 但对用户来说那个"窗口"本来就不存在，不该报错吓人。
-            guard !ok, self.currentPID == pid,
-                  WindowBridge.windowExists(pid: pid, frame: target.frame) else { return }
+            // 窗口服务器里还在，才叫真的没关掉
+            guard WindowBridge.windowExists(pid: pid, frame: target.frame) else { return }
             self.model.hint = "没能关掉这个窗口（App 没有响应关闭请求）"
             TTLog("close failed idx=\(index) title=\"\(target.title)\"")
         }
+    }
+
+    /// 摘掉第 `index` 张卡片并把后面的卡片重新编号。
+    /// 下标是命中测试的 key，删完必须连续，不然指针会指错卡。
+    private func removeItem(at index: Int) {
+        guard model.items.indices.contains(index) else { return }
+        currentWindows.remove(at: index)
+        model.items.remove(at: index)
+        for i in index..<model.items.count {
+            let old = model.items[i]
+            model.items[i] = PreviewItem(id: old.id, index: i, title: old.title,
+                                         frame: old.frame, isMinimized: old.isMinimized,
+                                         image: old.image)
+        }
+        // 下标整体左移，旧的悬停/按压态全部作废；鼠标轮询会立刻重建悬停
+        model.hovered = nil
+        model.pressed = nil
+        model.confirmed = nil
     }
 
     /// 用上次的现场重新枚举并刷新卡片

@@ -260,8 +260,18 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         }
     }
 
-    /// 从待选池里取出与 AX 窗口对应的那个 SC 窗口：几何完全一致优先，其次标题一致。
-    /// 取走即从池里移除，避免同名同尺寸的多个窗口全指向同一条。
+    /// 从待选池里取出与 AX 窗口对应的那个 SC 窗口。
+    ///
+    /// **标题证据优先于几何**：Chrome 多窗口的常态是所有窗口几何完全相同
+    ///（`0,33 1470×841` × N），此时几何毫无区分力，只能靠池内顺序（z 序）盲配。
+    /// 而 AX 列表顺序与 CG z 序在 Chrome 激活窗口的异步重排期经常不一致
+    ///（枚举时三份快照各取一时点），盲配就会把 B 窗口的 CG 编号安到 A 卡片上 ——
+    /// 表现即"点 A 跳 B、来回跳"：缩略图像素和定位锚点都指错了窗口。
+    ///
+    /// 打分（从高到低）：标题精确+几何一致 > 标题宽松+几何一致 > 标题精确 >
+    /// 标题宽松 > 无标题证据+几何一致 > 无标题证据 > 标题明确不同+几何一致 > 其余。
+    /// 标题明确不同的候选排最后 —— 宁可让它落空走幻影检查，也不要把错窗口的
+    /// 编号安上去。取走即从池里移除，避免同名同尺寸的多个窗口全指向同一条。
     private static func takeMatch(from pool: inout [SCWindow], ax: AXWindow) -> SCWindow? {
         func sameFrame(_ win: SCWindow) -> Bool {
             abs(win.frame.minX - ax.frame.minX) <= 2
@@ -269,11 +279,31 @@ final class ScreenCaptureEngine: @unchecked Sendable {
                 && abs(win.frame.width - ax.frame.width) <= 2
                 && abs(win.frame.height - ax.frame.height) <= 2
         }
-        var index = pool.firstIndex(where: sameFrame)
-        if index == nil, !ax.title.isEmpty {
-            index = pool.firstIndex { ($0.title ?? "").isEmpty == false && ($0.title ?? "") == ax.title }
+        /// 3=精确一致，2=宽松一致（CG 侧标题常被截断，如"新标签页" vs
+        /// "新标签页 - Google Chrome"），1=有一边没标题、帮不上忙，0=标题明确不同
+        func titleScore(_ win: SCWindow) -> Int {
+            let st = win.title ?? ""
+            guard !st.isEmpty, !ax.title.isEmpty else { return 1 }
+            if st == ax.title { return 3 }
+            if st.hasPrefix(ax.title) || ax.title.hasPrefix(st)
+                || st.contains(ax.title) || ax.title.contains(st) { return 2 }
+            return 0
         }
-        guard let index else { return nil }
+        func rank(_ win: SCWindow) -> Int {
+            switch (titleScore(win), sameFrame(win)) {
+            case (3, true):  return 7
+            case (2, true):  return 6
+            case (3, false): return 5
+            case (2, false): return 4
+            case (1, true):  return 3
+            case (1, false): return 2
+            case (_, true):  return 1   // 标题对不上但几何一致：弱证据
+            default:         return 0
+            }
+        }
+        guard let index = pool.indices.max(by: { rank(pool[$0]) < rank(pool[$1]) }) else { return nil }
+        // 只剩"标题明确不同"的候选时视为配不上，交给上层的座位/幻影检查处理
+        guard rank(pool[index]) > 1 else { return nil }
         return pool.remove(at: index)
     }
 

@@ -82,8 +82,16 @@ struct SettingsView: View {
 
     private var barSection: some View {
         Section("悬浮条") {
+            Toggle("刘海区触发调度中心", isOn: $prefs.notchMissionControl)
+                .toggleStyle(.switch)
+
+            Text("开启后 TopTab 悬浮条与窗口预览全部停用：鼠标移到屏幕顶部中央（刘海下方）自动触发一次调度中心（等效 Ctrl+↑），用调度中心切换窗口。菜单栏图标保留，点它 →「设置…」可关掉。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Toggle("启用悬浮条", isOn: $prefs.barEnabled)
                 .toggleStyle(.switch)
+                .disabled(prefs.notchMissionControl)
 
             Toggle("窗口预览", isOn: $prefs.previewEnabled)
                 .toggleStyle(.switch)

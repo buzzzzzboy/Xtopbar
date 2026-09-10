@@ -92,8 +92,9 @@ final class TabBarController: TabBarHost {
         preview.onSelectWindow = { [weak self] pid, win in
             // AX 配对可能阻塞到 0.25s 超时，挪到后台线程，别卡住鼠标
             Task.detached(priority: .userInitiated) {
+                // cgID = 卡片缩略图像素的来源窗口，是唯一不会错位的锚点
                 WindowBridge.focusWindow(pid: pid, axIndex: win.axIndex,
-                                         frame: win.frame, title: win.title)
+                                         frame: win.frame, title: win.title, cgID: win.id)
             }
             self?.hidePreview()
         }
@@ -119,6 +120,23 @@ final class TabBarController: TabBarHost {
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.applyBarEnabled() }
+            .store(in: &cancellables)
+
+        // 刘海调度中心模式开关：开了立刻收掉悬浮条与预览，关了立刻恢复
+        prefs.$notchMissionControl
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] on in
+                guard let self else { return }
+                if on {
+                    self.hidePreview()
+                    self.hide()
+                    self.catalog.pointerOverBar = false
+                    self.panel.orderOut(nil)
+                } else {
+                    self.applyBarEnabled()
+                }
+            }
             .store(in: &cancellables)
 
         prefs.$hideDelay
@@ -180,7 +198,7 @@ final class TabBarController: TabBarHost {
 
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
     func applyBarEnabled() {
-        guard prefs.barEnabled else {
+        guard prefs.barEnabled, !prefs.notchMissionControl else {
             hidePreview()
             hide()
             catalog.pointerOverBar = false
@@ -211,7 +229,7 @@ final class TabBarController: TabBarHost {
     }
 
     private func reveal() {
-        guard !isRevealed, prefs.barEnabled else { return }
+        guard !isRevealed, prefs.barEnabled, !prefs.notchMissionControl else { return }
         isRevealed = true
         lastInteraction = Date()
         relayout()
@@ -225,15 +243,15 @@ final class TabBarController: TabBarHost {
             return
         }
 
-        // 淡入 + 从上方 10pt 滑下。窗口内容跟着 frame 走（autoresizingMask），
-        // 整条标签像"落下来"一样，比原来单纯变透明度自然。
+        // 快速淡入 + 从上方滑落（旧版式的加速版）。起始必须全透明：
+        // 首帧布局/玻璃重采样会闪一下，透明度 0 时看不见，alpha=1 会闪烁。
         let target = panel.frame
         var start = target
-        start.origin.y += 10
+        start.origin.y += 14
         panel.alphaValue = 0
         panel.setFrame(start, display: false)
         panel.orderFrontRegardless()
-        animateWindow(to: target, alpha: idle, duration: 0.18)
+        animateWindow(to: target, alpha: idle, duration: 0.05, timing: .easeOut)
         warmup()
     }
 
@@ -269,10 +287,10 @@ final class TabBarController: TabBarHost {
             return
         }
 
-        // 反向滑回上方 + 淡出
+        // 反向滑回上方 + 淡出（和呼出同级别的快，0.07s）
         var end = panel.frame
         end.origin.y += 8
-        animateWindow(to: end, alpha: 0, duration: 0.13) { [weak self] in
+        animateWindow(to: end, alpha: 0, duration: 0.07) { [weak self] in
             guard let self, !self.isRevealed else { return }
             // 先离场再复位透明度，避免 orderOut 之前那一帧闪出全不透明的面板
             self.panel.orderOut(nil)
@@ -291,10 +309,11 @@ final class TabBarController: TabBarHost {
     private func animateWindow(to frame: NSRect,
                                alpha: CGFloat,
                                duration: TimeInterval,
+                               timing: CAMediaTimingFunctionName = .easeOut,
                                completion: (() -> Void)? = nil) {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = duration
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            ctx.timingFunction = CAMediaTimingFunction(name: timing)
             panel.animator().setFrame(frame, display: true)
             panel.animator().alphaValue = alpha
         } completionHandler: { completion?() }
@@ -307,7 +326,12 @@ final class TabBarController: TabBarHost {
         let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
         let height = menuBarHeight + 5
-        let width = min(max(panel.frame.width, 380), screen.frame.width * 0.9)
+        // 刘海模式：热区收窄到约 4 个菜单栏图标的宽度（~120pt）并正对屏幕居中，
+        // 鼠标去点刘海两侧的菜单栏图标时不会误触发调度中心。
+        // 悬浮条模式维持宽唤醒区不变（那是它的正常唤出手势）。
+        let width = prefs.notchMissionControl
+            ? CGFloat(120)
+            : min(max(panel.frame.width, 380), screen.frame.width * 0.9)
         // 上边界故意越过屏幕顶部 2pt：鼠标贴到最上面时 y 正好等于 maxY，
         // 而 NSRect.contains 是半开区间，不越过就会漏判。
         return NSRect(x: screen.frame.midX - width / 2,
@@ -325,6 +349,18 @@ final class TabBarController: TabBarHost {
     }
 
     private func tick() {
+        // 刘海调度中心模式：悬浮条 / 预览整个停用，只盯顶部中央区域
+        if prefs.notchMissionControl {
+            if isRevealed || panel.isVisible {
+                hidePreview()
+                hide()
+                catalog.pointerOverBar = false
+                panel.orderOut(nil)
+            }
+            watchNotchZone(mouse: NSEvent.mouseLocation)
+            return
+        }
+
         guard prefs.barEnabled else {
             if isRevealed { hide() }
             return
@@ -389,6 +425,61 @@ final class TabBarController: TabBarHost {
         // 面板常驻时窗口集合会变（新开/关闭窗口），定期刷新快照 + 补热缓存
         if prefs.previewEnabled, now.timeIntervalSince(lastWarmup) > 3.0 {
             warmup()
+        }
+    }
+
+    // MARK: - 刘海调度中心模式
+
+    /// 进入热点区触发一次调度中心；离开区域并停顿 0.3s 后才重新武装，
+    /// 避免指针在边缘抖动时连环触发。另外加了 1.5s 的最小触发间隔：
+    /// 调度中心的出入场动画期间 `NSEvent.mouseLocation` 会瞬时漂移，
+    /// 没有这道保险会出现「开-关-开」的连环误触发。
+    private var notchArmed = true
+    private var notchLeftSince: Date?
+    private var notchLastFired = Date.distantPast
+    /// 上一帧是否在热区内（仅用于打进出日志）
+    private var notchWasInZone = false
+
+    private func watchNotchZone(mouse: NSPoint) {
+        let inZone = hotZone.contains(mouse)
+        if inZone != notchWasInZone {
+            notchWasInZone = inZone
+            TTLog("notch 热区\(inZone ? "进入" : "离开") (\(Int(mouse.x)),\(Int(mouse.y)))")
+        }
+        // 硬冷却期：触发后 3 秒内完全无视热区。调度中心出入场动画会让
+        // mouseLocation 瞬时漂移穿过顶部热区，没有这道冷却会「开-关-开」
+        // 连环误触发（键码 160 是开关式的，第二发就把 MC 又关了）。
+        guard Date().timeIntervalSince(notchLastFired) >= 3.0 else { return }
+        if inZone {
+            notchLeftSince = nil
+            guard notchArmed else { return }
+            notchArmed = false
+            notchLastFired = Date()
+            TTLog("notch → 调度中心")
+            // 触发后把指针挪到当前屏幕中央：不留在刘海热区里（不挡菜单栏、
+            // 不会因为指针残留造成再次误触发），调度中心展开后指针也正好落在窗口群里
+            let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+            let height = NSScreen.screens.map(\.frame.maxY).max() ?? screen.frame.height
+            // 落点偏上：屏幕高度 1/3 处（正中央用户觉得太居中、不适应）
+            let center = CGPoint(x: screen.frame.midX, y: height * 0.33)
+            Task.detached(priority: .userInitiated) {
+                // 顺序很关键：必须**先**把指针甩离屏幕顶缘、再发键码 160。
+                // 调度中心在指针位于顶缘时会强制唤出顶部「桌面切换条」，
+                // 先触发后移鼠标就来不及了——条已经弹出来了。
+                // 中间停 120ms 让系统消化 warp，触发后再归中一次兜底。
+                WindowBridge.warpMouse(to: center)
+                usleep(120_000)
+                WindowBridge.postMissionControl()
+                WindowBridge.warpMouse(to: center)
+            }
+        } else {
+            guard !notchArmed else { return }
+            let left = notchLeftSince ?? Date()
+            if notchLeftSince == nil { notchLeftSince = left }
+            if Date().timeIntervalSince(left) > 0.3 {
+                notchArmed = true
+                notchLeftSince = nil
+            }
         }
     }
 

@@ -59,6 +59,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             title: prefs.barEnabled ? "隐藏悬浮条" : "显示悬浮条",
             action: #selector(toggleBar))
 
+        add(to: menu, title: "刘海区触发调度中心",
+            action: #selector(toggleNotchMissionControl),
+            state: prefs.notchMissionControl)
+
         add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
 
         menu.addItem(.separator())
@@ -123,6 +127,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleBar() {
         prefs.barEnabled.toggle()
         controller?.applyBarEnabled()
+    }
+
+    @objc private func toggleNotchMissionControl() {
+        prefs.notchMissionControl.toggle()
+        // 开/关的即时生效逻辑在 TabBarController 的偏好订阅里
     }
 
     @objc private func openSettings() {

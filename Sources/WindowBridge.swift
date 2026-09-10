@@ -18,6 +18,33 @@ enum WindowBridge {
         NSWorkspace.shared.open(url)
     }
 
+    /// 触发**调度中心**：合成键码 **160**（macOS 给调度中心专用键发的独立键码）。
+    ///
+    /// 用事件监听抓过真实 F3 键的包：硬件 F3 发的就是 keycode 160 的
+    /// keyDown/keyUp，不是媒体键事件，也不是普通 F3 键码（99）——
+    /// 后两者 Dock 一律不理。合成 160 与原生 F3 行为完全一致（A/B 截图比对过）。
+    ///
+    /// 需要「辅助功能」权限（发合成键盘事件的常规要求）。调用方放后台线程。
+    static func postMissionControl() {
+        // 注意 source 用 nil（默认合并会话态）—— 实测 hidSystemState 源发的
+        // 事件 Dock 不认，nil 的才生效
+        let down = CGEvent(keyboardEventSource: nil, virtualKey: 160, keyDown: true)
+        down?.post(tap: .cghidEventTap)
+        usleep(50_000)
+        let up = CGEvent(keyboardEventSource: nil, virtualKey: 160, keyDown: false)
+        up?.post(tap: .cghidEventTap)
+    }
+
+    /// 把指针瞬移到 `point`（CG 屏幕坐标，左上原点），并补一个 mouseMoved
+    /// 让系统立即刷新光标状态。
+    static func warpMouse(to point: CGPoint) {
+        CGWarpMouseCursorPosition(point)
+        if let ev = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                            mouseCursorPosition: point, mouseButton: .left) {
+            ev.post(tap: .cghidEventTap)
+        }
+    }
+
     // MARK: - AX 并发闸门
 
     /// Chromium / Electron / Qt 系被**并发**询问 `kAXWindowsAttribute` 时会返回
@@ -65,18 +92,18 @@ enum WindowBridge {
 
     /// 聚焦某个 App 的指定窗口。
     ///
-    /// 优先用枚举阶段记下的 AX 下标直接定位（最快也最准）；
-    /// 下标失效（期间开了 / 关了窗口）就用**标题 + 几何**重新配对。
-    static func focusWindow(pid: pid_t, axIndex: Int?, frame: CGRect, title: String) {
+    /// 定位优先级：**CG 窗口编号**（预览缩略图的像素来源，绝无歧义）→
+    /// 枚举阶段记下的 AX 下标 → 标题 + 几何重新配对。
+    static func focusWindow(pid: pid_t, axIndex: Int?, frame: CGRect, title: String, cgID: UInt32? = nil) {
         guard isTrusted else {
             activateApp(pid)
             return
         }
         // 切窗口和预览枚举也会撞车（同一个 App），必须同走一道闸
-        axGate(for: pid) { _focusWindow(pid: pid, axIndex: axIndex, frame: frame, title: title) }
+        axGate(for: pid) { _focusWindow(pid: pid, axIndex: axIndex, frame: frame, title: title, cgID: cgID) }
     }
 
-    private static func _focusWindow(pid: pid_t, axIndex: Int?, frame: CGRect, title: String) {
+    private static func _focusWindow(pid: pid_t, axIndex: Int?, frame: CGRect, title: String, cgID: UInt32?) {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.25)
 
@@ -86,38 +113,109 @@ enum WindowBridge {
             return
         }
 
-        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-
-        var target: AXUIElement?
-        if let axIndex, windows.indices.contains(axIndex) {
-            let candidate = windows[axIndex]
-            // 下标可能已经错位，标题对不上就重新配对
-            if title.isEmpty || candidate.title.isEmpty || candidate.title == title
-                || candidate.title.contains(title) {
-                target = candidate.element
-            }
-        }
-        if target == nil {
-            target = bestMatch(in: windows, frame: frame, title: title)
-        }
-        guard let target else {
+        guard let target = locateTarget(pid: pid, app: app, axIndex: axIndex,
+                                        frame: frame, title: title, cgID: cgID) else {
             TTLog("focus ax=\(String(describing: axIndex)) → 无匹配，只激活 App")
             activateApp(pid)
             return
         }
 
-        TTLog("focus ax=\(String(describing: axIndex)) title=\"\(title)\" "
-              + "all=\(windows.map(\.title))")
+        TTLog("focus cgID=\(String(describing: cgID)) ax=\(String(describing: axIndex)) title=\"\(title)\"")
 
-        // 最小化的窗口先恢复，否则 raise 无效
         AXUIElementSetAttributeValue(target, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-        // 顺序：先把目标窗口设成 main / focused，再让它所属的 App 到前台。
-        // 反过来的话 Chromium / Electron 系（微信、抖店工作台）会把 App 拉到前台
-        // 但保留它自己认定的 main window —— 看起来就是"点哪个都回到第一个窗口"。
+        // ── 提窗流程（隔离实验 foc5/foc6/foc7 定稿）──
+        // Chromium（Chrome 多窗）的激活是**异步**的：激活过程中它会把「自己认定的
+        // 上个主窗口」重排到顶，紧跟其后的 AXRaise 会被这次重排冲掉——表现就是
+        // "点哪个预览都回到上一个窗口"。纯 AXRaise 本身 100% 准（后台实测 4/4），
+        // 所以顺序必须是：main/focused 前置（Electron 系需要）→ 激活 → 等重排稳定
+        // → 纯 raise → 用**窗口服务器层级**做地面真值验证，不对就重发（最多 3 次）。
+        // 注意不能用 AX 的 main window 汇报做验证——Chrome 会接受 main 写入但屏幕不真切。
         AXUIElementSetAttributeValue(target, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(target, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-        AXUIElementPerformAction(target, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        usleep(350_000)   // 等激活引发的窗口重排落地，raise 必须排在它后面
+
+        var attempts = 0
+        while attempts < 3 {
+            // 每次都用最新列表重新定位（窗口重排后旧元素的映射可能失效）
+            let fresh = locateTarget(pid: pid, app: app, axIndex: axIndex,
+                                     frame: frame, title: title, cgID: cgID)
+            AXUIElementPerformAction(fresh ?? target, kAXRaiseAction as CFString)
+            attempts += 1
+            usleep(300_000)
+            if title.isEmpty || cgFrontMatches(pid: pid, frame: frame, title: title) { break }
+        }
+        if attempts > 1 { TTLog("focus 重发 raise \(attempts) 次") }
+    }
+
+    /// 按 **CG 编号位置配对 → AX 下标 → 标题几何** 的顺序在最新窗口列表里定位目标元素
+    private static func locateTarget(pid: pid_t, app: AXUIElement, axIndex: Int?,
+                                     frame: CGRect, title: String, cgID: UInt32?) -> AXUIElement? {
+        let windows = axWindows(app)
+        guard !windows.isEmpty else { return nil }
+        // 首选：CG 窗口编号定位。CG 列表与 AX 列表都按前→后排序且成员一致
+        //（实测连 Chrome 的底部状态气泡都按相同顺序出现在两边），按位置一一对应。
+        // 预览缩略图像素就是从这个 CG 编号抓的，所以这是唯一不会错位的锚点。
+        if let cgID, cgID < 0xF000_0000 {   // >= 0xF000_0000 是 AX 独有窗口的合成 ID
+            let cg = cgWindowIDs(pid: pid)
+            if let pos = cg.firstIndex(of: cgID), cg.count == windows.count,
+               windows.indices.contains(pos) {
+                let c = windows[pos]
+                if title.isEmpty || c.title.isEmpty || c.title == title
+                    || c.title.contains(title) || title.hasPrefix(c.title) {
+                    return c.element
+                }
+            }
+        }
+        if let axIndex, windows.indices.contains(axIndex) {
+            let c = windows[axIndex]
+            // 下标可能已经错位，标题对不上就重新配对
+            if title.isEmpty || c.title.isEmpty || c.title == title || c.title.contains(title) {
+                return c.element
+            }
+        }
+        return bestMatch(in: windows, frame: frame, title: title)
+    }
+
+    /// pid 的 layer-0 窗口编号，前→后（含小表面，成员与 AX 窗口列表对齐）
+    private static func cgWindowIDs(pid: pid_t) -> [UInt32] {
+        let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else { return [] }
+        var out: [UInt32] = []
+        for w in list {
+            guard (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                  (w[kCGWindowLayer as String] as? Int) == 0,
+                  let id = w[kCGWindowNumber as String] as? UInt32 else { continue }
+            out.append(id)
+        }
+        return out
+    }
+
+    /// 窗口服务器地面真值：pid 的 layer-0 最前面的「大窗口」是否就是目标窗口。
+    /// 只有 AX 汇报不可信（Chrome 会接受 main 写入但屏幕不真切），层级以 CG 为准。
+    /// kCGWindowName 需要录屏权限（TopTab 有）；名字拿不到时退回几何配对。
+    /// 返回 true 表示"已就位 / 无法判断"，只有确凿不匹配才返回 false 触发重试。
+    private static func cgFrontMatches(pid: pid_t, frame: CGRect, title: String) -> Bool {
+        let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else { return true }
+        for w in list {
+            guard let owner = (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, owner == pid,
+                  (w[kCGWindowLayer as String] as? Int) == 0 else { continue }
+            guard let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let wd = (b["Width"] as? NSNumber)?.doubleValue,
+                  let ht = (b["Height"] as? NSNumber)?.doubleValue else { continue }
+            guard wd > 200, ht > 100 else { continue }   // 跳过状态气泡 / tooltip 等小表面
+            if let name = w[kCGWindowName as String] as? String, !name.isEmpty {
+                // CG 的窗口名是截断版（"哔哩哔哩…" vs AX 全名"哔哩哔哩… - Google Chrome"）
+                return title.hasPrefix(name) || name.hasPrefix(title) || title.contains(name)
+            }
+            guard let x = (b["X"] as? NSNumber)?.doubleValue,
+                  let y = (b["Y"] as? NSNumber)?.doubleValue else { return true }
+            let cb = CGRect(x: x, y: y, width: wd, height: ht)
+            return abs(cb.minX - frame.minX) < 8 && abs(cb.minY - frame.minY) < 8
+                && abs(cb.width - frame.width) < 8 && abs(cb.height - frame.height) < 8
+        }
+        return true
     }
 
     /// 按前台→后台顺序取窗口标题，用于窗口服务器拿不到标题时兜底
