@@ -1,0 +1,6 @@
+# 构建产物
+TopTab.app/
+build/
+.build/
+*.o
+.DS_Store
