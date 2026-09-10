@@ -18,33 +18,6 @@ enum WindowBridge {
         NSWorkspace.shared.open(url)
     }
 
-    /// 触发**调度中心**：合成键码 **160**（macOS 给调度中心专用键发的独立键码）。
-    ///
-    /// 用事件监听抓过真实 F3 键的包：硬件 F3 发的就是 keycode 160 的
-    /// keyDown/keyUp，不是媒体键事件，也不是普通 F3 键码（99）——
-    /// 后两者 Dock 一律不理。合成 160 与原生 F3 行为完全一致（A/B 截图比对过）。
-    ///
-    /// 需要「辅助功能」权限（发合成键盘事件的常规要求）。调用方放后台线程。
-    static func postMissionControl() {
-        // 注意 source 用 nil（默认合并会话态）—— 实测 hidSystemState 源发的
-        // 事件 Dock 不认，nil 的才生效
-        let down = CGEvent(keyboardEventSource: nil, virtualKey: 160, keyDown: true)
-        down?.post(tap: .cghidEventTap)
-        usleep(50_000)
-        let up = CGEvent(keyboardEventSource: nil, virtualKey: 160, keyDown: false)
-        up?.post(tap: .cghidEventTap)
-    }
-
-    /// 把指针瞬移到 `point`（CG 屏幕坐标，左上原点），并补一个 mouseMoved
-    /// 让系统立即刷新光标状态。
-    static func warpMouse(to point: CGPoint) {
-        CGWarpMouseCursorPosition(point)
-        if let ev = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                            mouseCursorPosition: point, mouseButton: .left) {
-            ev.post(tap: .cghidEventTap)
-        }
-    }
-
     // MARK: - AX 并发闸门
 
     /// Chromium / Electron / Qt 系被**并发**询问 `kAXWindowsAttribute` 时会返回

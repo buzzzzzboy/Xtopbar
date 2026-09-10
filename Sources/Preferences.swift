@@ -65,7 +65,6 @@ final class Preferences: ObservableObject {
         static let showStatusItem = "showStatusItem"
         static let barEnabled     = "barEnabled"
         static let animations    = "animationsEnabled"
-        static let notchMissionControl = "notchMissionControl"
     }
 
     private let d = UserDefaults.standard
@@ -110,12 +109,6 @@ final class Preferences: ObservableObject {
         didSet { d.set(animationsEnabled, forKey: Key.animations) }
     }
 
-    /// 刘海调度中心模式：TopTab 悬浮条 / 预览全部停用，
-    /// 鼠标移到屏幕顶部中央（刘海下方）自动触发一次调度中心。
-    @Published var notchMissionControl: Bool = false {
-        didSet { d.set(notchMissionControl, forKey: Key.notchMissionControl) }
-    }
-
     private init() {
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
@@ -125,7 +118,6 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.showStatusItem) != nil { showStatusItem = d.bool(forKey: Key.showStatusItem) }
         if d.object(forKey: Key.barEnabled) != nil { barEnabled = d.bool(forKey: Key.barEnabled) }
         if d.object(forKey: Key.animations) != nil { animationsEnabled = d.bool(forKey: Key.animations) }
-        if d.object(forKey: Key.notchMissionControl) != nil { notchMissionControl = d.bool(forKey: Key.notchMissionControl) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }

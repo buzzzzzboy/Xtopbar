@@ -17,6 +17,14 @@ struct BarContentWidthKey: PreferenceKey {
     }
 }
 
+/// 可视区宽度上报（判断内容是否溢出、要不要画边缘渐隐）
+struct BarViewportWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// 单个 App 标签（纯视觉，点击由窗口层命中测试处理）
 struct AppTab: View {
     let entry: AppEntry
@@ -92,51 +100,44 @@ struct AppTab: View {
 
 /// 顶栏本体
 struct TabBarView: View {
-    static let space = "toptab.bar"
+    /// 命中区域上报坐标系：直接上报**窗口坐标**（原点上左）。
+    /// 不能用内容坐标系：标签多到横向滚动时，内容坐标系里卡片会跟着滚，
+    /// 窗口层的命中区域却停在原地 —— 滚过之后再点边角就切错 App。
+    /// 窗口坐标则天然随滚动更新（GeometryReader 每帧重报）。
+    static let space = "toptab.window"
 
     @ObservedObject var catalog: AppCatalog
     @ObservedObject var prefs: Preferences
     let onHoverChange: (Bool) -> Void
 
+    /// 内容比面板宽：两端加渐隐，暗示"这里还能滚"
+    @State private var overflowing = false
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
-                    if index > 0 { divider }
-                    ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
-                        if i > 0 { divider }
-                        AppTab(entry: entry,
-                               isActive: catalog.pointerOverBar && entry.pid == catalog.activePID,
-                               animated: prefs.animationsEnabled,
-                               barHovered: catalog.pointerOverBar) { hovering in
-                            if hovering {
-                                catalog.onTabHover?(entry)
-                            } else {
-                                catalog.onTabHoverEnd?()
-                            }
-                        }
-                        .padding(.horizontal, 1)
-                    }
-                }
-            }
-            // 12pt：标签自身有 9pt 内边距，最右那个被高亮时底色会一直铺到标签边缘，
-            // 8pt 的容器内边距看起来就"贴边"了；12pt 让左右留白在视觉上等宽。
-            .padding(.horizontal, 12)
-            .coordinateSpace(name: TabBarView.space)
-            .onPreferenceChange(TabFramesKey.self) { frames in
-                catalog.tabFrames = frames
-            }
-            // 实测内容宽度：比手算的字符宽度准，左右内边距才能真正对称
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: BarContentWidthKey.self, value: geo.size.width)
-                }
-            )
-            .onPreferenceChange(BarContentWidthKey.self) { width in
-                catalog.reportContentWidth(width)
-            }
+            content
         }
         .frame(width: catalog.barWidth, height: 42)
+        // 溢出时两端渐隐。顺序很关键：fade 打在滚动内容上并立刻
+        // compositingGroup 合成一张图，**之后**才垫玻璃 background ——
+        // destinationOut 只咬掉内容，玻璃完好；玻璃反过来垫在前面会被咬穿。
+        .overlay {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [Color.black, .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 22)
+                Spacer(minLength: 0)
+                LinearGradient(colors: [.clear, Color.black],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 22)
+            }
+            .opacity(overflowing ? 1 : 0)
+            .blendMode(.destinationOut)
+            // 纯视觉层，绝不能拦点击 —— 它盖在两端标签上，
+            // 默认命中测试会把溢出时首尾标签的点击吞掉
+            .allowsHitTesting(false)
+        }
+        .compositingGroup()
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: 16))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
@@ -149,6 +150,57 @@ struct TabBarView: View {
             onHoverChange(inside)
         }
         .contextMenu { menu }
+        // 命中区域坐标系：命名在面板尺寸的外层视图上，AppTab 上报的就是
+        // 窗口坐标（原点上左），随滚动实时有效，见文件头注释
+        .coordinateSpace(name: TabBarView.space)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: BarViewportWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(BarViewportWidthKey.self) { width in
+            let next = width > 1 && catalog.contentWidth > width + 1
+            if next != overflowing {
+                withAnimation(.easeOut(duration: 0.15)) { overflowing = next }
+            }
+        }
+        .onPreferenceChange(TabFramesKey.self) { frames in
+            catalog.tabFrames = frames
+        }
+    }
+
+    private var content: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
+                if index > 0 { divider }
+                ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
+                    if i > 0 { divider }
+                    AppTab(entry: entry,
+                           isActive: catalog.pointerOverBar && entry.pid == catalog.activePID,
+                           animated: prefs.animationsEnabled,
+                           barHovered: catalog.pointerOverBar) { hovering in
+                        if hovering {
+                            catalog.onTabHover?(entry)
+                        } else {
+                            catalog.onTabHoverEnd?()
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                }
+            }
+        }
+        // 12pt：标签自身有 9pt 内边距，最右那个被高亮时底色会一直铺到标签边缘，
+        // 8pt 的容器内边距看起来就"贴边"了；12pt 让左右留白在视觉上等宽。
+        .padding(.horizontal, 12)
+        // 实测内容宽度：比手算的字符宽度准，左右内边距才能真正对称
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: BarContentWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(BarContentWidthKey.self) { width in
+            catalog.reportContentWidth(width)
+        }
     }
 
     /// 每两个标签之间都画同一条深线。
@@ -158,8 +210,8 @@ struct TabBarView: View {
     /// 看起来像坏了。统一成一种线更整齐，也不会误导用户以为它在表达语义。
     private var divider: some View {
         Rectangle()
-            .fill(Color.primary.opacity(0.22))
-            .frame(width: 1, height: 18)
+            .fill(Color.primary.opacity(0.14))
+            .frame(width: 1, height: 16)
             .padding(.horizontal, 6)
     }
 
