@@ -306,7 +306,7 @@ final class TabBarController: TabBarHost {
 
     /// 顶部中央的唤醒区（菜单栏高度），鼠标顶上来就显示。
     ///
-    /// 宽度固定 120pt（约 4 个状态栏图标）居中，**不跟面板宽度走**：
+    /// 宽度可在设置里调（默认 120pt ≈ 4 个状态栏图标），**不跟面板宽度走**：
     /// 之前按 `max(面板宽, 380)` 算，App 一多或外接屏缩放比例不同时，
     /// 唤醒区会横向铺满大半个菜单栏，鼠标去点右上角状态图标就误唤醒，
     /// 干扰正常点击。唤醒只需要顶部中间一小块，面板出来后由面板区域
@@ -315,7 +315,7 @@ final class TabBarController: TabBarHost {
         let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
         let height = menuBarHeight + 5
-        let width: CGFloat = 120
+        let width = CGFloat(prefs.hotZoneWidth)
         // 上边界故意越过屏幕顶部 2pt：鼠标贴到最上面时 y 正好等于 maxY，
         // 而 NSRect.contains 是半开区间，不越过就会漏判。
         return NSRect(x: screen.frame.midX - width / 2,

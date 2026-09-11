@@ -65,6 +65,7 @@ final class Preferences: ObservableObject {
         static let showStatusItem = "showStatusItem"
         static let barEnabled     = "barEnabled"
         static let animations    = "animationsEnabled"
+        static let hotZoneWidth  = "hotZoneWidth"
     }
 
     private let d = UserDefaults.standard
@@ -109,6 +110,12 @@ final class Preferences: ObservableObject {
         didSet { d.set(animationsEnabled, forKey: Key.animations) }
     }
 
+    /// 唤醒热区宽度（pt，屏幕顶部居中）。默认 120 ≈ 4 个状态栏图标；
+    /// 外接屏上嫌误触可调小，嫌难唤出可调大。
+    @Published var hotZoneWidth: Double = 120 {
+        didSet { d.set(hotZoneWidth, forKey: Key.hotZoneWidth) }
+    }
+
     private init() {
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
@@ -118,6 +125,7 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.showStatusItem) != nil { showStatusItem = d.bool(forKey: Key.showStatusItem) }
         if d.object(forKey: Key.barEnabled) != nil { barEnabled = d.bool(forKey: Key.barEnabled) }
         if d.object(forKey: Key.animations) != nil { animationsEnabled = d.bool(forKey: Key.animations) }
+        if d.object(forKey: Key.hotZoneWidth) != nil { hotZoneWidth = d.double(forKey: Key.hotZoneWidth) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }

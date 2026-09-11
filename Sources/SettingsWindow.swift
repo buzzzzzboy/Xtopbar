@@ -28,7 +28,7 @@ final class SettingsWindowController {
 
         let view = SettingsView(prefs: Preferences.shared)
         let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: 560, height: 620)
+        hosting.frame = NSRect(x: 0, y: 0, width: 560, height: 680)
 
         let window = NSWindow(
             contentRect: hosting.frame,
@@ -58,7 +58,7 @@ struct SettingsView: View {
             aboutSection
         }
         .formStyle(.grouped)
-        .frame(minWidth: 520, idealWidth: 560, minHeight: 640, idealHeight: 700)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 700, idealHeight: 760)
         // 1 秒一拍：授权是纯外部行为，没有通知可听，只能轮询刷新状态图标
         .onReceive(ticker) { _ in captureTick &+= 1 }
     }
@@ -84,6 +84,19 @@ struct SettingsView: View {
         Section("悬浮条") {
             Toggle("启用悬浮条", isOn: $prefs.barEnabled)
                 .toggleStyle(.switch)
+
+            HStack {
+                Text("唤醒热区宽度")
+                Slider(value: $prefs.hotZoneWidth, in: 60...400, step: 10)
+                Text("\(Int(prefs.hotZoneWidth)) pt")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, alignment: .trailing)
+            }
+
+            Text("鼠标顶到屏幕顶部中央多宽的范围会唤出悬浮条（居中对齐）。默认 120 pt ≈ 4 个状态栏图标；外接屏上误触频繁可调小，难唤出可调大。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
 
             Toggle("窗口预览", isOn: $prefs.previewEnabled)
                 .toggleStyle(.switch)
