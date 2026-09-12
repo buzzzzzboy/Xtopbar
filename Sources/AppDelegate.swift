@@ -55,6 +55,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // 调试用：`--test-quickswitch` 模拟"⌘Tab 呼出 → 选完"，
+        // 验证条是不是当场消失、以及会不会被顶部唤出区立刻拉回来
+        if CommandLine.arguments.contains("--test-quickswitch") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                controller.diagnoseQuickSwitch()
+            }
+        }
+
         // 在线更新：启动 3 秒后静默看一眼 GitHub Releases（不需要任何自建服务器）。
         // 没有新版本就什么都不做，有新版本才弹窗。
         if CommandLine.arguments.contains("--update-install") {

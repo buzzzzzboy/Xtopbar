@@ -16,6 +16,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# ⚠️ 本脚本开了 set -u，而 bash 会把紧跟变量名的**全角字符**当成变量名的一部分：
+#    "$VERSION（tag" 会被解析成变量 VERSION（tag → "unbound variable" 直接中断，
+#    而且是在写完版本号、还没构建的时候断掉，留下的状态很难看。
+#    所以变量后面接中文标点时一律写 ${VAR} 花括号形式。改脚本时注意别退回 $VAR。
+
 OWNER="lrylnx"
 REPO="TopTab"
 PLIST="Resources/Info.plist"
@@ -39,7 +44,7 @@ TITLE="${3:-TopTab $TAG}"
 CURRENT_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((CURRENT_BUILD + 1))" "$PLIST"
-echo "→ 版本 $VERSION（tag $TAG，CFBundleVersion $((CURRENT_BUILD + 1))）"
+echo "→ 版本 ${VERSION}（tag ${TAG}，CFBundleVersion $((CURRENT_BUILD + 1))）"
 
 # ── 2. 构建 ──────────────────────────────────────────────────────────────
 ./build.sh
@@ -67,7 +72,7 @@ if [ -z "$TOKEN" ]; then
 
 没有设置 GITHUB_TOKEN，跳过自动发布。手动上传方式：
   1. 打开 https://github.com/$OWNER/$REPO/releases/new
-  2. Tag 填 $TAG，标题填 $TAG
+  2. Tag 填 ${TAG}，标题填 ${TAG}
   3. 说明里写更新内容（会显示在 App 的更新弹窗里）
   4. 把 $ZIP 拖进去当附件 —— 必须是 .zip，App 要解包后替换自己
 EOF
@@ -121,7 +126,7 @@ UPLOAD_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
   "https://uploads.github.com/repos/$OWNER/$REPO/releases/$RELEASE_ID/assets?name=$(basename "$ZIP")")"
 
 if [ "$UPLOAD_STATUS" != "201" ]; then
-  echo "✗ 上传失败（HTTP $UPLOAD_STATUS）"
+  echo "✗ 上传失败（HTTP ${UPLOAD_STATUS}）"
   exit 1
 fi
 

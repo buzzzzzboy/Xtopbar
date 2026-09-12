@@ -11,6 +11,34 @@ protocol TabBarHost: AnyObject {
     func permissionSummary() -> String
     /// ⌘Tab 呼出开关打开但钩子装不上（缺辅助功能权限）
     func cmdTabInstallFailed()
+    /// ⌘Tab 手动呼出后完成了选择（点标签 / 点窗口缩略图）：条立刻消失。
+    /// 鼠标直接点标签时，点击由 AppCatalog 的命中测试消费，得回来喊一声。
+    /// 返回 true 表示确实处理了（这次是 ⌘Tab 呼出的）。
+    @discardableResult
+    func dismissQuickSwitch() -> Bool
+}
+
+/// ⌘Tab 选完之后该怎么收场。
+///
+/// 抽成纯判定是为了能离线回归 —— "顶部热区唤出的条不能被键盘逻辑收掉"这条
+/// 边界一旦写错，用户会发现鼠标顶出来的条点一下就没了。
+enum QuickSwitchDismissAction: Equatable {
+    /// 不是 ⌘Tab 呼出的：什么都不做，交给原有的"鼠标离开后 N 秒"逻辑
+    case ignore
+    /// 常驻模式（hideDelay ≤ 0）：条本来就该一直在，只摆回主屏顶部
+    case parkBack
+    /// 立刻消失，不走倒计时
+    case hideNow
+}
+
+enum QuickSwitchDismiss {
+    /// - Parameters:
+    ///   - pinnedToMouse: 这次显形是不是 ⌘Tab 钉在鼠标位置呼出的
+    ///   - hideDelay: 当前的自动隐藏延迟（≤ 0 表示常驻）
+    static func action(pinnedToMouse: Bool, hideDelay: Double) -> QuickSwitchDismissAction {
+        guard pinnedToMouse else { return .ignore }
+        return hideDelay > 0 ? .hideNow : .parkBack
+    }
 }
 
 /// 面板生命周期 + 定位 + 尺寸自适应 + 自动隐藏 + 预览调度
@@ -49,6 +77,12 @@ final class TabBarController: TabBarHost {
     /// 鼠标滑进面板后若来一次 relayout（标签增减、宽度变化），
     /// 跟着实时鼠标走会让面板"追着光标跑"。
     private var pinnedAnchor: NSPoint = .zero
+
+    /// ⌘Tab 完成选择后条是"瞬间消失"的，而瞬间消失时指针可能还停在顶部唤出区里
+    /// （⌘Tab 面板就弹在鼠标处，鼠标停在顶部中央时正好和唤出区重叠）。
+    /// 不压住的话下一帧 tick 看到 inHot 就又把条唤出来 —— 表现为"选完闪一下又回来"。
+    /// 这个标记让唤出区失效，直到指针真的离开一次。
+    private var suppressHotZoneUntilExit = false
 
     // MARK: - 预览
 
@@ -113,6 +147,10 @@ final class TabBarController: TabBarHost {
         }
 
         preview.onSelectWindow = { [weak self] pid, win in
+            // 点中某个窗口＝"这次选择完成了"。⌘Tab 会话得当场结束，
+            // 否则松开 ⌘ 会再激活一次高亮的 App，可能把刚点中的窗口顶掉。
+            self?.catalog.endKeyboardSession()
+            self?.dismissQuickSwitch()
             // AX 配对可能阻塞到 0.25s 超时，挪到后台线程，别卡住鼠标
             Task.detached(priority: .userInitiated) {
                 // cgID = 卡片缩略图像素的来源窗口，是唯一不会错位的锚点
@@ -137,7 +175,8 @@ final class TabBarController: TabBarHost {
         cmdTap.onEscape = { [weak self] in
             guard let self else { return }
             self.catalog.endKeyboardSession()
-            self.hide()
+            // ⌘Tab 呼出的条按"立刻收"走；顶部热区唤出的条仍按原延迟淡出
+            if !self.dismissQuickSwitch() { self.hide() }
         }
         prefs.$cmdTabEnabled
             .dropFirst()
@@ -315,6 +354,25 @@ final class TabBarController: TabBarHost {
         TTLog("自检：结束")
     }
 
+    /// 调试自检：`--test-quickswitch`
+    /// 走一遍真实的"⌘Tab 钉在鼠标位置呼出 → 选择完成"，看条是不是当场消失，
+    /// 以及半秒后有没有被顶部唤出区又拉回来。
+    func diagnoseQuickSwitch() {
+        TTLog("自检：模拟 ⌘Tab 呼出 → 完成选择（hideDelay=\(prefs.hideDelay)）")
+        revealAtMouse()
+        TTLog("  呼出后 isRevealed=\(isRevealed) panel.isVisible=\(panel.isVisible) "
+              + "pinnedToMouse=\(pinnedToMouse)")
+        catalog.startKeyboardSession()
+        catalog.endKeyboardSession()
+        let handled = dismissQuickSwitch()
+        TTLog("  收场 handled=\(handled) isRevealed=\(isRevealed) "
+              + "panel.isVisible=\(panel.isVisible) suppressHotZone=\(suppressHotZoneUntilExit)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            TTLog("  +0.5s isRevealed=\(self.isRevealed) panel.isVisible=\(self.panel.isVisible) "
+                  + "suppressHotZone=\(self.suppressHotZoneUntilExit) 热区=\(self.hotZone)")
+        }
+    }
+
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
     func applyBarEnabled() {
         // ⌘Tab 钩子跟着总开关走：条关了就该把快捷键还给系统。
@@ -415,11 +473,39 @@ final class TabBarController: TabBarHost {
         cmdTap.swallowEscape = false
         guard catalog.keyboardSession else { return }
         catalog.commitKeyboardSession()
-        // 提交后条按正常延迟收起；高亮复位，下次唤出不残留
-        lastInteraction = Date()
-        // 常驻模式（不自动隐藏）下条不会自己收，得主动摆回主屏顶部 ——
-        // 否则会一直钉在 ⌘Tab 弹出的那个位置（可能已经跑到副屏）
-        if prefs.hideDelay <= 0 { parkOnAnchorScreen() }
+        // ⌘Tab 呼出的条：选完立刻消失。
+        // 顶部热区唤出的条（极少见，先顶出条再按 ⌘Tab）仍按原延迟淡出，从这一刻重新计时。
+        if !dismissQuickSwitch() { lastInteraction = Date() }
+    }
+
+    /// ⌘Tab 手动呼出后完成选择的收场：条**立刻消失**，不等那个
+    /// "鼠标离开后 N 秒"的倒计时。
+    ///
+    /// 键盘呼出 + 选择是一气呵成的动作，选完条还在原地杵着会挡住刚切过去的
+    /// 窗口内容（面板就贴在鼠标位置），而且和唤出的"无动画"也不一致。
+    /// 顶部热区唤出的条不受影响 —— 那是鼠标操作，手还在条附近，按原延迟淡出。
+    ///
+    /// 返回 true 表示确实处理了（这次是 ⌘Tab 呼出的）。
+    @discardableResult
+    func dismissQuickSwitch() -> Bool {
+        switch QuickSwitchDismiss.action(pinnedToMouse: pinnedToMouse,
+                                         hideDelay: prefs.hideDelay) {
+        case .ignore:
+            return false
+        case .parkBack:
+            // 常驻模式下条不会自己收，得先把"钉在鼠标"解开再重新落位，
+            // 否则它会一直停在 ⌘Tab 弹出的那个位置（可能已经跑到副屏）。
+            // 不能走 parkOnAnchorScreen()：那个函数是给"隐藏状态下静默归位"用的，
+            // 带 !isRevealed 前置条件，常驻模式下面板正是显示状态，会被它直接挡回来。
+            pinnedToMouse = false
+            relayout()
+            return true
+        case .hideNow:
+            suppressHotZoneUntilExit = true
+            hide(animated: false)
+            TTLog("dismissQuickSwitch 立刻收起")
+            return true
+        }
     }
 
     /// ⌘Tab 呼出：面板钉在鼠标位置出现。已在显示（比如从顶部热区唤出）时，
@@ -496,7 +582,7 @@ final class TabBarController: TabBarHost {
         }
     }
 
-    private func hide() {
+    private func hide(animated: Bool = true) {
         guard isRevealed else { return }
         isRevealed = false
         pinnedToMouse = false
@@ -510,7 +596,9 @@ final class TabBarController: TabBarHost {
             cmdTap.swallowEscape = false
         }
 
-        guard prefs.animationsEnabled else {
+        // animated = false：⌘Tab 完成切换后的收场（见 dismissQuickSwitch）。
+        // 键盘动作已经结束，条该当场消失；呼出那边也是无动画的，两头一致。
+        guard animated, prefs.animationsEnabled else {
             panel.orderOut(nil)
             panel.alphaValue = 1
             parkOnAnchorScreen()
@@ -678,7 +766,12 @@ final class TabBarController: TabBarHost {
         let inPanel = isRevealed && panelZone.contains(mouse)
         let inPreview = preview.isVisible && preview.frame.insetBy(dx: -1, dy: -1).contains(mouse)
         let hot = hotZone
-        let inHot = hot.contains(mouse)
+        let inRawHot = hot.contains(mouse)
+        // ⌘Tab 选完后瞬间收起的条，不该被顶部唤出区立刻又拉出来 ——
+        // 面板就弹在鼠标处，指针停在顶部中央时两者正好重叠。
+        // 等指针离开唤出区一次再恢复。
+        if suppressHotZoneUntilExit, !inRawHot { suppressHotZoneUntilExit = false }
+        let inHot = inRawHot && !suppressHotZoneUntilExit
 
         // 蓝色高亮跟随指针。够得着的范围 = 唤醒热点区 ∪ 面板区，两者必须并集：
         // 它们之间留着几 pt 的缝，光标从菜单栏往下滑进条里时会有一瞬间

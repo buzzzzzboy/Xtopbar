@@ -200,6 +200,8 @@ final class AppCatalog: ObservableObject {
             // 结束会话避免松 ⌘ 时再提交一次高亮（可能不是点中的这个）
             if keyboardSession { endKeyboardSession() }
             activate(hit)
+            // 这次如果条是 ⌘Tab 呼出来的，选完立刻消失，不等鼠标离开的倒计时
+            host?.dismissQuickSwitch()
             return true
         }
         return false

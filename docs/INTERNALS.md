@@ -169,6 +169,15 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 
 **⌘Tab 呼出不做动效**：`beginReveal(animated:)` 传 `false`。它是高频纯键盘动作，滑落 + 淡入那 50ms 在这里只是延迟 —— 手指按下去那一刻条就该在。顶部热区唤出仍走动画（鼠标慢慢顶上来，有过程可看）。无动画路径必须**先把 frame 摆好、再设 alpha、最后 `orderFrontRegardless()`**，顺序错了会闪一帧。
 
+**选完立刻消失**：`dismissQuickSwitch()`。⌘Tab 呼出的条在完成选择那一刻（松 ⌘ 提交 / 鼠标点标签 / 点窗口缩略图 / Esc 反悔）直接收掉，不走"鼠标离开后 N 秒"那套 —— 条就贴在鼠标位置，选完还杵着会挡住刚切过去的窗口。收场同样走 `hide(animated: false)`，和呼出两头一致。
+
+判定抽在 `QuickSwitchDismiss.action(pinnedToMouse:hideDelay:)`（三值：`ignore` / `hideNow` / `parkBack`），可离线回归。两条边界必须守住：
+
+- **不是 ⌘Tab 呼出的（`pinnedToMouse == false`）→ `ignore`**。鼠标从顶部顶出来的条点标签后仍按原延迟淡出，不能被键盘逻辑收掉；
+- **常驻模式（`hideDelay ≤ 0`）→ `parkBack`**。条本来就该一直在，只摆回锚定屏顶部。
+
+还有个坑：⌘Tab 面板弹在鼠标处，指针停在屏幕顶部中央时和顶部唤出区正好重叠 —— 瞬间收起后下一帧 `tick` 看到 `inHot` 就又把条拉出来，表现为"选完闪一下又回来"。所以收起时置 `suppressHotZoneUntilExit`，等指针离开唤出区一次再恢复唤出。
+
 **6. 窗口预览** — 悬停 0.12s 防抖后弹出第二个 `NSPanel`。
 
 窗口枚举用 **AX 定集合、ScreenCaptureKit 出像素**，这是"预览只有前台窗口""最小化窗口没缩略图"两个问题的根因所在：
@@ -231,7 +240,7 @@ Google Chrome          2              7
 
 | 位置 | 动效 |
 |---|---|
-| 唤出 / 收起 | 面板整体"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比单纯变透明度自然。**⌘Tab 呼出例外：直接出现，不动画**（见 5c） |
+| 唤出 / 收起 | 面板整体"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比单纯变透明度自然。**⌘Tab 例外：进出场都不动效**（见 5c） |
 | 标签悬停 | 图标弹簧放大到 1.12（0.22s）；底色渐变 0.11s |
 | 前台 App 高亮 | 弹簧（0.26s, damping 0.74），切换 App 时高亮块"落"下来；指针离开条面时缩回 |
 | 预览弹出 | 面板下滑 + 淡入；整块只托一下（0.99 → 1，0.12s easeOut） |
@@ -320,10 +329,13 @@ open TopTab.app --args --settings      # 直接拉起设置窗口
 open TopTab.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
 open TopTab.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
 open TopTab.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
+open TopTab.app --args --test-quickswitch # 模拟"⌘Tab 呼出 → 选完"，看条是否当场消失、会不会被唤出区拉回来
 ```
 
 `--test-hotzone=<屏序号>` 就是上面 5b 那个 bug 的回归入口：它会模拟 ⌘Tab 把面板钉到指定屏，再按正常流程收起，然后把面板停靠位置、热区矩形、热区落在哪块屏一起写进日志。换个屏号再跑一次，就能看出热区是否会被 ⌘Tab 带跑。
 
 `--test-cycle=<次数>` 是 5c 的回归入口：它不开面板、不抢键，只用真实的 App 列表把会话走一遍，日志里每一步都带「App 名 + 下标 / 总数」。下标必须是逐个 ±1 的（`1/8 → 2/8 → … → 0/8 → 1/8`），一旦出现跳号就说明循环序列又串了顺序。
+
+`--test-quickswitch` 是"选完立刻消失"的回归入口：走一遍真实的 `revealAtMouse()`（钉在鼠标位置呼出）+ 结束会话 + `dismissQuickSwitch()`，日志给出 `isRevealed` / `panel.isVisible` / `suppressHotZone` 三个值，并在 +0.5s 再打一次 —— 该看到当场 `panel.isVisible=false`，且半秒后 `suppressHotZone` 已复位（指针不在唤出区时自然会解除），热区矩形不变。
 
 判定"是否真的切到前台"要看窗口叠放序（`CGWindowListCopyWindowInfo` 的 layer 0 首条），别信 `NSWorkspace.frontmostApplication` —— 它返回缓存值，会出现"日志说成功、实际没变"的假象。
