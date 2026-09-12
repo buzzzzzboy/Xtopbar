@@ -2,8 +2,8 @@
 #
 # 打包并发布一个 GitHub Release —— App 里的「检查更新」就是从这个 Release 读的。
 #
-#   ./scripts/make-release.sh 1.3.0 "新增在线更新"          # 只构建 + 打包（不发布）
-#   GITHUB_TOKEN=xxx ./scripts/make-release.sh 1.3.0 "说明"   # 构建 + 打包 + 发布
+#   ./scripts/make-release.sh 1.3.0 "新增在线更新"                       # 只构建 + 打包（不发布）
+#   GITHUB_TOKEN=xxx ./scripts/make-release.sh 1.3.0 "说明" "发布标题"      # 构建 + 打包 + 发布
 #
 # 不需要任何自建服务器、云空间或域名。GitHub Releases 同时提供两样东西：
 #   1. 一个地址恒定的接口：https://api.github.com/repos/<owner>/<repo>/releases/latest
@@ -22,19 +22,24 @@ PLIST="Resources/Info.plist"
 
 VERSION="${1:-}"
 NOTES="${2:-}"
-TAG="v${VERSION#v}"
 
 if [ -z "$VERSION" ]; then
-  echo "用法: ./scripts/make-release.sh <版本号> [更新说明]"
+  echo "用法: ./scripts/make-release.sh <版本号> [更新说明] [发布标题]"
   echo "例:   ./scripts/make-release.sh 1.3.0 \"新增在线更新\""
   exit 1
 fi
 
+# 版本号去掉 v 前缀写进 Info.plist（CFBundleShortVersionString 不该带 v），
+# 但 git tag 保留 v 前缀，跟历史版本一致（v1.1.1 / v1.1.2 / v1.2.0）。
+VERSION="${VERSION#v}"
+TAG="v$VERSION"
+TITLE="${3:-TopTab $TAG}"
+
 # ── 1. 写版本号（Info.plist 是唯一的版本来源） ────────────────────────────
 CURRENT_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $TAG" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((CURRENT_BUILD + 1))" "$PLIST"
-echo "→ 版本 $TAG（CFBundleVersion $((CURRENT_BUILD + 1))）"
+echo "→ 版本 $VERSION（tag $TAG，CFBundleVersion $((CURRENT_BUILD + 1))）"
 
 # ── 2. 构建 ──────────────────────────────────────────────────────────────
 ./build.sh
@@ -73,11 +78,11 @@ echo "→ 创建 Release $TAG"
 
 # JSON 体交给 python3 生成，说明里带引号或换行都不会把请求搞坏
 if command -v python3 >/dev/null 2>&1; then
-  PAYLOAD="$(python3 -c 'import json,sys;print(json.dumps({"tag_name":sys.argv[1],"name":sys.argv[1],"body":sys.argv[2],"draft":False,"prerelease":False}))' "$TAG" "$NOTES")"
+  PAYLOAD="$(python3 -c 'import json,sys;print(json.dumps({"tag_name":sys.argv[1],"name":sys.argv[2],"body":sys.argv[3],"draft":False,"prerelease":False}))' "$TAG" "$TITLE" "$NOTES")"
 else
   ESCAPED="$(printf '%s' "$NOTES" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' \
     | awk '{printf "%s\\n", $0}' | sed -e 's/\\n$//')"
-  PAYLOAD="{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"body\":\"$ESCAPED\",\"draft\":false,\"prerelease\":false}"
+  PAYLOAD="{\"tag_name\":\"$TAG\",\"name\":\"$TITLE\",\"body\":\"$ESCAPED\",\"draft\":false,\"prerelease\":false}"
 fi
 
 RESPONSE="$(curl -sS -X POST \

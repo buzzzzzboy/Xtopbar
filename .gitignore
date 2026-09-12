@@ -2,5 +2,6 @@
 TopTab.app/
 build/
 .build/
+dist/
 *.o
 .DS_Store
