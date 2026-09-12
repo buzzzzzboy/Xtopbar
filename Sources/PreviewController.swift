@@ -73,42 +73,42 @@ struct PreviewCard: View {
     private var hot: Bool { hovered || pressed }
 
     var body: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: TTLayout.s(5)) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
                     .fill(Color.primary.opacity(hot ? 0.13 : 0.07))
                 if let image = item.image {
                     Image(decorative: image, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .padding(2)
+                        .padding(TTLayout.s(2))
                         .transition(.opacity)
                 } else if let icon {
                     Image(nsImage: icon)
                         .resizable()
-                        .frame(width: 34, height: 34)
+                        .frame(width: TTLayout.s(34), height: TTLayout.s(34))
                         .opacity(0.35)
                 } else {
                     ProgressView().controlSize(.small)
                 }
             }
             .frame(width: PreviewLayout.cardWidth, height: PreviewLayout.imageHeight)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous))
             // 缩略图后到时淡入，避免"啪"地一下替换掉图标占位
             .animation(.easeOut(duration: 0.14), value: item.image == nil)
             .overlay(alignment: .bottomLeading) {
                 if item.isMinimized {
                     Text("已最小化")
-                        .font(.system(size: 9, weight: .medium))
-                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .font(.system(size: TTLayout.font(9), weight: .medium))
+                        .padding(.horizontal, TTLayout.s(5)).padding(.vertical, TTLayout.s(1.5))
                         .background(.thinMaterial, in: Capsule())
                         .foregroundStyle(Color.primary.opacity(0.7))
-                        .padding(5)
+                        .padding(TTLayout.s(5))
                 }
             }
             // 选中环：悬停细环，按下加粗，确认时最亮
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
                     .strokeBorder(borderColor, lineWidth: borderWidth)
             )
             .overlay(alignment: .topLeading) {
@@ -130,7 +130,7 @@ struct PreviewCard: View {
             Text(item.title)
                 // 字重固定：semibold 会让标题宽 1~2pt，截断位置跟着跳，
                 // 鼠标在几张卡之间扫过时看得见抖动。选中感交给不透明度 + 颜色。
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: TTLayout.font(10), weight: .medium))
                 .foregroundStyle(hot ? Color.primary : Color.primary.opacity(0.7))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -163,10 +163,10 @@ struct PreviewCard: View {
             Circle()
                 .fill(closeHovered ? Color.red : Color.black.opacity(0.45))
             Image(systemName: "xmark")
-                .font(.system(size: 8, weight: .heavy))
+                .font(.system(size: TTLayout.font(8), weight: .heavy))
                 .foregroundStyle(.white)
         }
-        .frame(width: 17, height: 17)
+        .frame(width: TTLayout.s(17), height: TTLayout.s(17))
         .overlay(Circle().strokeBorder(Color.white.opacity(0.5), lineWidth: 0.5))
         .contentShape(Circle())
         .background(
@@ -177,7 +177,7 @@ struct PreviewCard: View {
                 )
             }
         )
-        .padding(6)
+        .padding(TTLayout.s(6))
         // 悬停 / 按下卡片时才浮现，平时不挡缩略图
         .opacity(hot ? 1 : 0)
         .animation(.easeOut(duration: 0.12), value: hot)
@@ -197,11 +197,17 @@ struct PreviewCard: View {
     }
 }
 
+/// 预览面板的布局常量。全部是"1.0 档"的基准值，实际值乘界面缩放。
+/// 缩放乘在布局常量上而不是套 scaleEffect：卡片的命中区域由 GeometryReader
+/// 上报给窗口层做点击判定，渲染变换不会改变上报值，点了会偏。
+@MainActor
 enum PreviewLayout {
-    static let cardWidth: CGFloat = 186
-    static let imageHeight: CGFloat = 116
-    static let spacing: CGFloat = 9
-    static let padding: CGFloat = 11
+    private static func s(_ v: CGFloat) -> CGFloat { TTLayout.s(v) }
+
+    static var cardWidth: CGFloat { s(186) }
+    static var imageHeight: CGFloat { s(116) }
+    static var spacing: CGFloat { s(9) }
+    static var padding: CGFloat { s(11) }
     static let maxCards = 5
 
     /// 缩略图抓取尺寸：卡片尺寸的 2 倍（Retina）
@@ -234,23 +240,24 @@ struct PreviewView: View {
     ///
     /// 没有窗口的 App 根本不弹预览（`PreviewController.show` 里直接 return），
     /// 所以这里只需要算「有卡片」的尺寸；hint 是卡片下方那行橙色提示的高度。
+    /// 内部常量一律走 PreviewLayout（已含界面缩放）。
     static func size(for itemCount: Int, hasOverflow: Bool, hint: String) -> CGSize {
         let n = max(1, min(itemCount, PreviewLayout.maxCards))
         let cards = CGFloat(n) * PreviewLayout.cardWidth + CGFloat(n - 1) * PreviewLayout.spacing
-        let overflowWidth: CGFloat = hasOverflow ? 74 : 0
-        let hintHeight: CGFloat = hint.isEmpty ? 0 : 18
+        let overflowWidth: CGFloat = hasOverflow ? TTLayout.s(74) : 0
+        let hintHeight: CGFloat = hint.isEmpty ? 0 : TTLayout.s(18)
 
         let contentWidth = cards + overflowWidth
         return CGSize(width: PreviewLayout.padding * 2 + contentWidth,
-                      height: PreviewLayout.padding * 2 + 16 + 6
-                              + PreviewLayout.imageHeight + 5 + 14 + hintHeight)
+                      height: PreviewLayout.padding * 2 + TTLayout.s(16) + TTLayout.s(6)
+                              + PreviewLayout.imageHeight + TTLayout.s(5) + TTLayout.s(14) + hintHeight)
     }
 
     var body: some View {
         cardList
             .padding(PreviewLayout.padding)
             .frame(width: computedSize.width, height: computedSize.height, alignment: .topLeading)
-            .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: 14))
+            .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.s(14)))
             .coordinateSpace(name: PreviewView.space)
             // 弹性入场退成"几乎察觉不到的托一下"：原来 0.96 + 弹簧回弹，
             // 每次换标签都先缩一下再弹起来，扫标签时反而显得拖沓。
@@ -270,22 +277,22 @@ struct PreviewView: View {
     }
 
     private var cardList: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: TTLayout.s(6)) {
+            HStack(spacing: TTLayout.s(5)) {
                 if let icon = model.icon {
-                    Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+                    Image(nsImage: icon).resizable().frame(width: TTLayout.s(14), height: TTLayout.s(14))
                 }
                 Text(model.appName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: TTLayout.font(11), weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if model.items.count > 1 {
                     Text("\(model.items.count) 个窗口")
-                        .font(.system(size: 10))
+                        .font(.system(size: TTLayout.font(10)))
                         .foregroundStyle(Color.primary.opacity(0.55))
                 }
             }
-            .padding(.horizontal, 2)
+            .padding(.horizontal, TTLayout.s(2))
 
             HStack(spacing: PreviewLayout.spacing) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.id) { offset, item in
@@ -302,14 +309,14 @@ struct PreviewView: View {
                 if overflow > 0 {
                     VStack {
                         Text("+\(overflow)")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: TTLayout.font(13), weight: .semibold))
                         Text("更多")
-                            .font(.system(size: 9))
+                            .font(.system(size: TTLayout.font(9)))
                     }
                     .foregroundStyle(Color.primary.opacity(0.6))
-                    .frame(width: 64, height: PreviewLayout.imageHeight)
+                    .frame(width: TTLayout.s(64), height: PreviewLayout.imageHeight)
                     .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
                             .fill(Color.primary.opacity(0.06))
                     )
                 }
@@ -317,9 +324,9 @@ struct PreviewView: View {
 
             if !model.hint.isEmpty, !visibleItems.isEmpty {
                 Text(model.hint)
-                    .font(.system(size: 10))
+                    .font(.system(size: TTLayout.font(10)))
                     .foregroundStyle(Color.orange.opacity(0.9))
-                    .padding(.horizontal, 2)
+                    .padding(.horizontal, TTLayout.s(2))
             }
         }
     }

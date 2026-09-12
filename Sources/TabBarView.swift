@@ -29,11 +29,16 @@ struct BarViewportWidthKey: PreferenceKey {
 struct AppTab: View {
     let entry: AppEntry
     let isActive: Bool
+    /// ⌘Tab 会话中被键盘选中的标签：画描边环（和前台蓝底区分开）
+    var keyboardSelected: Bool = false
     var animated: Bool = true
     /// 指针是否还在整条悬浮条上。窗口被 orderOut 时 onHover 可能收不到
     /// false，用外层信号兜底，免得下次唤出时残留高亮
     var barHovered: Bool = true
     var onHoverChange: (Bool) -> Void = { _ in }
+    /// 右键菜单动作（由外层接进 AppCatalog）
+    var onContextHide: (() -> Void)?
+    var onContextQuit: (() -> Void)?
 
     @State private var hovering = false
 
@@ -41,11 +46,11 @@ struct AppTab: View {
     private var hot: Bool { hovering && barHovered }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: TTLayout.s(6)) {
             Image(nsImage: entry.icon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 18, height: 18)
+                .frame(width: TTLayout.s(18), height: TTLayout.s(18))
                 // 只缩放图标本身：frame 是固定的，布局不会变，
                 // 上报给窗口层的命中区域也就不受影响。
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
@@ -55,22 +60,29 @@ struct AppTab: View {
                 // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
                 // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
                 // 选中态改用满不透明度的文字 + 蓝底 + 描边来表达。
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: TTLayout.font(12), weight: .medium))
                 .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : 0.85))
                 .lineLimit(1)
                 .fixedSize()
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .padding(.horizontal, TTLayout.s(9))
+        .padding(.vertical, TTLayout.s(6))
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
                 .fill(backgroundColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
                 .strokeBorder(Color.accentColor.opacity(isActive ? 0.55 : 0), lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        // ⌘Tab 键盘选中环：白色描边 + 阴影，深浅壁纸都看得清
+        .overlay(
+            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                .strokeBorder(Color.white.opacity(keyboardSelected ? 0.95 : 0), lineWidth: 2)
+                .shadow(color: .black.opacity(keyboardSelected ? 0.45 : 0), radius: 2)
+                .animation(animated ? .easeOut(duration: 0.10) : nil, value: keyboardSelected)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous))
         .onHover { value in
             hovering = value
             onHoverChange(value)
@@ -81,6 +93,12 @@ struct AppTab: View {
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
         .help(entry.name)
+        // 右键单个标签：退出 / 隐藏这个 App。左键被窗口层截走做命中测试，
+        // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
+        .contextMenu {
+            Button("隐藏此 App") { onContextHide?() }
+            Button("退出 App", role: .destructive) { onContextQuit?() }
+        }
         .background(
             GeometryReader { geo in
                 Color.clear.preference(
@@ -117,7 +135,7 @@ struct TabBarView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             content
         }
-        .frame(width: catalog.barWidth, height: 42)
+        .frame(width: catalog.barWidth, height: TTLayout.s(42))
         // 溢出时两端渐隐。顺序很关键：fade 打在滚动内容上并立刻
         // compositingGroup 合成一张图，**之后**才垫玻璃 background ——
         // destinationOut 只咬掉内容，玻璃完好；玻璃反过来垫在前面会被咬穿。
@@ -125,11 +143,11 @@ struct TabBarView: View {
             HStack(spacing: 0) {
                 LinearGradient(colors: [Color.black, .clear],
                                startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 22)
+                    .frame(width: TTLayout.s(22))
                 Spacer(minLength: 0)
                 LinearGradient(colors: [.clear, Color.black],
                                startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 22)
+                    .frame(width: TTLayout.s(22))
             }
             .opacity(overflowing ? 1 : 0)
             .blendMode(.destinationOut)
@@ -138,13 +156,13 @@ struct TabBarView: View {
             .allowsHitTesting(false)
         }
         .compositingGroup()
-        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: 16))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.s(16)))
+        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(16), style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: TTLayout.s(16), style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(16), style: .continuous))
         .onHover { inside in
             if catalog.pointerOverBar != inside { catalog.pointerOverBar = inside }
             onHoverChange(inside)
@@ -176,22 +194,26 @@ struct TabBarView: View {
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
                     if i > 0 { divider }
                     AppTab(entry: entry,
-                           isActive: catalog.pointerOverBar && entry.pid == catalog.activePID,
-                           animated: prefs.animationsEnabled,
-                           barHovered: catalog.pointerOverBar) { hovering in
-                        if hovering {
-                            catalog.onTabHover?(entry)
-                        } else {
-                            catalog.onTabHoverEnd?()
-                        }
-                    }
-                    .padding(.horizontal, 1)
+                               isActive: catalog.pointerOverBar && entry.pid == catalog.activePID,
+                               keyboardSelected: entry.pid == catalog.keyboardHighlightPID,
+                               animated: prefs.animationsEnabled,
+                               barHovered: catalog.pointerOverBar,
+                               onHoverChange: { hovering in
+                                   if hovering {
+                                       catalog.onTabHover?(entry)
+                                   } else {
+                                       catalog.onTabHoverEnd?()
+                                   }
+                               },
+                               onContextHide: { catalog.hide(entry) },
+                               onContextQuit: { catalog.terminate(entry) })
+                    .padding(.horizontal, TTLayout.s(1))
                 }
             }
         }
         // 12pt：标签自身有 9pt 内边距，最右那个被高亮时底色会一直铺到标签边缘，
         // 8pt 的容器内边距看起来就"贴边"了；12pt 让左右留白在视觉上等宽。
-        .padding(.horizontal, 12)
+        .padding(.horizontal, TTLayout.s(12))
         // 实测内容宽度：比手算的字符宽度准，左右内边距才能真正对称
         .background(
             GeometryReader { geo in
@@ -211,8 +233,8 @@ struct TabBarView: View {
     private var divider: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.14))
-            .frame(width: 1, height: 16)
-            .padding(.horizontal, 6)
+            .frame(width: 1, height: TTLayout.s(16))
+            .padding(.horizontal, TTLayout.s(6))
     }
 
     @ViewBuilder

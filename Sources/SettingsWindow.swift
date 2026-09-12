@@ -28,7 +28,7 @@ final class SettingsWindowController {
 
         let view = SettingsView(prefs: Preferences.shared)
         let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: 560, height: 680)
+        hosting.frame = NSRect(x: 0, y: 0, width: 560, height: 820)
 
         let window = NSWindow(
             contentRect: hosting.frame,
@@ -58,7 +58,7 @@ struct SettingsView: View {
             aboutSection
         }
         .formStyle(.grouped)
-        .frame(minWidth: 520, idealWidth: 560, minHeight: 700, idealHeight: 760)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 500, idealHeight: 820)
         // 1 秒一拍：授权是纯外部行为，没有通知可听，只能轮询刷新状态图标
         .onReceive(ticker) { _ in captureTick &+= 1 }
     }
@@ -110,6 +110,15 @@ struct SettingsView: View {
                 }
             }
 
+            Toggle("⌘Tab 呼出（快速切换 + 鼠标挑选）", isOn: $prefs.cmdTabEnabled)
+                .toggleStyle(.switch)
+
+            Text("开启后接管系统 ⌘Tab（需要辅助功能权限）：按下立即在鼠标位置弹出悬浮条并预选上一个 App —— 快按快放即切回上一个（Windows Alt+Tab）；继续按 Tab 沿最近使用顺序循环，或用鼠标点选；松开 ⌘ 确认，Esc 取消。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            HiddenAppsRow(prefs: prefs)
+
             Picker("背景材质", selection: $prefs.glassStyle) {
                 ForEach(GlassStyle.allCases.filter { $0 != .liquid || GlassStyle.liquidAvailable }) { style in
                     Label(style.title, systemImage: style.symbol).tag(style)
@@ -118,6 +127,19 @@ struct SettingsView: View {
             .pickerStyle(.radioGroup)
 
             Text(prefs.glassStyle.subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("界面缩放")
+                Slider(value: $prefs.uiScale, in: 0.8...1.3, step: 0.05)
+                Text(String(format: "%.0f%%", prefs.uiScale * 100))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+            }
+
+            Text("悬浮条与窗口预览的整体大小（80%–130%）。拖动即时生效。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -207,6 +229,40 @@ struct SettingsView: View {
 }
 
 // MARK: - 子视图
+
+/// 已隐藏的 App 列表：右键标签「隐藏此 App」的释放入口。
+/// 删除一项 → Preferences.hiddenApps 变化 → 控制器订阅里立刻重采，标签即时回来。
+private struct HiddenAppsRow: View {
+    @ObservedObject var prefs: Preferences
+
+    var body: some View {
+        if !prefs.hiddenApps.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("已隐藏的 App（\(prefs.hiddenApps.count)）")
+                    .font(.system(size: 12, weight: .medium))
+                ForEach(prefs.hiddenApps.sorted { $0.value.localizedStandardCompare($1.value) == .orderedAscending }, id: \.key) { bid, name in
+                    HStack(spacing: 8) {
+                        Text(name)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Button("显示") {
+                            var hidden = prefs.hiddenApps
+                            hidden.removeValue(forKey: bid)
+                            prefs.hiddenApps = hidden
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                Text("隐藏的 App 不会出现在悬浮条标签里，但仍在正常运行。点「显示」立即释放。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
 
 /// 开机自启动开关。SMAppService 的状态是系统侧的，用本地 state 承接，
 /// 注册失败时回滚并显示原因。

@@ -108,10 +108,14 @@ final class AppCatalog: ObservableObject {
     // MARK: - Collection
 
     private func collect() -> [AppEntry] {
+        let hidden = Preferences.shared.hiddenApps
         let apps = NSWorkspace.shared.runningApplications.filter { app in
             guard app.activationPolicy == .regular else { return false }
             guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
-            return !app.isTerminated
+            guard !app.isTerminated else { return false }
+            // 用户手动隐藏的 App 不出现在标签里（不退出、不动窗口，只是不显示）
+            if let bid = app.bundleIdentifier, hidden[bid] != nil { return false }
+            return true
         }
 
         var entries: [AppEntry] = []
@@ -170,6 +174,9 @@ final class AppCatalog: ObservableObject {
         let countChanged = newGroups.map { $0.entries.count } != groups.map { $0.entries.count }
         groups = newGroups
         activePID = frontPID
+        // 真实前台变化也要进 MRU —— 用户不经过悬浮条、直接 ⌘ 点 Dock /
+        // 用系统切换器换 App 时，快切的历史不能断
+        noteActive(frontPID)
 
         if countChanged { onLayoutNeeded?() }
     }
@@ -188,20 +195,32 @@ final class AppCatalog: ObservableObject {
             }
             if hit != nil { break }
         }
-        if let hit { activate(hit); return true }
+        if let hit {
+            // ⌘Tab 会话中用鼠标点了标签：点击本身就是选择，
+            // 结束会话避免松 ⌘ 时再提交一次高亮（可能不是点中的这个）
+            if keyboardSession { endKeyboardSession() }
+            activate(hit)
+            return true
+        }
         return false
     }
 
     func activate(_ entry: AppEntry) {
-        guard let app = NSRunningApplication(processIdentifier: entry.pid) else {
-    return
+        activatePID(entry.pid)
+    }
+
+    /// 按 pid 激活（点标签与 ⌘Tab 快切共用这条路径）。
+    func activatePID(_ pid: pid_t) {
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            return
         }
         if app.isHidden { app.unhide() }
 
         // 乐观更新：点谁就把高亮挪到谁身上，不用等 1.2s 的兜底轮询
         // 去读 frontmostApplication 回来（读不到时高亮会僵在旧标签上）。
         // 真激活失败也无所谓，下一轮 refresh 会用真实前台值纠正。
-        activePID = entry.pid
+        activePID = pid
+        noteActive(pid)
 
         // 走 LaunchServices 路径（等价于点击 Dock 图标）。
         // 裸的 NSRunningApplication.activate() 在 macOS 14+ 从非激活 App 调用常被忽略。
@@ -222,12 +241,133 @@ final class AppCatalog: ObservableObject {
         }
     }
 
+    /// 最近使用顺序（栈顶 = 当前前台）。⌘Tab 快按快放时取第二个 = 上一个 App。
+    /// 只在真实前台变化（refresh）和主动激活（activatePID）时更新，
+    /// 容量 12 足够覆盖日常来回切换，也避免退出后残留一堆失效 pid。
+    @Published private(set) var mru: [pid_t] = []
+
+    func noteActive(_ pid: pid_t) {
+        guard pid > 0, mru.first != pid else { return }
+        var next = mru
+        next.removeAll { $0 == pid }
+        next.insert(pid, at: 0)
+        if next.count > 12 { next.removeLast(next.count - 12) }
+        mru = next
+    }
+
+    // MARK: - ⌘Tab 键盘会话（AppRing 同款机制）
+    //
+    // 第一次 ⌘Tab：立即弹条 + 预选上一个 App；
+    // 再按 Tab：沿 MRU 前进高亮；
+    // 松开 ⌘：提交高亮项（快按快放因此天然等于"切上一个"）；
+    // Esc / 鼠标点标签 / 再按一次 ⌘Tab 前松手：取消。
+
+    /// 会话进行中（tick 据此暂停自动隐藏；松 ⌘ 据此决定要不要提交）
+    @Published private(set) var keyboardSession = false
+    /// 当前键盘高亮的 pid（视图层画蓝底）
+    @Published private(set) var keyboardHighlightPID: pid_t = 0
+    /// 会话的循环序列（MRU 优先，未进过 MRU 的可见 App 补在后面）
+    private var sessionCycle: [pid_t] = []
+    private var sessionIndex = 0
+
+    /// 鼠标悬停接管高亮（AppRing 同款：指针扫到哪个图标，松 ⌘ 就提交哪个）
+    func setKeyboardHighlight(_ pid: pid_t) {
+        guard keyboardSession, let i = sessionCycle.firstIndex(of: pid) else { return }
+        sessionIndex = i
+        keyboardHighlightPID = pid
+    }
+
+    /// 开始会话并预选上一个 App。返回是否成功（不足两个可见 App 时返回 false）。
+    @discardableResult
+    func startKeyboardSession() -> Bool {
+        mru.removeAll { NSRunningApplication(processIdentifier: $0)?.isTerminated ?? true }
+        let visible = groups.flatMap(\.entries)
+        guard visible.count >= 2 else {
+            TTLog("kbdSession: 可见 App 不足(\(visible.count))")
+            return false
+        }
+        let visiblePIDs = Set(visible.map(\.pid))
+        var cycle = mru.filter { visiblePIDs.contains($0) }
+        // 当前前台排第一（它可能还没进过 MRU，比如刚被鼠标点起来）
+        if let i = cycle.firstIndex(of: activePID) {
+            cycle.remove(at: i)
+        }
+        cycle.insert(activePID, at: 0)
+        // 从没进过 MRU 的 App 按显示顺序补在后面，保证 Tab 连按能循环到全部
+        cycle.append(contentsOf: visible.map(\.pid).filter { !cycle.contains($0) })
+
+        sessionCycle = cycle
+        sessionIndex = 1
+        keyboardHighlightPID = cycle[1]
+        keyboardSession = true
+        TTLog("kbdSession start → \(Self.name(of: cycle[1])) cycle=\(cycle.count)")
+        return true
+    }
+
+    /// 会话中再按 Tab：前进一格。
+    func cycleKeyboardSession() {
+        guard keyboardSession, !sessionCycle.isEmpty else { return }
+        sessionIndex = (sessionIndex + 1) % sessionCycle.count
+        keyboardHighlightPID = sessionCycle[sessionIndex]
+    }
+
+    /// 松开 ⌘：激活高亮项并结束会话。
+    func commitKeyboardSession() {
+        guard keyboardSession else { return }
+        let pid = keyboardHighlightPID
+        endKeyboardSession()
+        guard pid > 0 else { return }
+        TTLog("kbdSession commit → \(Self.name(of: pid)) pid=\(pid)")
+        activatePID(pid)
+    }
+
+    /// Esc / 鼠标抢先点击：结束会话但不激活。
+    func endKeyboardSession() {
+        keyboardSession = false
+        sessionCycle = []
+        sessionIndex = 0
+        keyboardHighlightPID = 0
+    }
+
+    private static func name(of pid: pid_t) -> String {
+        NSRunningApplication(processIdentifier: pid)?.localizedName ?? "?"
+    }
+
     /// 兜底：AX frontmost + activate()
     private func forceActivate(_ app: NSRunningApplication) {
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(axApp, 0.2)
         AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         app.activate()
+    }
+
+    /// 退出 App（右键菜单）。先礼貌 terminate，5 秒后还在就强杀。
+    func terminate(_ entry: AppEntry) {
+        guard let app = NSRunningApplication(processIdentifier: entry.pid) else { return }
+        TTLog("terminate \(entry.name) pid=\(entry.pid)")
+        app.terminate()
+        let pid = entry.pid
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            if let still = NSRunningApplication(processIdentifier: pid), !still.isTerminated {
+                TTLog("terminate timeout → forceTerminate \(entry.name)")
+                still.forceTerminate()
+            }
+        }
+    }
+
+    /// 从标签里隐藏 App（右键菜单）。只记 bundle id，collect() 会过滤掉；
+    /// 释放入口在设置 → 悬浮条 → 已隐藏的 App。
+    func hide(_ entry: AppEntry) {
+        let bid = entry.id
+        // 没有 bundle id 的进程（路径/pid 兜底 key）存不下稳定标识，隐藏不了
+        guard !bid.contains("/"), !bid.hasPrefix("pid-") else {
+            TTLog("hide skipped: no bundle id for \(entry.name)")
+            return
+        }
+        var hidden = Preferences.shared.hiddenApps
+        hidden[bid] = entry.name
+        Preferences.shared.hiddenApps = hidden
+        TTLog("hide \(entry.name) (\(bid))")
     }
 
     // MARK: - Sizing

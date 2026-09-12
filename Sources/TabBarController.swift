@@ -9,6 +9,8 @@ protocol TabBarHost: AnyObject {
     func requestScreenCapturePermission()
     func requestAccessibilityPermission()
     func permissionSummary() -> String
+    /// ⌘Tab 呼出开关打开但钩子装不上（缺辅助功能权限）
+    func cmdTabInstallFailed()
 }
 
 /// 面板生命周期 + 定位 + 尺寸自适应 + 自动隐藏 + 预览调度
@@ -22,13 +24,31 @@ final class TabBarController: TabBarHost {
     private var cancellables = Set<AnyCancellable>()
     private var currentWidth: CGFloat = 0
 
-    private let barHeight: CGFloat = 42
-    private let topInset: CGFloat = 6
+    /// 面板高度 / 距菜单栏间隙随界面缩放联动（计算属性，uiScale 变了下次 relayout 生效）
+    private var barHeight: CGFloat { TTLayout.s(42) }
+    private var topInset: CGFloat { TTLayout.s(6) }
 
     private var isRevealed = false
     private var lastInteraction = Date.distantPast
     private var mouseTimer: Timer?
     private var isHoveringBar = false
+
+    /// 有 NSMenu 正在跟踪（右键菜单 / 状态栏菜单）。菜单是面板的子窗口，
+    /// 菜单一开就必须暂停自动隐藏：用户从标签移到"退出 App"那一项时
+    /// 指针早就离开条了，不暂停的话 0.2s 后连条带菜单一起收掉，根本来不及点。
+    private var menuTracking = false
+    private var menuObservers: [NSObjectProtocol] = []
+
+    // MARK: - ⌘Tab 呼出
+
+    private let cmdTap = CmdTabTap()
+    /// 面板钉在鼠标位置呼出（⌘Tab 模式），relayout 期间不再回中。
+    /// 收起即复位，下次顶部热区唤醒回到默认位置。
+    private var pinnedToMouse = false
+    /// 呼出瞬间的鼠标位置。relayout 必须用这个固定锚点而不是实时鼠标：
+    /// 鼠标滑进面板后若来一次 relayout（标签增减、宽度变化），
+    /// 跟着实时鼠标走会让面板"追着光标跑"。
+    private var pinnedAnchor: NSPoint = .zero
 
     // MARK: - 预览
 
@@ -81,6 +101,8 @@ final class TabBarController: TabBarHost {
         // 标签悬停 → 延迟弹出窗口预览
         catalog.onTabHover = { [weak self] entry in
             self?.hoverEndTime = nil
+            // ⌘Tab 会话中指针接管高亮（AppRing 同款：扫到哪个，松 ⌘ 选哪个）
+            self?.catalog.setKeyboardHighlight(entry.pid)
             self?.schedulePreview(for: entry)
         }
         catalog.onTabHoverEnd = { [weak self] in
@@ -103,6 +125,57 @@ final class TabBarController: TabBarHost {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.relayout() }
             .store(in: &cancellables)
+
+        // ⌘Tab（AppRing 同款机制）：按下立即弹条并预选上一个 App，
+        // 再按 Tab 沿 MRU 前进，松开 ⌘ 提交高亮 —— 快按快放天然等于快速切换。
+        cmdTap.onTabDown = { [weak self] in self?.cmdTabDown() }
+        cmdTap.onTabCycle = { [weak self] in self?.cmdTabCycle() }
+        cmdTap.onTabUp = { [weak self] in self?.cmdTabUp() }
+        cmdTap.onCommandReleased = { [weak self] in self?.cmdCommandReleased() }
+        cmdTap.onEscape = { [weak self] in
+            guard let self else { return }
+            self.catalog.endKeyboardSession()
+            self.hide()
+        }
+        prefs.$cmdTabEnabled
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] on in
+                guard let self, on, !self.applyCmdTab() else { return }
+                // 权限不够，钩子装不上：把开关弹回去，别让设置里显示"已开启"
+                self.prefs.cmdTabEnabled = false
+                self.catalog.host?.cmdTabInstallFailed()
+            }
+            .store(in: &cancellables)
+
+        // 隐藏列表变化 → 立刻重采（否则要等 1.2s 兜底轮询）
+        prefs.$hiddenApps
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.catalog.refresh() }
+            .store(in: &cancellables)
+
+        // 右键菜单 / 状态栏菜单打开期间暂停自动隐藏。
+        // 菜单窗口是面板的子窗口：不暂停的话，指针从标签移向"退出 App"
+        // 那一项时离开条 0.2s，连条带菜单一起收掉，根本来不及点。
+        // queue 传 nil：菜单跟踪是模态 runloop（eventTracking 模式），
+        // 队列派发要等出模态才跑，同步回调才能及时把 menuTracking 置位。
+        let nc = NotificationCenter.default
+        menuObservers.append(nc.addObserver(
+            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.menuTracking = true }
+        })
+        menuObservers.append(nc.addObserver(
+            forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.menuTracking = false
+                // 从关菜单这一刻重新计时，别一关就瞬间消失
+                self.lastInteraction = Date()
+            }
+        })
 
         observePreferences()
 
@@ -143,6 +216,16 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] enabled in if !enabled { self?.hidePreview() } }
             .store(in: &cancellables)
 
+        // 界面缩放：条要按新尺寸重排；正在显示的预览面板窗口尺寸已不对，直接收起
+        prefs.$uiScale
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.hidePreview()
+                self?.relayout()
+            }
+            .store(in: &cancellables)
+
         prefs.$hideMinimizedWindows
             .dropFirst()
             .receive(on: RunLoop.main)
@@ -181,6 +264,12 @@ final class TabBarController: TabBarHost {
 
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
     func applyBarEnabled() {
+        // ⌘Tab 钩子跟着总开关走：条关了就该把快捷键还给系统。
+        // 开关持久化为开但钩子装不上（权限被撤销）→ 弹回并提示，不静默失败
+        if !applyCmdTab() {
+            prefs.cmdTabEnabled = false
+            cmdTabInstallFailed()
+        }
         guard prefs.barEnabled else {
             hidePreview()
             hide()
@@ -194,6 +283,26 @@ final class TabBarController: TabBarHost {
             panel.alphaValue = 0
             panel.orderOut(nil)
         }
+    }
+
+    /// ⌘Tab 拦截的开关收敛点：总开关关 / 功能关 → 停钩子（把快捷键还给系统）；
+    /// 功能开但拿不到钩子（缺辅助功能权限）→ 保持关闭状态并提示，
+    /// 免得设置里显示"已开启"实际却没生效。
+    @discardableResult
+    func applyCmdTab() -> Bool {
+        guard prefs.cmdTabEnabled, prefs.barEnabled else {
+            cmdTap.stop()
+            // 钩子没了就收不到"松 ⌘"，残留会话会把条钉住不收：直接取消
+            catalog.endKeyboardSession()
+            cmdTap.swallowEscape = false
+            return true
+        }
+        cmdTap.interceptEnabled = true
+        guard cmdTap.start() else {
+            cmdTap.stop()
+            return false
+        }
+        return true
     }
 
     /// 没拿到辅助功能权限时提示一次。
@@ -213,6 +322,74 @@ final class TabBarController: TabBarHost {
 
     private func reveal() {
         guard !isRevealed, prefs.barEnabled else { return }
+        beginReveal()
+    }
+
+    // MARK: - ⌘Tab 会话（AppRing 同款：弹条 + 预选上一个 + 松 ⌘ 提交）
+
+    /// 第一次按下：立即在鼠标位置弹条，并预选上一个 App。
+    /// 之后每一发 Tab（含按住自动重复）沿 MRU 前进高亮。
+    private func cmdTabDown() {
+        guard prefs.barEnabled else { return }
+        // 会话中再按一次 ⌘Tab（非自动重复）：等价于"前进一格"，
+        // 不能重新 start —— 那会把高亮重置回上一个 App，循环被卡死
+        if catalog.keyboardSession {
+            cmdTabCycle()
+            return
+        }
+        guard catalog.startKeyboardSession() else {
+            // 只有一个可见 App，没什么可切的：退回普通唤出
+            revealAtMouse()
+            return
+        }
+        cmdTap.swallowEscape = true
+        revealAtMouse()
+    }
+
+    /// 会话中再按 Tab：高亮前进一格，并续住宽限期
+    private func cmdTabCycle() {
+        guard catalog.keyboardSession else { return }
+        catalog.cycleKeyboardSession()
+        bumpInteractionGrace()
+    }
+
+    /// Tab 松手：不做任何提交，等 ⌘ 松开那一刻统一决定。
+    /// （用户可能按住 Tab 不放先移动鼠标，也可能 Tab 早松 ⌘ 还按着。）
+    private func cmdTabUp() {}
+
+    /// 松开 ⌘：会话结束 → 提交当前高亮。快按快放因此天然等于"切上一个"。
+    private func cmdCommandReleased() {
+        cmdTap.swallowEscape = false
+        guard catalog.keyboardSession else { return }
+        catalog.commitKeyboardSession()
+        // 提交后条按正常延迟收起；高亮复位，下次唤出不残留
+        lastInteraction = Date()
+    }
+
+    /// ⌘Tab 呼出：面板钉在鼠标位置出现。已在显示（比如从顶部热区唤出）时，
+    /// 直接把它挪到鼠标处并重置隐藏计时。
+    func revealAtMouse() {
+        guard prefs.barEnabled else { return }
+        pinnedToMouse = true
+        pinnedAnchor = NSEvent.mouseLocation
+        TTLog("revealAtMouse anchor=\(pinnedAnchor) revealed=\(isRevealed)")
+        if isRevealed {
+            bumpInteractionGrace()
+            relayout()
+            return
+        }
+        beginReveal()
+        bumpInteractionGrace()
+    }
+
+    /// ⌘Tab 呼出后给 0.8s 宽限：默认隐藏延迟可能只有 0.2s，
+    /// 手指从键盘挪到面板需要一点时间，不给宽限条会"闪一下就没了"。
+    /// 按住 Tab 自动重复时每一发都会续期。
+    private func bumpInteractionGrace() {
+        lastInteraction = max(lastInteraction, Date().addingTimeInterval(0.8))
+    }
+
+    private func beginReveal() {
         isRevealed = true
         lastInteraction = Date()
         relayout()
@@ -260,9 +437,16 @@ final class TabBarController: TabBarHost {
     private func hide() {
         guard isRevealed else { return }
         isRevealed = false
+        pinnedToMouse = false
         hidePreview()
         // 整条要离场了，高亮状态跟着复位，下次唤出时不会残留
         catalog.pointerOverBar = false
+        // 条都离场了，⌘Tab 会话不可能还在进行（正常路径松 ⌘ 已提交）；
+        // 走到这里说明是异常收尾，直接取消，别让残留会话把条钉住不收
+        if catalog.keyboardSession {
+            catalog.endKeyboardSession()
+            cmdTap.swallowEscape = false
+        }
 
         guard prefs.animationsEnabled else {
             panel.orderOut(nil)
@@ -362,7 +546,12 @@ final class TabBarController: TabBarHost {
             catalog.pointerOverBar = pointerNear
         }
 
-        if inPanel || inPreview || inHot {
+        if menuTracking || catalog.keyboardSession {
+            // 菜单开着：指针在菜单上（面板的子窗口），条不能收。
+            // ⌘Tab 会话中：面板是键盘驱动的，条必须一直待到松 ⌘ 提交为止。
+            // 持续续期，关菜单/会话结束后按正常延迟收起。
+            lastInteraction = now
+        } else if inPanel || inPreview || inHot {
             lastInteraction = now
             if !isRevealed { reveal() }
         } else if isRevealed, delay > 0, now.timeIntervalSince(lastInteraction) > delay {
@@ -474,6 +663,25 @@ final class TabBarController: TabBarHost {
         return "屏幕录制 \(screen) · 辅助功能 \(ax)"
     }
 
+    func cmdTabInstallFailed() {
+        // 异步弹出：这个函数可能在 start() → applicationDidFinishLaunching 栈里
+        // 被调用（上次开着 ⌘Tab 但这次权限被撤销），runModal 会阻塞启动。
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "无法接管 ⌘Tab"
+            alert.informativeText = "安装键盘事件钩子需要「辅助功能」权限。\n请先在系统设置中勾选 TopTab，再回到设置里重新打开这个开关。"
+            alert.addButton(withTitle: "去授权")
+            alert.addButton(withTitle: "取消")
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn {
+                WindowBridge.requestAccessibilityPermission()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    WindowBridge.openAccessibilitySettings()
+                }
+            }
+        }
+    }
+
     // MARK: - Layout
 
     private static func targetFrame(for screen: NSScreen, width: CGFloat, height: CGFloat, topInset: CGFloat) -> NSRect {
@@ -486,16 +694,43 @@ final class TabBarController: TabBarHost {
         return NSRect(x: x, y: y, width: w, height: height)
     }
 
+    /// ⌘Tab 呼出时面板钉在鼠标处：水平居中于指针，垂直方向默认放在指针上方
+    /// （切 App 时手多半在下方移动，上方视野更干净）；离屏幕上缘太近就翻到下方。
+    /// 贴边时按屏幕可用区内收，保证整条完整可见。
+    private static func mouseFrame(for screen: NSScreen, width: CGFloat, height: CGFloat,
+                                   mouse: NSPoint) -> NSRect {
+        let visible = screen.visibleFrame
+        let maxWidth = visible.width - 24
+        let w = max(220, min(width, maxWidth))
+        let x = min(max(mouse.x - w / 2, visible.minX + 12), visible.maxX - w - 12)
+        let gap: CGFloat = 18
+        var y = mouse.y + gap
+        if y + height > visible.maxY - 8 {
+            y = mouse.y - gap - height
+        }
+        y = min(max(y, visible.minY + 8), visible.maxY - height - 8)
+        return NSRect(x: x, y: y, width: w, height: height)
+    }
+
     private func relayout() {
-        guard let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        // 钉在鼠标处时以"指针所在屏"为准：panel.screen 反映的是面板旧位置，
+        // 多屏下 ⌘Tab 在副屏触发、面板却还留在主屏的话会弹错地方
+        let screen: NSScreen? = pinnedToMouse
+            ? (NSScreen.screens.first { $0.frame.contains(pinnedAnchor) }
+                ?? panel.screen ?? NSScreen.main ?? NSScreen.screens.first)
+            : panel.screen ?? NSScreen.main ?? NSScreen.screens.first
+        guard let screen else { return }
         // preferredWidth 已经优先返回 SwiftUI 实测的内容宽度，
         // 这样左右两边的 12pt 内边距才真的对称，最右边的标签不会被圆角切掉。
-        let target = TabBarController.targetFrame(
-            for: screen,
-            width: catalog.preferredWidth,
-            height: barHeight,
-            topInset: topInset
-        )
+        let target = pinnedToMouse
+            ? TabBarController.mouseFrame(for: screen, width: catalog.preferredWidth,
+                                          height: barHeight, mouse: pinnedAnchor)
+            : TabBarController.targetFrame(
+                for: screen,
+                width: catalog.preferredWidth,
+                height: barHeight,
+                topInset: topInset
+            )
 
         if abs(target.width - currentWidth) > 0.5 {
             currentWidth = target.width

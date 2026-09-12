@@ -66,6 +66,9 @@ final class Preferences: ObservableObject {
         static let barEnabled     = "barEnabled"
         static let animations    = "animationsEnabled"
         static let hotZoneWidth  = "hotZoneWidth"
+        static let cmdTabEnabled = "cmdTabEnabled"
+        static let hiddenApps    = "hiddenApps"
+        static let uiScale       = "uiScale"
     }
 
     private let d = UserDefaults.standard
@@ -116,6 +119,32 @@ final class Preferences: ObservableObject {
         didSet { d.set(hotZoneWidth, forKey: Key.hotZoneWidth) }
     }
 
+    /// ⌘Tab 呼出：接管系统应用切换器的快捷键，在鼠标位置唤出悬浮条。
+    /// 靠 CGEventTap 实现，需要辅助功能权限。
+    @Published var cmdTabEnabled: Bool = false {
+        didSet { d.set(cmdTabEnabled, forKey: Key.cmdTabEnabled) }
+    }
+
+    /// 从悬浮条隐藏的 App（bundle id → 显示名）。只是不出现在标签里，
+    /// 不退出也不动它们的窗口；在设置的「已隐藏的 App」里可释放。
+    /// 存字典而不是纯 id 集合：App 一旦退出，名字就只能靠这里留档了。
+    @Published var hiddenApps: [String: String] = [:] {
+        didSet { d.set(hiddenApps, forKey: Key.hiddenApps) }
+    }
+
+    /// 界面整体缩放（悬浮条 + 预览面板）。0.8–1.3：
+    /// 再小图标和文字糊成一团，再大预览会顶到屏幕半高，都失去意义。
+    /// 缩放的是布局常量本身而不是 scaleEffect 渲染变换 ——
+    /// 后者不会改变 GeometryReader 上报的命中区域，点击会错位。
+    @Published var uiScale: Double = 1.0 {
+        didSet {
+            // 双保险钳制：滑杆之外（比如手改 defaults）也别越界
+            let clamped = min(max(uiScale, 0.8), 1.3)
+            if clamped != uiScale { uiScale = clamped; return }
+            d.set(uiScale, forKey: Key.uiScale)
+        }
+    }
+
     private init() {
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
@@ -126,6 +155,9 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.barEnabled) != nil { barEnabled = d.bool(forKey: Key.barEnabled) }
         if d.object(forKey: Key.animations) != nil { animationsEnabled = d.bool(forKey: Key.animations) }
         if d.object(forKey: Key.hotZoneWidth) != nil { hotZoneWidth = d.double(forKey: Key.hotZoneWidth) }
+        if d.object(forKey: Key.cmdTabEnabled) != nil { cmdTabEnabled = d.bool(forKey: Key.cmdTabEnabled) }
+        if let map = d.dictionary(forKey: Key.hiddenApps) as? [String: String] { hiddenApps = map }
+        if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }
@@ -141,4 +173,22 @@ final class Preferences: ObservableObject {
         ("4 秒", 4.0),
         ("不自动隐藏", 0.0)
     ]
+}
+
+/// 共享布局度量：设计基准值（1.0 档）× 界面缩放。
+///
+/// 缩放乘在**布局常量本身**上，而不是给视图套 `scaleEffect` ——
+/// scaleEffect 只是渲染变换，GeometryReader 上报的命中区域仍是未缩放坐标，
+/// 窗口层拿它做点击判定会错位（预览卡片、标签都是窗口层命中）。
+///
+/// 视图侧无需显式传参：TabBarView / PreviewView 都 @ObservedObject prefs，
+/// uiScale 变化触发 body 重算，这里读到的就是新值。
+enum TTLayout {
+    @MainActor static var scale: CGFloat { CGFloat(Preferences.shared.uiScale) }
+
+    /// 缩放一个长度
+    @MainActor static func s(_ v: CGFloat) -> CGFloat { v * scale }
+
+    /// 缩放一个字号（取半 pt 对齐，避免奇奇怪怪的亚像素位置）
+    @MainActor static func font(_ v: CGFloat) -> CGFloat { (v * scale * 2).rounded() / 2 }
 }
