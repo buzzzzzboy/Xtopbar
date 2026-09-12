@@ -579,12 +579,11 @@ final class TabBarController: TabBarHost {
         }
     }
 
-    /// 启动时的落位屏：按默认设置（刘海屏）。
+    /// 启动时的落位屏：按设置的「顶部唤出位置」算，跟运行时同一套逻辑。
     ///
-    /// 千万不要用 `panel.screen`：它是"面板当前停在哪个屏"，⌘Tab 在副屏弹过一次
-    /// 之后面板就留在副屏，用它算热区 = 热区跟着搬到副屏，刘海那块屏再也唤不出。
+    /// 千万不要用 `panel.screen`：它是"面板当前停在哪个屏"，⌘Tab 在另一块屏弹过一次
+    /// 之后面板就留在那块屏，用它算热区 = 热区跟着搬过去，主屏再也唤不出。
     /// 也不要用 `NSScreen.main`：它跟着"当前接收键盘事件的窗口"漂移，同样不稳。
-    /// 合盖模式下内置屏不在列表里，`notchedIndex` 自然回落到外接那块。
     static var notchedFlags: [Bool] {
         if #available(macOS 12.0, *) {
             return NSScreen.screens.map { $0.auxiliaryTopLeftArea != nil }
@@ -594,7 +593,11 @@ final class TabBarController: TabBarHost {
 
     static var defaultScreen: NSScreen? {
         let screens = NSScreen.screens
-        guard let i = ScreenPick.notchedIndex(notched: notchedFlags), i < screens.count else { return nil }
+        guard let i = ScreenPick.anchorIndex(for: Preferences.shared.hotZoneScreen,
+                                             notched: notchedFlags,
+                                             frames: screens.map(\.frame),
+                                             mouse: NSEvent.mouseLocation),
+              i < screens.count else { return nil }
         return screens[i]
     }
 

@@ -50,27 +50,31 @@ enum GlassStyle: String, CaseIterable, Identifiable {
 ///
 /// 做成三选一而不是写死：多屏下"主显示器"本身就有两种意思 ——
 /// 系统意义上的主显示器是**带菜单栏**的那块（`NSScreen.screens[0]`），
-/// 而"刘海"只在**内置屏**上，两者在接外接屏且外接屏被设为主屏时并不是同一块。
+/// 而"刘海"只在**内置屏**上，接了外接屏并把外接屏设为主屏时两者并不是一回事。
+/// 默认取带菜单栏那块：顶部唤出本来就贴在菜单栏上，而那块屏就是系统主显示器。
 enum HotZoneScreen: String, CaseIterable, Identifiable {
+    case menuBar      // 系统主显示器（带菜单栏，screens[0]）—— 默认
     case notch        // 有刘海的那块（内置屏）
-    case menuBar      // 系统主显示器（带菜单栏，screens[0]）
     case followMouse  // 鼠标所在屏
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .notch:       return "刘海屏"
-        case .menuBar:     return "系统主显示器"
+        case .menuBar:     return "系统主显示器（带菜单栏）"
+        case .notch:       return "内置屏（刘海那块）"
         case .followMouse: return "鼠标所在屏"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .notch:       return "只有内置屏顶部的刘海能唤出。外接屏顶部不再响应，悬浮条也固定停在刘海那块屏上。"
-        case .menuBar:     return "只有带菜单栏的那块屏顶部能唤出（接了外接屏并把外接屏设为主屏时，这块通常是外接屏）。"
-        case .followMouse: return "鼠标在哪块屏，就顶哪块屏的顶部唤出 —— 和 ⌘Tab 呼出同一套坐标来源。"
+        case .menuBar:
+            return "只有带菜单栏的那块屏顶部能唤出。把外接屏设为主显示器时，就是外接屏 —— 系统里的「主显示器」指的是这块。"
+        case .notch:
+            return "只有笔记本内置屏（有刘海那块）顶部能唤出，内置屏以外都不响应。"
+        case .followMouse:
+            return "鼠标在哪块屏，就顶哪块屏的顶部唤出 —— 和 ⌘Tab 呼出同一套坐标来源。"
         }
     }
 }
@@ -151,12 +155,14 @@ final class Preferences: ObservableObject {
         didSet { d.set(hotZoneWidth, forKey: Key.hotZoneWidth) }
     }
 
-    /// 顶部热区只在主显示器生效。
+    /// 顶部热区落在哪块屏。
     ///
-    /// 默认刘海屏。多屏时副屏顶部不再唤出，面板也固定停在主屏顶部 ——
-    /// 否则某次 ⌘Tab 在副屏弹出后，面板"停"在副屏，热区跟着跑过去，
-    /// 主屏顶部就再也唤不出来了。
-    @Published var hotZoneScreen: HotZoneScreen = .notch {
+    /// 默认**带菜单栏的系统主显示器**（`screens[0]`）。多屏时另一块屏顶部不再唤出，
+    /// 面板也固定停在主屏顶部 —— 否则某次 ⌘Tab 在另一块屏弹出后，面板"停"在那块屏，
+    /// 热区跟着跑过去，主屏顶部就再也唤不出来了。
+    /// 注意"系统主显示器"与"刘海屏"在多屏下不是同一块：外接屏被设为主屏时，
+    /// 刘海在内置屏上，想顶刘海呼出要显式选「内置屏」。
+    @Published var hotZoneScreen: HotZoneScreen = .menuBar {
         didSet { d.set(hotZoneScreen.rawValue, forKey: Key.hotZoneScreen) }
     }
 
