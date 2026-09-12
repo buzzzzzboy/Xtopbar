@@ -4,7 +4,7 @@ import CoreGraphics
 /// ⌘Tab 拦截器（AppRing 同款机制）：会话级 CGEventTap 吞掉「按住 ⌘ 时按下 Tab」，
 /// 让系统切换器不出现。语义：
 /// - 第一次按下 → 立即唤出悬浮条并预选上一个 App
-/// - 再按 Tab   → 沿 MRU 前进高亮
+/// - 再按 Tab   → 沿标签视觉顺序前进高亮（到末尾循环）
 /// - 松开 ⌘    → 提交当前高亮（快按快放因此等于"切上一个"）
 /// - Esc        → 取消
 ///
@@ -22,7 +22,7 @@ final class CmdTabTap {
 
     /// 第一次按下（不含自动重复）。主线程调用。
     var onTabDown: (() -> Void)?
-    /// 面板弹出后再按的 Tab / 自动重复：沿 MRU 前进。主线程调用。
+    /// 面板弹出后再按的 Tab / 自动重复：沿视觉顺序前进。主线程调用。
     var onTabCycle: (() -> Void)?
     /// 与已拦截的 keyDown 配对的 keyUp。主线程调用。
     var onTabUp: (() -> Void)?

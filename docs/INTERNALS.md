@@ -156,6 +156,19 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 
 **⌘Tab 呼出刻意不走这套** —— 它永远在鼠标位置弹出（`revealAtMouse` / `pinnedAnchor`），那才是这个功能的意义。锚定屏只约束"顶部唤出"。
 
+**5c. ⌘Tab 会话：循环序列与呼出动效**
+
+`CmdTabTap` 用会话级 `CGEventTap` 吞掉「按住 ⌘ 时按下 Tab」（⌘Tab 会被 Dock 抢在任何 App 之前消费，只有 HID/会话层的 tap 能截住）。会话由 `AppCatalog` 的三个方法驱动：`startKeyboardSession` / `cycleKeyboardSession` / `commitKeyboardSession`。
+
+**循环序列 = 面板的视觉顺序**（`groups.flatMap(\.entries)`，也就是标签从左到右），起点另算：
+
+- 起点 = MRU 里第一个既不是当前前台、又还在条上的 App（`SessionCycle.startIndex`）。快按快放因此仍然等于切回上一个 App
+- 之后每一发 Tab 只做 `(index + 1) % count`，走一格挪一格，末尾回到第一个
+
+> **修掉的老 bug**：序列以前直接按 MRU 顺序排（"最近用过"优先，当前前台插到最前，剩下的补在后面）。它跟屏幕上看到的排布毫无关系 —— 高亮于是会在图标之间横跳（第二个直接蹦到第四个），功能没错但看着像漏帧。顺序抽在 `SessionCycle` 里（纯下标运算），回归要断言的不变量是：**从任何起点连按 N 发，相邻两步的下标差恒为 `+1 mod count`**。
+
+**⌘Tab 呼出不做动效**：`beginReveal(animated:)` 传 `false`。它是高频纯键盘动作，滑落 + 淡入那 50ms 在这里只是延迟 —— 手指按下去那一刻条就该在。顶部热区唤出仍走动画（鼠标慢慢顶上来，有过程可看）。无动画路径必须**先把 frame 摆好、再设 alpha、最后 `orderFrontRegardless()`**，顺序错了会闪一帧。
+
 **6. 窗口预览** — 悬停 0.12s 防抖后弹出第二个 `NSPanel`。
 
 窗口枚举用 **AX 定集合、ScreenCaptureKit 出像素**，这是"预览只有前台窗口""最小化窗口没缩略图"两个问题的根因所在：
@@ -218,7 +231,7 @@ Google Chrome          2              7
 
 | 位置 | 动效 |
 |---|---|
-| 唤出 / 收起 | 面板整体"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比单纯变透明度自然 |
+| 唤出 / 收起 | 面板整体"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比单纯变透明度自然。**⌘Tab 呼出例外：直接出现，不动画**（见 5c） |
 | 标签悬停 | 图标弹簧放大到 1.12（0.22s）；底色渐变 0.11s |
 | 前台 App 高亮 | 弹簧（0.26s, damping 0.74），切换 App 时高亮块"落"下来；指针离开条面时缩回 |
 | 预览弹出 | 面板下滑 + 淡入；整块只托一下（0.99 → 1，0.12s easeOut） |
@@ -306,8 +319,11 @@ TOPTAB_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
 open TopTab.app --args --settings      # 直接拉起设置窗口
 open TopTab.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
 open TopTab.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
+open TopTab.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
 ```
 
 `--test-hotzone=<屏序号>` 就是上面 5b 那个 bug 的回归入口：它会模拟 ⌘Tab 把面板钉到指定屏，再按正常流程收起，然后把面板停靠位置、热区矩形、热区落在哪块屏一起写进日志。换个屏号再跑一次，就能看出热区是否会被 ⌘Tab 带跑。
+
+`--test-cycle=<次数>` 是 5c 的回归入口：它不开面板、不抢键，只用真实的 App 列表把会话走一遍，日志里每一步都带「App 名 + 下标 / 总数」。下标必须是逐个 ±1 的（`1/8 → 2/8 → … → 0/8 → 1/8`），一旦出现跳号就说明循环序列又串了顺序。
 
 判定"是否真的切到前台"要看窗口叠放序（`CGWindowListCopyWindowInfo` 的 layer 0 首条），别信 `NSWorkspace.frontmostApplication` —— 它返回缓存值，会出现"日志说成功、实际没变"的假象。

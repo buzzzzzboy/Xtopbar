@@ -128,7 +128,8 @@ final class TabBarController: TabBarHost {
             .store(in: &cancellables)
 
         // ⌘Tab（AppRing 同款机制）：按下立即弹条并预选上一个 App，
-        // 再按 Tab 沿 MRU 前进，松开 ⌘ 提交高亮 —— 快按快放天然等于快速切换。
+        // 再按 Tab 沿标签的视觉顺序前进（循环），松开 ⌘ 提交高亮 ——
+        // 快按快放天然等于快速切换回上一个 App。
         cmdTap.onTabDown = { [weak self] in self?.cmdTabDown() }
         cmdTap.onTabCycle = { [weak self] in self?.cmdTabCycle() }
         cmdTap.onTabUp = { [weak self] in self?.cmdTabUp() }
@@ -300,6 +301,20 @@ final class TabBarController: TabBarHost {
         }
     }
 
+    /// 调试用（`--test-cycle=<连按次数>`）：不弹面板、不抢键，只把 ⌘Tab 会话的
+    /// 循环序列走一遍并写进日志 —— 用来确认高亮是"一格一格连着的"，
+    /// 而不是在图标之间横跳（早先按 MRU 顺序走就是这个毛病）。
+    func diagnoseCycle(presses: Int) {
+        guard catalog.startKeyboardSession() else {
+            TTLog("自检：可见 App 不足 2 个，无法开始会话")
+            return
+        }
+        TTLog("自检：沿视觉顺序连按 Tab \(presses) 发")
+        for _ in 0..<max(0, presses) { catalog.cycleKeyboardSession() }
+        catalog.endKeyboardSession()
+        TTLog("自检：结束")
+    }
+
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
     func applyBarEnabled() {
         // ⌘Tab 钩子跟着总开关走：条关了就该把快捷键还给系统。
@@ -365,8 +380,8 @@ final class TabBarController: TabBarHost {
 
     // MARK: - ⌘Tab 会话（AppRing 同款：弹条 + 预选上一个 + 松 ⌘ 提交）
 
-    /// 第一次按下：立即在鼠标位置弹条，并预选上一个 App。
-    /// 之后每一发 Tab（含按住自动重复）沿 MRU 前进高亮。
+    /// 第一次按下：立即在鼠标位置弹条（无动画），并预选上一个 App。
+    /// 之后每一发 Tab（含按住自动重复）沿标签视觉顺序前进高亮、到末尾循环。
     private func cmdTabDown() {
         guard prefs.barEnabled else { return }
         // 会话中再按一次 ⌘Tab（非自动重复）：等价于"前进一格"，
@@ -384,7 +399,7 @@ final class TabBarController: TabBarHost {
         revealAtMouse()
     }
 
-    /// 会话中再按 Tab：高亮前进一格，并续住宽限期
+    /// 会话中再按 Tab：高亮沿视觉顺序前进一格（循环），并续住宽限期
     private func cmdTabCycle() {
         guard catalog.keyboardSession else { return }
         catalog.cycleKeyboardSession()
@@ -409,6 +424,9 @@ final class TabBarController: TabBarHost {
 
     /// ⌘Tab 呼出：面板钉在鼠标位置出现。已在显示（比如从顶部热区唤出）时，
     /// 直接把它挪到鼠标处并重置隐藏计时。
+    ///
+    /// 走**无动画**路径：⌘Tab 是高频、纯键盘的动作，弹出速度直接影响手感，
+    /// 滑落 + 淡入在这里只会显得拖沓。动效留给顶部热区唤出。
     func revealAtMouse() {
         guard prefs.barEnabled else { return }
         pinnedToMouse = true
@@ -419,7 +437,7 @@ final class TabBarController: TabBarHost {
             relayout()
             return
         }
-        beginReveal()
+        beginReveal(animated: false)
         bumpInteractionGrace()
     }
 
@@ -430,13 +448,16 @@ final class TabBarController: TabBarHost {
         lastInteraction = max(lastInteraction, Date().addingTimeInterval(0.8))
     }
 
-    private func beginReveal() {
+    private func beginReveal(animated: Bool = true) {
         isRevealed = true
         lastInteraction = Date()
         relayout()
 
         let idle = CGFloat(prefs.idleOpacity)
-        guard prefs.animationsEnabled else {
+        // animated = false：⌘Tab 呼出。切换动作是键盘驱动的，滑落 + 淡入那 0.05s
+        // 反而是延迟 —— 手指按下去的那一刻条就该在，不该"飘"进来。
+        // 顶部热区唤出仍然带动效（那是鼠标慢慢顶上来，有过程可看）。
+        guard animated, prefs.animationsEnabled else {
             panel.setFrame(panel.frame, display: true)
             panel.alphaValue = idle
             panel.orderFrontRegardless()

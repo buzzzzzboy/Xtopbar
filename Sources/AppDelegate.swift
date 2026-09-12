@@ -46,6 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // 调试用：`--test-cycle=6` 把 ⌘Tab 会话的循环序列走一遍，
+        // 看高亮是不是一格一格连着的（而不是在图标之间横跳）
+        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--test-cycle") }) {
+            let presses = Int(arg.split(separator: "=").last ?? "6") ?? 6
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                controller.diagnoseCycle(presses: presses)
+            }
+        }
+
         // 在线更新：启动 3 秒后静默看一眼 GitHub Releases（不需要任何自建服务器）。
         // 没有新版本就什么都不做，有新版本才弹窗。
         if CommandLine.arguments.contains("--update-install") {

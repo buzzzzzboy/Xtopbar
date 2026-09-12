@@ -258,15 +258,15 @@ final class AppCatalog: ObservableObject {
     // MARK: - ⌘Tab 键盘会话（AppRing 同款机制）
     //
     // 第一次 ⌘Tab：立即弹条 + 预选上一个 App；
-    // 再按 Tab：沿 MRU 前进高亮；
+    // 再按 Tab：沿**视觉顺序**（标签从左到右）前进高亮，走到头回到第一个；
     // 松开 ⌘：提交高亮项（快按快放因此天然等于"切上一个"）；
     // Esc / 鼠标点标签 / 再按一次 ⌘Tab 前松手：取消。
 
     /// 会话进行中（tick 据此暂停自动隐藏；松 ⌘ 据此决定要不要提交）
     @Published private(set) var keyboardSession = false
-    /// 当前键盘高亮的 pid（视图层画蓝底）
+    /// 当前键盘高亮的 pid（视图层画描边环）
     @Published private(set) var keyboardHighlightPID: pid_t = 0
-    /// 会话的循环序列（MRU 优先，未进过 MRU 的可见 App 补在后面）
+    /// 会话的循环序列 = 面板上的视觉顺序（标签从左到右）
     private var sessionCycle: [pid_t] = []
     private var sessionIndex = 0
 
@@ -286,29 +286,30 @@ final class AppCatalog: ObservableObject {
             TTLog("kbdSession: 可见 App 不足(\(visible.count))")
             return false
         }
-        let visiblePIDs = Set(visible.map(\.pid))
-        var cycle = mru.filter { visiblePIDs.contains($0) }
-        // 当前前台排第一（它可能还没进过 MRU，比如刚被鼠标点起来）
-        if let i = cycle.firstIndex(of: activePID) {
-            cycle.remove(at: i)
-        }
-        cycle.insert(activePID, at: 0)
-        // 从没进过 MRU 的 App 按显示顺序补在后面，保证 Tab 连按能循环到全部
-        cycle.append(contentsOf: visible.map(\.pid).filter { !cycle.contains($0) })
 
+        // 循环序列 = 面板上的**视觉顺序**（标签从左到右），也就是 groups.flatMap 的顺序。
+        //
+        // 以前用的是 MRU 顺序（"最近用过"），它跟屏幕上看到的排布毫无关系 ——
+        // 于是按 Tab 时高亮会在图标之间横跳（第二个直接蹦到第四个），
+        // 看着像漏了一帧。改成按视觉顺序走：每按一次就挪到右边一格，
+        // 走到末尾从最左边续上，全程连贯可预期。
+        let cycle = visible.map(\.pid)
         sessionCycle = cycle
-        sessionIndex = 1
-        keyboardHighlightPID = cycle[1]
+        sessionIndex = SessionCycle.startIndex(visual: cycle, mru: mru, active: activePID)
+        keyboardHighlightPID = cycle[sessionIndex]
         keyboardSession = true
-        TTLog("kbdSession start → \(Self.name(of: cycle[1])) cycle=\(cycle.count)")
+        TTLog("kbdSession start → \(Self.name(of: cycle[sessionIndex])) "
+              + "idx=\(sessionIndex)/\(cycle.count)")
         return true
     }
 
-    /// 会话中再按 Tab：前进一格。
+    /// 会话中再按 Tab：沿视觉顺序前进一格，末尾回到第一个（循环）。
     func cycleKeyboardSession() {
         guard keyboardSession, !sessionCycle.isEmpty else { return }
-        sessionIndex = (sessionIndex + 1) % sessionCycle.count
+        sessionIndex = SessionCycle.next(sessionIndex, count: sessionCycle.count)
         keyboardHighlightPID = sessionCycle[sessionIndex]
+        TTLog("kbdSession cycle → \(Self.name(of: sessionCycle[sessionIndex])) "
+              + "idx=\(sessionIndex)/\(sessionCycle.count)")
     }
 
     /// 松开 ⌘：激活高亮项并结束会话。
@@ -386,5 +387,34 @@ final class AppCatalog: ObservableObject {
             }
         }
         return total
+    }
+}
+
+/// ⌘Tab 会话的循环序列规则：纯下标运算，不碰 App 列表，
+/// 这样"起点在哪 / 怎么循环"这条路径能离线跑回归（同 TabBarController.ScreenPick 的思路）。
+///
+/// 序列本身恒为**面板视觉顺序**（标签从左到右）。唯一的例外是起点：
+/// 预选"上一个 App"，好让快按快放仍然等于切回上一个 App（Windows Alt+Tab 的手感）。
+/// 一旦开始按 Tab，就只沿视觉顺序走 —— 每按一次挪一格，末尾回到第一个。
+enum SessionCycle {
+
+    /// 起点下标：MRU 里第一个既不是当前前台、又还在条上的 App。
+    ///
+    /// 找不到（MRU 里只剩当前 App、或刚启动还没记录）就退到第 1 格 ——
+    /// 调用方保证可见 App ≥ 2，所以第 1 格一定存在。
+    static func startIndex(visual: [pid_t], mru: [pid_t], active: pid_t) -> Int {
+        guard !visual.isEmpty else { return 0 }
+        let visible = Set(visual)
+        if let pid = mru.first(where: { $0 != active && visible.contains($0) }),
+           let i = visual.firstIndex(of: pid) {
+            return i
+        }
+        return visual.count > 1 ? 1 : 0
+    }
+
+    /// 前进一格；末尾回到第一个（循环，不越界、不停住）。
+    static func next(_ index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return ((index % count) + 1) % count
     }
 }
