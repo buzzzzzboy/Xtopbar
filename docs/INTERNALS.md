@@ -22,10 +22,14 @@ Sources/
   TabBarController.swift     面板定位、自动隐藏、热点唤出、预览调度、预热
   PreviewController.swift    窗口预览浮层（模型 + 视图 + 面板 + 点击切窗口）
   FloatingPanel.swift        悬浮面板 + 窗口层命中测试 + 调试日志
+  Updater.swift              在线更新（检查 GitHub Releases + 下载替换自身）
 Resources/Info.plist
 scripts/make-signing-identity.sh   自签名证书
 scripts/make-icons.swift           App 图标生成（→ .icns）
+scripts/make-release.sh            打包 + 发布 GitHub Release
 build.sh
+docs/INTERNALS.md                  ← 本文件
+docs/RELEASING.md                  发布流程 / 在线更新怎么用
 ```
 
 ## 分类：这是启发式，不是系统定义
@@ -218,6 +222,54 @@ open TopTab.app
 ```
 
 要求：Xcode 命令行工具；SDK 走 `xcrun --sdk macosx --show-sdk-path`（不要用 `/Library/Developer/CommandLineTools` 的 SDK，版本可能与编译器不匹配）。
+
+## 在线更新（`Sources/Updater.swift`）
+
+**没有服务器，也没有云空间。** 更新源就是 GitHub Releases：
+
+- 地址恒定：`https://api.github.com/repos/lrylnx/TopTab/releases/latest`
+- 仓库公开 → 客户端下载不需要任何 token
+- 发布流程见 `docs/RELEASING.md`
+
+流程：
+
+```
+checkInteractively / 启动静默检查
+  → GET /releases/latest（Accept: application/vnd.github+json）
+  → 解析 tag_name / body / assets[]，优先挑 .zip 资源
+  → 版本比较（versionTuple 补齐到 3 段后逐位比）
+  → 有新版：NSAlert（立即更新 / 稍后 / 跳过这个版本）
+  → URLSession.download → ditto -x -k 解到临时目录
+  → 校验：bundle id 一致 / 包内版本不低于发布版本 / codesign --verify --strict
+  → 对比新旧包的 designated requirement（不一致就先警告要重新授权）
+  → 写 install.sh 到临时目录，/bin/sh 起一个脱离的 helper
+  → 自己 terminate，helper 等 pid 消失 → mv 备份 → ditto 覆盖 → 去 quarantine → open
+```
+
+几个关键决定：
+
+- **必须另起进程替换自己**。运行中的 `.app` 没法覆盖自己；而且新版本要拉起来，父进程得先消失。helper 用 `kill -0 "$PID"` 轮询（最多 60s）等旧进程退出，再动手。
+- **helper 里先 `mv` 成 `.old` 再 `ditto`**，失败就把 `.old` 挪回来。直接覆盖一旦中断就是半个 App。
+- **装完必须 `xattr -dr com.apple.quarantine`**。自签名 App 没公证，从网络下来的副本会被 Gatekeeper 打隔离属性，不去掉用户会看到"已损坏"。
+- **签名校验不能省**。打包 → 上传 → 下载 → 解压这一趟容易出问题（比如用 `zip` 而不是 `ditto` 会把签名弄坏）。`make-release.sh` 打包后会自己解压回来验一次。
+- **DR 变了要警告**。TCC 授权记录绑在证书上，`codesign -d -r-` 输出的 requirement 一致就说明授权能延续。不同就弹窗提醒，别让用户以为权限凭空没了。
+- **App Translocation 要提前拦**。用户从 DMG 里直接双击运行时，App 跑在 `/private/var/folders/.../AppTranslocation/...` 这种只读路径下，替换必然失败。识别到就引导用户先拖进「应用程序」。
+- **先探写入权限再下载**。`FileManager.isWritableFile` 查父目录，不可写就直接给「打开发布页」的退路，避免下完才报错。
+- **不用 Sparkle**：本项目是 `swiftc` 直编 + `build.sh`，没有 SPM / Xcode 工程。引入 Sparkle 要另外嵌 xcframework、复制 framework、再单独签名，成本高于自己写这 400 行。
+
+调试入口：
+
+```bash
+open TopTab.app --args --check-update    # 检查并正常弹窗
+open TopTab.app --args --update-install  # 跳过弹窗，发现新版直接装
+
+# 指向任意更新源（本地文件或自己的 http 服务），用来测整条链路
+TOPTAB_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
+  /path/to/TopTab.app/Contents/MacOS/TopTab --update-install
+```
+
+相关偏好：`autoCheckUpdates`（默认开）、`ignoredVersion`（点过「跳过这个版本」的版本号，
+静默检查时不再提示，手动检查仍然提示）。
 
 ## 调试
 

@@ -61,6 +61,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
 
+        // 有新版就把标题换成醒目的一行，点了直接弹更新框
+        if case .available(let release) = Updater.shared.phase {
+            add(to: menu, title: "有新版本 v\(release.version) →", action: #selector(checkUpdate))
+        } else {
+            add(to: menu, title: "检查更新…", action: #selector(checkUpdate))
+        }
+
         menu.addItem(.separator())
 
         // 自动隐藏
@@ -127,6 +134,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
+    }
+
+    @objc private func checkUpdate() {
+        Updater.shared.checkInteractively()
     }
 
     @objc private func setDelay(_ sender: NSMenuItem) {

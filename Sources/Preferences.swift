@@ -69,6 +69,8 @@ final class Preferences: ObservableObject {
         static let cmdTabEnabled = "cmdTabEnabled"
         static let hiddenApps    = "hiddenApps"
         static let uiScale       = "uiScale"
+        static let autoCheckUpdates = "autoCheckUpdates"
+        static let ignoredVersion   = "ignoredVersion"
     }
 
     private let d = UserDefaults.standard
@@ -145,6 +147,17 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// 启动后自动去 GitHub Releases 看一眼有没有新版本（每小时最多一次）
+    @Published var autoCheckUpdates: Bool = true {
+        didSet { d.set(autoCheckUpdates, forKey: Key.autoCheckUpdates) }
+    }
+
+    /// 用户点过「跳过这个版本」的版本号。静默检查时不再为它弹窗，
+    /// 手动点「检查更新…」仍然会提示。
+    @Published var ignoredVersion: String = "" {
+        didSet { d.set(ignoredVersion, forKey: Key.ignoredVersion) }
+    }
+
     private init() {
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
@@ -158,6 +171,8 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.cmdTabEnabled) != nil { cmdTabEnabled = d.bool(forKey: Key.cmdTabEnabled) }
         if let map = d.dictionary(forKey: Key.hiddenApps) as? [String: String] { hiddenApps = map }
         if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
+        if d.object(forKey: Key.autoCheckUpdates) != nil { autoCheckUpdates = d.bool(forKey: Key.autoCheckUpdates) }
+        ignoredVersion = d.string(forKey: Key.ignoredVersion) ?? ""
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }

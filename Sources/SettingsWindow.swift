@@ -49,6 +49,7 @@ final class SettingsWindowController {
 
 struct SettingsView: View {
     @ObservedObject var prefs: Preferences
+    @ObservedObject private var updater = Updater.shared
 
     var body: some View {
         Form {
@@ -220,6 +221,62 @@ struct SettingsView: View {
             Text("鼠标顶到屏幕顶部中央唤出，点击标签切换 App，悬停标签看窗口预览。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+
+            updateRow
+        }
+    }
+
+    // MARK: 更新
+
+    /// 在线更新：菜单栏「检查更新…」和这里共用一套逻辑。
+    /// 发布信息来自 GitHub Releases，不需要任何自建服务器。
+    @ViewBuilder
+    private var updateRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button("检查更新") { updater.checkInteractively() }
+                    .disabled(updater.phase.isBusy)
+
+                if updater.phase.isBusy, case .working(let text) = updater.phase {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                } else if updater.phase == .checking {
+                    ProgressView().controlSize(.small)
+                    Text("正在检查…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Button("打开发布页") { updater.openReleasePage() }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11))
+            }
+
+            switch updater.phase {
+            case .upToDate:
+                Text("已是最新版本。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            case .available(let release):
+                Text("发现新版本 v\(release.version)，当前 v\(appVersion)。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+            case .failed(let message):
+                Text("检查失败：\(message)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            default:
+                EmptyView()
+            }
+
+            Toggle("启动后自动检查更新", isOn: $prefs.autoCheckUpdates)
+                .toggleStyle(.switch)
         }
     }
 
