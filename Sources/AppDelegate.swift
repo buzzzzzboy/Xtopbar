@@ -37,6 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TTLog("unregister → \(off ?? "ok")，status=\(LaunchAtLogin.statusDescription)")
         }
 
+        // 调试用：`--test-hotzone=1` 重放"在 1 号屏上用过一次 ⌘Tab"，
+        // 看热区是否仍留在设置指定的那块屏上
+        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--test-hotzone") }) {
+            let index = Int(arg.split(separator: "=").last ?? "0") ?? 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                controller.diagnoseHotZone(pointerOnScreen: index)
+            }
+        }
+
         // 在线更新：启动 3 秒后静默看一眼 GitHub Releases（不需要任何自建服务器）。
         // 没有新版本就什么都不做，有新版本才弹窗。
         if CommandLine.arguments.contains("--update-install") {

@@ -99,6 +99,17 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Picker("顶部唤出位置", selection: $prefs.hotZoneScreen) {
+                ForEach(HotZoneScreen.allCases) { screen in
+                    Text(screen.title).tag(screen)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            Text(prefs.hotZoneScreen.subtitle + " ⌘Tab 呼出不受这里影响，始终在鼠标位置弹出。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Toggle("窗口预览", isOn: $prefs.previewEnabled)
                 .toggleStyle(.switch)
 

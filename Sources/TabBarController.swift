@@ -70,8 +70,9 @@ final class TabBarController: TabBarHost {
         self.catalog = catalog
         self.prefs = Preferences.shared
 
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        let frame = TabBarController.targetFrame(for: screen, width: 600, height: 42, topInset: 6)
+        let frame = TabBarController.defaultScreen.map {
+            TabBarController.targetFrame(for: $0, width: 600, height: 42, topInset: 6)
+        } ?? NSRect(x: 0, y: 0, width: 600, height: 42)
         self.panel = FloatingPanel(contentRect: frame)
 
         let view = TabBarView(
@@ -232,6 +233,13 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.hidePreview() }
             .store(in: &cancellables)
 
+        // 顶部唤出位置改了：立刻把面板摆到正确的那块屏上
+        prefs.$hotZoneScreen
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relayout() }
+            .store(in: &cancellables)
+
         prefs.$glassStyle
             .dropFirst()
             .receive(on: RunLoop.main)
@@ -256,10 +264,40 @@ final class TabBarController: TabBarHost {
         TTLog("start screen=\(ScreenCaptureEngine.hasPermission) ax=\(WindowBridge.isTrusted) "
               + "bid=\(Bundle.main.bundleIdentifier ?? "-") "
               + "glass=\(prefs.glassStyle.rawValue) delay=\(prefs.hideDelay)")
+        TTLog("hotZone 模式=\(prefs.hotZoneScreen.rawValue) "
+              + "锚定屏=\(anchorScreen?.localizedName ?? "-") 热区=\(hotZone)")
         relayout()
         startMouseTracking()
         promptAccessibilityIfNeeded()
         applyBarEnabled()
+    }
+
+    /// 调试用（`--test-hotzone=<屏序号>`）：重放"在 0 号屏上用过一次 ⌘Tab"的场景，
+    /// 再按正常流程收起，把面板停靠位置与热区落到哪块屏写进日志。
+    /// 用来验证热区不会被 ⌘Tab 带跑 —— 这正是这次修的那个 bug。
+    func diagnoseHotZone(pointerOnScreen index: Int) {
+        let screens = NSScreen.screens
+        guard screens.indices.contains(index) else { return }
+        let target = screens[index]
+        TTLog("自检：模拟在 [#\(index)] \(target.localizedName) 上用 ⌘Tab 呼出")
+        pinnedToMouse = true
+        pinnedAnchor = NSPoint(x: target.frame.midX, y: target.frame.midY)
+        beginReveal()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            TTLog("  钉住后 panel.frame=\(self.panel.frame) 所在屏=\(self.panel.screen?.localizedName ?? "-")")
+            self.hide()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let hot = self.hotZone
+                let hotScreen = NSScreen.screens.first { $0.frame.intersects(hot) }
+                let anchor = self.anchorScreen
+                TTLog("  收起后 panel.frame=\(self.panel.frame) 所在屏=\(self.panel.screen?.localizedName ?? "-")")
+                TTLog("  热区=\(hot) → 落在 \(hotScreen?.localizedName ?? "?")")
+                TTLog("  锚定屏(设置=\(self.prefs.hotZoneScreen.title))=\(anchor?.localizedName ?? "-")")
+                TTLog("  结论：锚定屏顶部"
+                      + (hotScreen?.localizedName == anchor?.localizedName ? "可唤出 ✓" : "唤不出 ✗"))
+            }
+        }
     }
 
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
@@ -364,6 +402,9 @@ final class TabBarController: TabBarHost {
         catalog.commitKeyboardSession()
         // 提交后条按正常延迟收起；高亮复位，下次唤出不残留
         lastInteraction = Date()
+        // 常驻模式（不自动隐藏）下条不会自己收，得主动摆回主屏顶部 ——
+        // 否则会一直钉在 ⌘Tab 弹出的那个位置（可能已经跑到副屏）
+        if prefs.hideDelay <= 0 { parkOnAnchorScreen() }
     }
 
     /// ⌘Tab 呼出：面板钉在鼠标位置出现。已在显示（比如从顶部热区唤出）时，
@@ -451,6 +492,7 @@ final class TabBarController: TabBarHost {
         guard prefs.animationsEnabled else {
             panel.orderOut(nil)
             panel.alphaValue = 1
+            parkOnAnchorScreen()
             return
         }
 
@@ -462,7 +504,19 @@ final class TabBarController: TabBarHost {
             // 先离场再复位透明度，避免 orderOut 之前那一帧闪出全不透明的面板
             self.panel.orderOut(nil)
             self.panel.alphaValue = 1
+            self.parkOnAnchorScreen()
         }
+    }
+
+    /// 收起后把面板 frame 挪回锚定屏（隐藏状态下做，无视觉影响）。
+    ///
+    /// ⌘Tab 在副屏呼出过之后，面板 frame 会留在副屏。不挪回去的话，
+    /// 面板就"停"在副屏上，下次唤出会先在副屏闪一下再跳回主屏 ——
+    /// 而且任何以 panel.screen 兜底的判断都会继续指错屏。
+    private func parkOnAnchorScreen() {
+        guard !isRevealed else { return }
+        pinnedToMouse = false
+        relayout()
     }
 
     private func animateAlpha(to value: CGFloat, duration: TimeInterval, completion: (() -> Void)? = nil) {
@@ -488,6 +542,74 @@ final class TabBarController: TabBarHost {
 
     // MARK: - 鼠标热点
 
+    /// 屏幕选择的纯逻辑：不碰 NSScreen，只吃"每块屏有没有刘海 + frame"，
+    /// 这样多屏那条回归路径（鼠标在副屏、刘海屏该不该响应）能离线测。
+    enum ScreenPick {
+        /// 有刘海的那块屏；一台都没有刘海时退化成系统主屏（第 0 块）。
+        static func notchedIndex(notched: [Bool]) -> Int? {
+            guard !notched.isEmpty else { return nil }
+            return notched.firstIndex(of: true) ?? 0
+        }
+
+        /// 带菜单栏的系统主显示器：`screens` 首元素，坐标原点恒为 (0,0)。
+        /// 注意它跟"刘海屏"是两回事 —— 外接屏被设为主屏时，刘海在另一块屏上。
+        static func menuBarIndex(notched: [Bool]) -> Int? {
+            notched.isEmpty ? nil : 0
+        }
+
+        /// 顶部热区 / 默认停靠位用哪块屏。
+        ///
+        /// `.notch` / `.menuBar` 都**与鼠标位置无关** —— 鼠标在另一块屏时，
+        /// 目标屏顶部照样响应，反之外接屏顶部不响应。这正是这次要修的行为：
+        /// 以前热区跟着 `panel.screen` 走，⌘Tab 在副屏弹过一次，
+        /// 热区就搬到副屏，刘海那块屏反而怎么顶都没反应。
+        static func anchorIndex(for target: HotZoneScreen,
+                                notched: [Bool],
+                                frames: [CGRect],
+                                mouse: CGPoint) -> Int? {
+            switch target {
+            case .notch:
+                return notchedIndex(notched: notched)
+            case .menuBar:
+                return menuBarIndex(notched: notched)
+            case .followMouse:
+                guard let fallback = notchedIndex(notched: notched) else { return nil }
+                return frames.firstIndex { $0.contains(mouse) } ?? fallback
+            }
+        }
+    }
+
+    /// 启动时的落位屏：按默认设置（刘海屏）。
+    ///
+    /// 千万不要用 `panel.screen`：它是"面板当前停在哪个屏"，⌘Tab 在副屏弹过一次
+    /// 之后面板就留在副屏，用它算热区 = 热区跟着搬到副屏，刘海那块屏再也唤不出。
+    /// 也不要用 `NSScreen.main`：它跟着"当前接收键盘事件的窗口"漂移，同样不稳。
+    /// 合盖模式下内置屏不在列表里，`notchedIndex` 自然回落到外接那块。
+    static var notchedFlags: [Bool] {
+        if #available(macOS 12.0, *) {
+            return NSScreen.screens.map { $0.auxiliaryTopLeftArea != nil }
+        }
+        return NSScreen.screens.map { _ in false }
+    }
+
+    static var defaultScreen: NSScreen? {
+        let screens = NSScreen.screens
+        guard let i = ScreenPick.notchedIndex(notched: notchedFlags), i < screens.count else { return nil }
+        return screens[i]
+    }
+
+    /// 顶部热区与"默认停靠位"落在哪块屏，由设置里的「顶部唤出位置」决定。
+    /// ⌘Tab 呼出不走这里 —— 它永远在鼠标位置弹出，那才是这个功能的意义。
+    private var anchorScreen: NSScreen? {
+        let screens = NSScreen.screens
+        guard let i = ScreenPick.anchorIndex(for: prefs.hotZoneScreen,
+                                             notched: TabBarController.notchedFlags,
+                                             frames: screens.map(\.frame),
+                                             mouse: NSEvent.mouseLocation),
+              i < screens.count else { return nil }
+        return screens[i]
+    }
+
     /// 顶部中央的唤醒区（菜单栏高度），鼠标顶上来就显示。
     ///
     /// 宽度可在设置里调（默认 120pt ≈ 4 个状态栏图标），**不跟面板宽度走**：
@@ -496,7 +618,7 @@ final class TabBarController: TabBarHost {
     /// 干扰正常点击。唤醒只需要顶部中间一小块，面板出来后由面板区域
     /// 自己维持驻留（tick 里的并集判断），收窄不影响日常使用。
     private var hotZone: NSRect {
-        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let screen = anchorScreen ?? panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
         let height = menuBarHeight + 5
         let width = CGFloat(prefs.hotZoneWidth)
@@ -553,7 +675,10 @@ final class TabBarController: TabBarHost {
             lastInteraction = now
         } else if inPanel || inPreview || inHot {
             lastInteraction = now
-            if !isRevealed { reveal() }
+            if !isRevealed {
+                TTLog("hotZone 唤出 mouse=\(mouse) zone=\(hot) screen=\(anchorScreen?.localizedName ?? "-")")
+                reveal()
+            }
         } else if isRevealed, delay > 0, now.timeIntervalSince(lastInteraction) > delay {
             hide()
             return
@@ -714,11 +839,15 @@ final class TabBarController: TabBarHost {
 
     private func relayout() {
         // 钉在鼠标处时以"指针所在屏"为准：panel.screen 反映的是面板旧位置，
-        // 多屏下 ⌘Tab 在副屏触发、面板却还留在主屏的话会弹错地方
+        // 多屏下 ⌘Tab 在副屏触发、面板却还留在主屏的话会弹错地方。
+        //
+        // 非钉住（顶部热区唤出 / 常驻）时用 anchorScreen —— 主显示器。
+        // 以前这里是 panel.screen，于是 ⌘Tab 在副屏弹过一次后，
+        // 面板 frame 留在副屏，之后顶部唤出就一直在副屏，主屏彻底没反应。
         let screen: NSScreen? = pinnedToMouse
             ? (NSScreen.screens.first { $0.frame.contains(pinnedAnchor) }
                 ?? panel.screen ?? NSScreen.main ?? NSScreen.screens.first)
-            : panel.screen ?? NSScreen.main ?? NSScreen.screens.first
+            : (anchorScreen ?? panel.screen ?? NSScreen.main ?? NSScreen.screens.first)
         guard let screen else { return }
         // preferredWidth 已经优先返回 SwiftUI 实测的内容宽度，
         // 这样左右两边的 12pt 内边距才真的对称，最右边的标签不会被圆角切掉。

@@ -46,6 +46,35 @@ enum GlassStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// 顶部热区（鼠标顶到屏幕顶部唤出的那块区域）落在哪块屏。
+///
+/// 做成三选一而不是写死：多屏下"主显示器"本身就有两种意思 ——
+/// 系统意义上的主显示器是**带菜单栏**的那块（`NSScreen.screens[0]`），
+/// 而"刘海"只在**内置屏**上，两者在接外接屏且外接屏被设为主屏时并不是同一块。
+enum HotZoneScreen: String, CaseIterable, Identifiable {
+    case notch        // 有刘海的那块（内置屏）
+    case menuBar      // 系统主显示器（带菜单栏，screens[0]）
+    case followMouse  // 鼠标所在屏
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .notch:       return "刘海屏"
+        case .menuBar:     return "系统主显示器"
+        case .followMouse: return "鼠标所在屏"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .notch:       return "只有内置屏顶部的刘海能唤出。外接屏顶部不再响应，悬浮条也固定停在刘海那块屏上。"
+        case .menuBar:     return "只有带菜单栏的那块屏顶部能唤出（接了外接屏并把外接屏设为主屏时，这块通常是外接屏）。"
+        case .followMouse: return "鼠标在哪块屏，就顶哪块屏的顶部唤出 —— 和 ⌘Tab 呼出同一套坐标来源。"
+        }
+    }
+}
+
 /// 全局偏好：集中管理 UserDefaults 读写，视图与控制器都订阅它。
 ///
 /// 旧实现把 UserDefaults key 散落在 TabBarController 的 getter/setter 里，
@@ -66,6 +95,7 @@ final class Preferences: ObservableObject {
         static let barEnabled     = "barEnabled"
         static let animations    = "animationsEnabled"
         static let hotZoneWidth  = "hotZoneWidth"
+        static let hotZoneScreen = "hotZoneScreen"
         static let cmdTabEnabled = "cmdTabEnabled"
         static let hiddenApps    = "hiddenApps"
         static let uiScale       = "uiScale"
@@ -121,6 +151,15 @@ final class Preferences: ObservableObject {
         didSet { d.set(hotZoneWidth, forKey: Key.hotZoneWidth) }
     }
 
+    /// 顶部热区只在主显示器生效。
+    ///
+    /// 默认刘海屏。多屏时副屏顶部不再唤出，面板也固定停在主屏顶部 ——
+    /// 否则某次 ⌘Tab 在副屏弹出后，面板"停"在副屏，热区跟着跑过去，
+    /// 主屏顶部就再也唤不出来了。
+    @Published var hotZoneScreen: HotZoneScreen = .notch {
+        didSet { d.set(hotZoneScreen.rawValue, forKey: Key.hotZoneScreen) }
+    }
+
     /// ⌘Tab 呼出：接管系统应用切换器的快捷键，在鼠标位置唤出悬浮条。
     /// 靠 CGEventTap 实现，需要辅助功能权限。
     @Published var cmdTabEnabled: Bool = false {
@@ -168,6 +207,7 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.barEnabled) != nil { barEnabled = d.bool(forKey: Key.barEnabled) }
         if d.object(forKey: Key.animations) != nil { animationsEnabled = d.bool(forKey: Key.animations) }
         if d.object(forKey: Key.hotZoneWidth) != nil { hotZoneWidth = d.double(forKey: Key.hotZoneWidth) }
+        if let raw = d.string(forKey: Key.hotZoneScreen), let s = HotZoneScreen(rawValue: raw) { hotZoneScreen = s }
         if d.object(forKey: Key.cmdTabEnabled) != nil { cmdTabEnabled = d.bool(forKey: Key.cmdTabEnabled) }
         if let map = d.dictionary(forKey: Key.hiddenApps) as? [String: String] { hiddenApps = map }
         if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
