@@ -33,7 +33,11 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -addext "keyUsage=critical,digitalSignature" \
   -addext "extendedKeyUsage=critical,codeSigning" 2>/dev/null
 
-openssl pkcs12 -export -out "$TMP/id.p12" \
+# OpenSSL 3（如 Homebrew 版）默认用 AES/PBKDF2 加密 p12，macOS security 导入不了，需 -legacy
+PKCS12_LEGACY=""
+if openssl version | grep -q '^OpenSSL 3'; then PKCS12_LEGACY="-legacy"; fi
+
+openssl pkcs12 -export $PKCS12_LEGACY -out "$TMP/id.p12" \
   -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
   -name "$IDENTITY" -passout "pass:$KEYCHAIN_PASS" 2>/dev/null
 
