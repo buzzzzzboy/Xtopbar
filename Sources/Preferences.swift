@@ -298,7 +298,8 @@ final class Preferences: ObservableObject {
 
     /// 不挡窗口（Windows 任务栏同款）：条常驻，并把盖到条上的窗口挪开 / 缩短，
     /// 让出条占的那一条带状区域；有 App 全屏时条自动藏起来。需要辅助功能权限。
-    @Published var avoidWindows: Bool = false {
+    /// 默认开：条当任务栏用时"盖住窗口底部"是最常见的抱怨；想要原版的藏起来 + 顶边唤出就关掉它。
+    @Published var avoidWindows: Bool = true {
         didSet { d.set(avoidWindows, forKey: Key.avoidWindows) }
     }
 
