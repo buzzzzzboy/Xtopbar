@@ -249,7 +249,8 @@ struct StartMenuView: View {
         prefs.startPins.compactMap { pin -> LibraryApp? in
             if let app = library.app(bundleID: pin.bundleID) { return app }
             if FileManager.default.fileExists(atPath: pin.path) {
-                return LibraryApp(bundleID: pin.bundleID, url: pin.url, name: pin.name)
+                return LibraryApp(bundleID: pin.bundleID, url: pin.url,
+                                  name: AppNames.localized(url: pin.url) ?? pin.name)
             }
             return nil
         }
@@ -264,8 +265,9 @@ struct StartMenuView: View {
             if let app = library.app(bundleID: bid) {
                 result.append(app)
             } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
-                let name = FileManager.default.displayName(atPath: url.path)
-                    .replacingOccurrences(of: ".app", with: "")
+                let name = AppNames.localized(url: url)
+                    ?? FileManager.default.displayName(atPath: url.path)
+                        .replacingOccurrences(of: ".app", with: "")
                 result.append(LibraryApp(bundleID: bid, url: url, name: name))
             }
             if result.count == 6 { break }

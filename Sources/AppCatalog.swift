@@ -158,7 +158,8 @@ final class AppCatalog: ObservableObject {
                                        isRunning: true, isPinned: true))
             } else {
                 let url = resolvedURL(for: pin)
-                pinned.append(AppEntry(id: pin.bundleID, pid: 0, name: pin.name,
+                pinned.append(AppEntry(id: pin.bundleID, pid: 0,
+                                       name: url.flatMap { AppNames.localized(url: $0) } ?? pin.name,
                                        icon: icon(forPin: pin, url: url),
                                        category: .pinned, bundleURL: url,
                                        isRunning: false, isPinned: true))
@@ -200,7 +201,10 @@ final class AppCatalog: ObservableObject {
         var entries: [AppEntry] = []
         for app in apps {
             let bid = app.bundleIdentifier ?? app.executableURL?.path ?? "pid-\(app.processIdentifier)"
-            let name = app.localizedName ?? bid
+            // 条上显示的名字跟 macOS 系统语言走（见 AppNames）；
+            // 分类仍按系统接口给的名字判定，关键词表是照它写的
+            let systemName = app.localizedName ?? bid
+            let name = app.bundleURL.flatMap { AppNames.localized(url: $0) } ?? systemName
             let icon: NSImage
             if let cached = iconCache[bid] {
                 icon = cached
@@ -214,7 +218,7 @@ final class AppCatalog: ObservableObject {
                 pid: app.processIdentifier,
                 name: name,
                 icon: icon,
-                category: AppCategory.classify(name: name, bundleID: bid),
+                category: AppCategory.classify(name: systemName, bundleID: bid),
                 bundleURL: app.bundleURL
             ))
         }

@@ -110,8 +110,8 @@ final class AppLibrary: ObservableObject {
             //（顶层的菜单栏 App 照收 —— 那是用户自己装、想从开始菜单打开的）
             if embedded, flag(info["LSUIElement"]) { return }
             seen.insert(bid)
-            // 显示名按用户看到的那个位置取（链接名 = 访达里看到的名字，含本地化）
-            var name = fm.displayName(atPath: url.path)
+            // 显示名按 macOS 系统语言取（见 AppNames）；App 没做本地化就用访达里看到的文件名
+            var name = AppNames.localized(url: real) ?? fm.displayName(atPath: url.path)
             if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
             result.append(LibraryApp(bundleID: bid, url: real, name: name))
 

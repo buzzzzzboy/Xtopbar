@@ -6,6 +6,8 @@
 	<string>Xtopbar</string>
 	<key>CFBundleExecutable</key>
 	<string>Xtopbar</string>
+	<key>CFBundleAllowMixedLocalizations</key>
+	<true/>
 	<key>CFBundleIconFile</key>
 	<string>Xtopbar</string>
 	<key>CFBundleIdentifier</key>
