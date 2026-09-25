@@ -2,15 +2,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NAME="TopTab"
+NAME="Xtopbar"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 APP="$(pwd)/${NAME}.app"
 MIN_OS="14.0"
 
 # 固定签名身份：目标目录固定 + 签名不变 → 屏幕录制/辅助功能授权不会被重置
-KEYCHAIN="$HOME/Library/Keychains/toptab-signing.keychain-db"
-IDENTITY="TopTab Self-Signed"
-KEYCHAIN_PASS="toptab"
+KEYCHAIN="$HOME/Library/Keychains/xtopbar-signing.keychain-db"
+IDENTITY="Xtopbar Self-Signed"
+KEYCHAIN_PASS="xtopbar"
 
 rm -rf "$APP" build
 mkdir -p build
@@ -35,7 +35,7 @@ xcrun lipo -create -output "build/${NAME}" "build/${NAME}_arm64" "build/${NAME}_
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "build/${NAME}" "$APP/Contents/MacOS/${NAME}"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp "build/TopTab.icns" "$APP/Contents/Resources/TopTab.icns"
+cp "build/Xtopbar.icns" "$APP/Contents/Resources/Xtopbar.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # 自签名证书是 CSSMERR_TP_NOT_TRUSTED（未加入信任链），所以不能带 -v —— 
@@ -54,7 +54,7 @@ if has_identity; then
   security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN" 2>/dev/null || true
   echo "→ codesign（固定身份）"
   codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" \
-    --identifier com.zxwzz.toptab "$APP"
+    --identifier com.buzzzzzboy.xtopbar "$APP"
   codesign --verify --strict "$APP"
 else
   echo "⚠ 未找到自签名身份，退回 ad-hoc 签名（重建后需重新授权屏幕录制）"

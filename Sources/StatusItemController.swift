@@ -20,10 +20,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
-            let image = TopTabIcon.statusBar()
+            let image = XtopbarIcon.statusBar()
             image.isTemplate = true
             button.image = image
-            button.toolTip = "TopTab — 顶部 App 切换条"
+            button.toolTip = "Xtopbar — Dock / App 切换条"
             TTLog("statusItem button ok image=\(image.size) visible=\(statusItem.isVisible)")
         } else {
             TTLog("statusItem button 为 nil")
@@ -50,7 +50,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         // 标题头（禁用项，纯展示）
-        let header = NSMenuItem(title: "TopTab", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Xtopbar", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
@@ -59,6 +59,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             title: prefs.barEnabled ? "隐藏悬浮条" : "显示悬浮条",
             action: #selector(toggleBar))
 
+        if prefs.showStartButton {
+            add(to: menu, title: "开始菜单", action: #selector(openStartMenu))
+        }
         add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
 
         // 有新版就把标题换成醒目的一行，点了直接弹更新框
@@ -85,6 +88,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         delayItem.submenu = delayMenu
         menu.addItem(delayItem)
 
+        add(to: menu, title: "只显示有窗口的 App",
+            action: #selector(toggleOnlyWindowed),
+            state: prefs.onlyWindowedApps)
+
         add(to: menu, title: "窗口预览",
             action: #selector(togglePreview),
             state: prefs.previewEnabled)
@@ -105,7 +112,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         add(to: menu, title: "刷新列表", action: #selector(refresh))
         menu.addItem(.separator())
-        add(to: menu, title: "退出 TopTab", action: #selector(quit), key: "q")
+        add(to: menu, title: "退出 Xtopbar", action: #selector(quit), key: "q")
     }
 
     private func add(to menu: NSMenu,
@@ -132,6 +139,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         controller?.applyBarEnabled()
     }
 
+    @objc private func openStartMenu() {
+        // 状态栏菜单还在收尾（模态跟踪刚结束），推到下一拍再弹，免得菜单一开就被当成"点外面"关掉
+        DispatchQueue.main.async { [weak self] in self?.controller?.toggleStartMenu() }
+    }
+
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
     }
@@ -144,6 +156,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let value = sender.representedObject as? Double else { return }
         prefs.hideDelay = value
         controller?.applyBarEnabled()   // 从「常驻」切回自动隐藏时要立刻收起
+    }
+
+    @objc private func toggleOnlyWindowed() {
+        prefs.onlyWindowedApps.toggle()
     }
 
     @objc private func togglePreview() {

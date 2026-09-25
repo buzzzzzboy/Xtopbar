@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct TopTabApp: App {
+struct XtopbarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     var body: some Scene {

@@ -217,7 +217,7 @@ enum PreviewLayout {
 }
 
 struct PreviewView: View {
-    static let space = "toptab.preview"
+    static let space = "xtopbar.preview"
 
     @ObservedObject var model: PreviewModel
     @ObservedObject var prefs: Preferences
@@ -655,25 +655,27 @@ final class PreviewController {
     }
 
     private func present(anchorInScreen: NSRect, mainPanelFrame: NSRect) {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        // 以主面板所在屏为准（NSScreen.main 跟着键盘焦点漂，多屏下会夹错边界）
+        let screen = NSScreen.screens.first { $0.frame.intersects(mainPanelFrame) }
+            ?? NSScreen.main ?? NSScreen.screens[0]
         let size = PreviewView.size(for: model.items.count,
                                     hasOverflow: model.items.count > PreviewLayout.maxCards,
                                     hint: model.hint)
         let visible = screen.visibleFrame
 
-        var x = anchorInScreen.midX - size.width / 2
-        x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
-        // 主面板正下方
-        let y = mainPanelFrame.minY - 8 - size.height
-        let target = NSRect(x: x, y: y, width: size.width, height: size.height)
+        // 条在上半屏 → 主面板正下方；条停在底部（Dock）→ 主面板正上方
+        let upward = DockGeometry.opensUpward(barFrame: mainPanelFrame, visible: visible)
+        let target = DockGeometry.popupFrame(size: size, anchorX: anchorInScreen.midX,
+                                             alignLeft: false, barFrame: mainPanelFrame,
+                                             visible: visible, gap: 8)
 
         // 内容自适应窗口大小（autoresizingMask 已设），所以先改内容再改窗口
         hosting?.frame = NSRect(origin: .zero, size: size)
 
         guard panel.isVisible else {
-            // 首次出现：淡入 + 从主面板下方 10pt 处滑下
+            // 首次出现：淡入 + 从主面板一侧 10pt 处滑出（向下弹就往下滑，向上弹就往上升）
             var start = target
-            start.origin.y += 10
+            start.origin.y += upward ? -10 : 10
             panel.alphaValue = 0
             panel.setFrame(start, display: false)
             panel.orderFrontRegardless()

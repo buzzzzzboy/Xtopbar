@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// 调试日志开关：环境变量 TOPTAB_DEBUG 或存在 /tmp/toptab.debug 标记文件。
-/// 后者是为 `open TopTab.app` 准备的 —— 走 LaunchServices 启动时环境变量传不进去。
+/// 调试日志开关：环境变量 XTOPBAR_DEBUG 或存在 /tmp/xtopbar.debug 标记文件。
+/// 后者是为 `open Xtopbar.app` 准备的 —— 走 LaunchServices 启动时环境变量传不进去。
 func TTLog(_ message: String) {
-    guard ProcessInfo.processInfo.environment["TOPTAB_DEBUG"] != nil
-            || FileManager.default.fileExists(atPath: "/tmp/toptab.debug") else { return }
+    guard ProcessInfo.processInfo.environment["XTOPBAR_DEBUG"] != nil
+            || FileManager.default.fileExists(atPath: "/tmp/xtopbar.debug") else { return }
     let line = "[\(Date())] \(message)\n"
-    let url = URL(fileURLWithPath: "/tmp/toptab.log")
+    let url = URL(fileURLWithPath: "/tmp/xtopbar.log")
     if let handle = try? FileHandle(forWritingTo: url) {
         handle.seekToEndOfFile()
         handle.write(line.data(using: .utf8)!)

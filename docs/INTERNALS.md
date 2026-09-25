@@ -1,4 +1,4 @@
-# TopTab 实现细节（开发笔记）
+# Xtopbar 实现细节（开发笔记）
 
 README 只讲用户看得见的东西，这一份放工程内幕：窗口枚举方案、AX 的坑、签名机制、动效参数。改代码前先看这里。
 
@@ -9,17 +9,22 @@ Sources/
   App.swift                  @main + Settings 场景（无主窗口）
   AppDelegate.swift          accessory 策略、启动、菜单栏、调试参数
   Preferences.swift          全局偏好（UserDefaults 的唯一入口）
-  AppCatalog.swift           运行中 App 采集 / 分类 / 排序 / 激活
+  AppCatalog.swift           固定项 + 运行中 App 采集 / 分类 / 排序 / 激活 / 启动 / 固定
   AppCategory.swift          分类关键词表（启发式，仅决定排序）
-  TopTabIcon.swift           状态栏 template 图标的程序化绘制
+  XtopbarIcon.swift           状态栏 template 图标的程序化绘制
   StatusItemController.swift 菜单栏图标 + 下拉菜单
   SettingsWindow.swift       设置窗口（NSWindow + SwiftUI Form）
   LaunchAtLogin.swift        SMAppService 开机自启封装
   GlassEffect.swift          液态玻璃 / 毛玻璃 / 纯色三种背景
   ScreenCaptureEngine.swift  SC 枚举 + 抓图 + 缓存 + 预热；AX 窗口集合配对
   WindowBridge.swift         AX 窗口聚焦（下标优先，标题/几何回退）
-  TabBarView.swift           SwiftUI 标签条 + 命中区域上报 + 分隔线 + 右键菜单
-  TabBarController.swift     面板定位、自动隐藏、热点唤出、预览调度、预热
+  TabBarView.swift           SwiftUI 标签条 + 开始按钮 + 命中区域上报 + 分隔线 + 右键菜单
+  TabBarController.swift     面板定位（DockGeometry）、自动隐藏、热点唤出、预览调度、预热、开始菜单开关
+  AppLibrary.swift           已安装 App 索引（扫 Applications 目录）+ 搜索
+  StartMenuController.swift  开始菜单浮层（定位 / key 窗口 / 键盘与点外面收起）
+  StartMenuView.swift        开始菜单视图（搜索 / 已固定 / 最近使用 / 所有应用 A–Z）
+  SystemDock.swift           隐藏 / 还原系统 Dock（defaults + killall Dock）
+  WindowPresence.swift       哪些运行中的 App 没有窗口（「只显示有窗口的 App」）
   PreviewController.swift    窗口预览浮层（模型 + 视图 + 面板 + 点击切窗口）
   FloatingPanel.swift        悬浮面板 + 窗口层命中测试 + 调试日志
   Updater.swift              在线更新（检查 GitHub Releases + 下载替换自身）
@@ -76,7 +81,7 @@ ad-hoc 签名（`codesign --sign -`）的指定要求里带的是**这次构建�
 `scripts/make-signing-identity.sh` 生成一张自签名代码签名证书（首次构建自动创建）放进独立 keychain，`build.sh` 用它签名。指定要求变成：
 
 ```
-designated => identifier "com.zxwzz.toptab" and certificate root = H"58d0e1e7…"
+designated => identifier "com.buzzzzzboy.xtopbar" and certificate root = H"58d0e1e7…"
 ```
 
 证书不变 → 哈希不变 → 授权一直有效。两个容易踩的细节：
@@ -221,7 +226,7 @@ Google Chrome          2              7
 - **关闭结果不看 AX 的返回值，看窗口还在不在**。Chromium / Electron 系（QQ、微信、抖店工作台）经常"返回成功其实没关"，反之也有"返回失败其实关了"。所以按下前后各数一次「这个几何下、属于该 pid 的窗口有几个」（`CGWindowListCopyWindowInfo`，按 owner pid + bounds 匹配），数量减少才算成功
 - **数数量而不是查存在**：Chrome 两个窗口都是 `0,33 1470×841` 是常态（实测同名同尺寸一次 4 个），"还在不在"必然误判
 - **验证用窗口服务器而不是 AX**：AX 是同步阻塞的，对端卡住时要等超时；轮询验证需要 120ms 一次地反复问，只能用 `CGWindowList`
-- **必须按目标进程串行 AX 查询（`WindowBridge.axGate`）**。这是"App 没有响应关闭请求"的真正根因：Electron 系被**并发**询问 `kAXWindowsAttribute` 会返回「success + 空数组」—— 实测 QQ 串行 5/5 正常，6 路并发 **48/48 全空**，错误码还是 0，跟"真的没窗口"分不开。而 TopTab 恰好会同一瞬间对同一进程发两路（预览枚举 + 关窗前重新配对）。按 pid 上闸之后不同 App 仍并行，同一 App 排队
+- **必须按目标进程串行 AX 查询（`WindowBridge.axGate`）**。这是"App 没有响应关闭请求"的真正根因：Electron 系被**并发**询问 `kAXWindowsAttribute` 会返回「success + 空数组」—— 实测 QQ 串行 5/5 正常，6 路并发 **48/48 全空**，错误码还是 0，跟"真的没窗口"分不开。而 Xtopbar 恰好会同一瞬间对同一进程发两路（预览枚举 + 关窗前重新配对）。按 pid 上闸之后不同 App 仍并行，同一 App 排队
 - **AX 问不出来还有最后一条路：真实点击红点**。`closeByRedDotClick` 点窗口左上角 `(minX+13, minY+13)`，点之前必须确认①红点位置最上层就是目标窗口（`topmostWindowOwner`）②这个点不被自己的预览/主面板压住（`avoid`），否则宁可不点 —— 点歪了就是切窗口。实测对**后台** App 的窗口点红点能关掉，而且不会把那个 App 拉到前台
 - Electron 冷启动树没建好时写 `AXManualAccessibility`（Electron）/ `AXEnhancedUserInterface`（Chromium）唤醒，代价是对端要维护整棵树，只在「明明有窗口却问不出来」时才用
 - 关掉之后要 `refresh(minInterval: 0)` 再重新枚举，且**等 200ms** 让窗口真的消失。重枚举后用窗口服务器确认窗口**还在**才提示失败 —— 幽灵卡片（微信挂在屏幕外的主界面）点不动是正常的，不该报错吓人
@@ -253,6 +258,59 @@ Google Chrome          2              7
 
 两个刻意的约束：**缩放只作用在图标或整块预览上，绝不做在标签上** —— 标签的命中区域是 `GeometryReader` 上报的，缩放会让点击判定和视觉错位；悬停 / 选中一律用颜色过渡而不是位移。布局上：位置锚定屏（默认系统主显示器，见 5b）可见区域顶部居中，距菜单栏 6pt（⌘Tab 呼出时钉在鼠标位置，默认在指针上方，贴顶则翻到下方）；宽度随 App 数量自适应，上限为屏宽 −24pt（超出可横向滚动，两端渐隐）；分隔线每两个标签之间都是同一条淡竖线（1×16pt，opacity 0.14）；左右留白各 12pt，标签自身 9pt 内边距 —— 内边距太小（8pt）时最右那个标签看起来像"贴边"。前台 App 高亮**只在指针够得着的时候亮**：指针在唤出热点区或标签条上时亮起，离开即撤下。高亮表达的是"这个可以点"，不是"它是前台" —— 让它常驻的话，切走 App 之后高亮还挂在旧标签上，看起来像选中了它，很容易误读。
 
+## Dock 化：停靠边、固定、开始菜单
+
+**1. 停靠边（`DockEdge` / `DockGeometry`）**
+
+`Preferences.dockEdge`：`.top`（默认，原版外观）/ `.bottom`。「只显示图标」`iconOnly` 和「显示开始按钮」`showStartButton` 也默认关 —— 不动设置就是原版的顶部标签条。所有跟停靠边有关的几何都收在 `TabBarController.swift` 里的 `DockGeometry`（纯矩形运算，同 `ScreenPick` 的思路，`--test-pins` 会把两边都打一遍）：
+
+| 函数 | 顶部 | 底部 |
+|---|---|---|
+| `barFrame` | `visible.maxY - inset - height`（菜单栏正下方） | `visible.minY + inset`（系统 Dock 常驻时 visibleFrame 已经让出它的位置，不会叠） |
+| `hotZone` | 菜单栏中央、宽度可调（默认 120pt，免得误触状态图标），上边界越出屏幕 2pt | 底边一条 6pt 高的窄带，向下越出 2pt（同样是半开区间的坑），宽度 = max(条宽, 设置值) —— 底边没有状态图标可误触 |
+| `slideSign` | +1（从上方落下） | −1（从下方升起） |
+
+预览和开始菜单往哪边弹，**看条的实际位置而不是设置**（`opensUpward`：条在屏幕下半部就向上）—— ⌘Tab 把条钉在鼠标处时，两种停靠边都可能出现在屏幕任何位置。弹出面板统一走 `popupFrame` 摆位 + 夹进可用区。预览面板顺手改成按"主面板所在屏"夹边界，不再用会跟着键盘焦点漂的 `NSScreen.main`。
+
+**2. 固定项与运行项（`AppCatalog.collect`）**
+
+`AppEntry` 多了 `bundleURL` / `isRunning` / `isPinned`。没在运行的固定项 `pid = 0`：
+
+- 分组 = 「已固定」组（`AppCategory.pinned`，rank −1，按用户排的顺序，**不按名称排**）+ 其余运行中的 App 按分类分组。固定项按 bundle id 合并运行实例
+- 固定项不受「隐藏此 App」影响；固定时顺手把它从隐藏列表里放出来
+- 所有"只对运行中 App 有意义"的地方都要按 `pid > 0` 过滤：⌘Tab 循环序列、预热、预览、退出。`activePID` / `keyboardHighlightPID` 永远不会是 0，所以高亮也不会落到没运行的图标上
+- 点没运行的固定项 → `launch(url:)`（`NSWorkspace.openApplication`），启动完成后 `didLaunchApplication` 通知触发 refresh，小圆点自己亮
+- 固定的 .app 被挪走：按 bundle id 问 LaunchServices（`urlForApplication(withBundleIdentifier:)`）兜底；两边都找不到也留在条上，方便右键取消固定
+- 持久化：`dockPins` / `startPins` 是 `[PinnedApp]`（bundle id + 路径 + 名称）编码成 JSON 存 UserDefaults；数组顺序即显示顺序
+
+**3. 开始按钮 / 开始菜单**
+
+- 开始按钮是条上的第一个元素，命中区域用保留 id `AppCatalog.startButtonID`（`"__start__"`）上报，`handleTap` 先判它 → `host.toggleStartMenu()`。和标签一样走窗口层命中，不走 SwiftUI 手势
+- 开始菜单是独立的 `FloatingPanel`，比主面板高一层。它要接收键盘（搜索框），所以打开时 `makeKeyAndOrderFront` —— 面板是 nonactivating 的，能成为 key 窗口但**不激活 Xtopbar**，前台 App 不会失焦（Spotlight / Alfred 同款）。面板是 key，所以里面直接用 SwiftUI `Button`
+- 键盘不走 SwiftUI `onKeyPress`：焦点在搜索框里时 ↑↓ 会先被文本框吃掉。控制器装一个本地 keyDown 监听处理 Esc / ↑↓ / 回车。监听回调里只用 `MainActor.assumeIsolated` 带出 `Bool`（"吃不吃"）—— 它只允许带出 Sendable 的值
+- 收起时机：Esc、打开 App、点外面（本地 + 全局鼠标监听）、面板失去 key。**点在条上不算点外面**：否则点开始按钮想关菜单时，本地监听先把它关了，按钮的命中测试又把它打开
+- 菜单开着时 `tick` 把它当成 `menuTracking` 一样续命：条不自动隐藏、保持满不透明度、不弹窗口预览
+- 已安装 App 索引（`AppLibrary`）：直接扫 `/Applications`、`/System/Applications`（含 Utilities）、`/System/Library/CoreServices/Applications`、`~/Applications` 两层以内的 `.app`，按 bundle id 去重。不用 Spotlight：索引被关掉 / 重建中时会返回空。启动时扫一次，之后每次打开菜单超过 60 秒就后台重扫
+- 「所有应用」按首字母分组：中文名先 `applyingTransform(.toLatin)` + `.stripDiacritics` 转拼音取首字母（「微信」→ W），非字母开头归「#」排最后
+- 「最近使用」= `Preferences.recentApps`（bundle id，最多 8 个，`noteActive` 与 `launch` 时记一笔），已固定到开始菜单的不重复列
+
+**4. 只显示有窗口的 App（`WindowPresence`）**
+
+`Preferences.onlyWindowedApps`（默认开）。关窗不发任何 `NSWorkspace` 通知，只能跟着 catalog 的 1.2s 兜底轮询（外加 launch / activate 等通知）后台查一轮：
+
+- AX `kAXWindowsAttribute` + 预览同款 `isRealWindow` 过滤数真窗口，**最小化的也算**；按 pid 走 `axGate`，不同 App 并发，整轮在 `Task.detached` 里
+- AX 回空但窗口服务器里这个 pid 在屏上有一块 ≥120×90、不透明的 layer-0 表面 → 算有窗口（Electron 系偶发「success + 空数组」，不兜会把开着窗口的微信藏掉）
+- 问不出来（超时 / 失败）= 维持原判；**连续两次**"没窗口"才藏 —— 新启动的 App 窗口还没建好时不闪
+- 固定项在 `collect` 里先被收走，不受过滤；没有辅助功能权限时不过滤（拿不到最小化窗口，宁可多显示）
+
+**5. 隐藏系统 Dock（`SystemDock`）**
+
+没有公开 API 能关掉系统 Dock，做法是 `defaults write com.apple.dock autohide -bool true` + `autohide-delay -float 1000`，再 `killall Dock`（launchd 立刻拉起，窗口不受影响）。
+
+- 开关变化才动手（`AppDelegate` 里 `$hideSystemDock.dropFirst()`），每次先弹确认框；用户取消就把开关弹回去，用 `revertingDockToggle` 挡掉弹回本身触发的第二次确认
+- 原值**只在第一次开启时存**（`hasSavedSystemDock`）：否则"开着再开一次"会把 1000 秒延迟当原值存下来，关掉后系统 Dock 永远出不来
+- 原本没写过的 key，还原时 `defaults delete` 而不是写默认值 —— 还原成"没动过"的样子
+
 ## 偏好与设置实现
 
 - **开机自启动**用 `SMAppService.mainApp`（macOS 13+），不写 LaunchAgent plist。实测自签名 App 也能正常注册（`register → 已启用`）。注意它注册的是**当前 App 所在路径**，把 App 挪到别处需要重新注册；注册被系统拦下时会在设置里显示原因并给出「打开登录项设置」按钮
@@ -265,7 +323,7 @@ Google Chrome          2              7
 
 ```bash
 ./build.sh          # 生成图标 + 双架构编译 + 自签名 + 校验
-open TopTab.app
+open Xtopbar.app
 ```
 
 要求：Xcode 命令行工具；SDK 走 `xcrun --sdk macosx --show-sdk-path`（不要用 `/Library/Developer/CommandLineTools` 的 SDK，版本可能与编译器不匹配）。
@@ -274,7 +332,7 @@ open TopTab.app
 
 **没有服务器，也没有云空间。** 更新源就是 GitHub Releases：
 
-- 地址恒定：`https://api.github.com/repos/lrylnx/TopTab/releases/latest`
+- 地址恒定：`https://api.github.com/repos/buzzzzzboy/Xtopbar/releases/latest`
 - 仓库公开 → 客户端下载不需要任何 token
 - 发布流程见 `docs/RELEASING.md`
 
@@ -307,12 +365,12 @@ checkInteractively / 启动静默检查
 调试入口：
 
 ```bash
-open TopTab.app --args --check-update    # 检查并正常弹窗
-open TopTab.app --args --update-install  # 跳过弹窗，发现新版直接装
+open Xtopbar.app --args --check-update    # 检查并正常弹窗
+open Xtopbar.app --args --update-install  # 跳过弹窗，发现新版直接装
 
 # 指向任意更新源（本地文件或自己的 http 服务），用来测整条链路
-TOPTAB_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
-  /path/to/TopTab.app/Contents/MacOS/TopTab --update-install
+XTOPBAR_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
+  /path/to/Xtopbar.app/Contents/MacOS/Xtopbar --update-install
 ```
 
 相关偏好：`autoCheckUpdates`（默认开）、`ignoredVersion`（点过「跳过这个版本」的版本号，
@@ -320,16 +378,18 @@ TOPTAB_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
 
 ## 调试
 
-环境变量 `TOPTAB_DEBUG=1`，或存在标记文件 `/tmp/toptab.debug`（后者用于 `open TopTab.app` 启动的场景 —— 走 LaunchServices 时环境变量传不进去）。日志写到 `/tmp/toptab.log`。
+环境变量 `XTOPBAR_DEBUG=1`，或存在标记文件 `/tmp/xtopbar.debug`（后者用于 `open Xtopbar.app` 启动的场景 —— 走 LaunchServices 时环境变量传不进去）。日志写到 `/tmp/xtopbar.log`。
 
 启动参数：
 
 ```bash
-open TopTab.app --args --settings      # 直接拉起设置窗口
-open TopTab.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
-open TopTab.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
-open TopTab.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
-open TopTab.app --args --test-quickswitch # 模拟"⌘Tab 呼出 → 选完"，看条是否当场消失、会不会被唤出区拉回来
+open Xtopbar.app --args --settings      # 直接拉起设置窗口
+open Xtopbar.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
+open Xtopbar.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
+open Xtopbar.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
+open Xtopbar.app --args --test-quickswitch # 模拟"⌘Tab 呼出 → 选完"，看条是否当场消失、会不会被唤出区拉回来
+open Xtopbar.app --args --test-pins       # 打印固定 / 运行分组、两种停靠边的条 / 唤出区 / 开始菜单位置、一次应用搜索
+open Xtopbar.app --args --start-menu      # 启动后直接弹开始菜单
 ```
 
 `--test-hotzone=<屏序号>` 就是上面 5b 那个 bug 的回归入口：它会模拟 ⌘Tab 把面板钉到指定屏，再按正常流程收起，然后把面板停靠位置、热区矩形、热区落在哪块屏一起写进日志。换个屏号再跑一次，就能看出热区是否会被 ⌘Tab 带跑。

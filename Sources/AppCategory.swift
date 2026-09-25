@@ -2,6 +2,8 @@ import Foundation
 
 /// 自动分类规则：按 App 名称 / Bundle ID 关键词匹配
 enum AppCategory: String, CaseIterable, Identifiable {
+    /// 固定到任务栏的 App（不走关键词匹配，classify 永远不会返回它），恒排最前
+    case pinned
     case browser
     case terminal
     case development
@@ -15,6 +17,7 @@ enum AppCategory: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .pinned:        return "已固定"
         case .browser:       return "浏览器"
         case .terminal:      return "终端"
         case .development:   return "开发"
@@ -28,6 +31,7 @@ enum AppCategory: String, CaseIterable, Identifiable {
 
     var rank: Int {
         switch self {
+        case .pinned:        return -1
         case .browser:       return 0
         case .terminal:      return 1
         case .development:   return 2

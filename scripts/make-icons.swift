@@ -1,5 +1,5 @@
 //
-// 生成 TopTab 的 App 图标（.icns）。
+// 生成 Xtopbar 的 App 图标（.icns）。
 //
 //   xcrun swiftc -O -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
 //       -o /tmp/make-icons scripts/make-icons.swift
@@ -126,7 +126,7 @@ for v in variants {
     try! data.write(to: iconset.appendingPathComponent("\(v.name).png"))
 }
 
-let icns = outputDir.appendingPathComponent("TopTab.icns")
+let icns = outputDir.appendingPathComponent("Xtopbar.icns")
 let task = Process()
 task.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 task.arguments = ["-c", "icns", iconset.path, "-o", icns.path]

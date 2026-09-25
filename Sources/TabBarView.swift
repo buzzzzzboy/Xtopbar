@@ -25,6 +25,46 @@ struct BarViewportWidthKey: PreferenceKey {
     }
 }
 
+/// 开始按钮（条最左边）。点击同样由窗口层命中测试处理，
+/// 命中区域用保留 id `AppCatalog.startButtonID` 上报。
+struct StartButton: View {
+    let iconOnly: Bool
+    let isOpen: Bool
+    var animated: Bool = true
+
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: "square.grid.2x2.fill")
+            .font(.system(size: TTLayout.font(iconOnly ? 24 : 15), weight: .semibold))
+            .foregroundStyle(
+                LinearGradient(colors: [Color(red: 0.25, green: 0.62, blue: 1.0),
+                                        Color(red: 0.14, green: 0.42, blue: 0.95)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
+            .scaleEffect(hovering && !isOpen ? 1.08 : 1.0)
+            .background(
+                RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                    .fill(Color.primary.opacity(isOpen ? 0.18 : (hovering ? 0.10 : 0)))
+            )
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .animation(animated ? .easeOut(duration: 0.11) : nil, value: hovering)
+            .animation(animated ? .easeOut(duration: 0.11) : nil, value: isOpen)
+            .help("开始")
+            .padding(.horizontal, TTLayout.s(3))
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TabFramesKey.self,
+                        value: [AppCatalog.startButtonID: geo.frame(in: .named(TabBarView.space))]
+                    )
+                }
+            )
+    }
+}
+
 /// 单个 App 标签（纯视觉，点击由窗口层命中测试处理）
 struct AppTab: View {
     let entry: AppEntry
@@ -32,13 +72,18 @@ struct AppTab: View {
     /// ⌘Tab 会话中被键盘选中的标签：画描边环（和前台蓝底区分开）
     var keyboardSelected: Bool = false
     var animated: Bool = true
+    /// Dock 风格：只画大图标 + 运行小圆点，名字放进悬停提示
+    var iconOnly: Bool = false
+    /// 是否已固定到开始菜单（决定右键菜单写「固定」还是「取消固定」）
+    var startPinned: Bool = false
+    /// 开始按钮开着才给「固定到开始菜单」（没开始菜单时这一项没有意义）
+    var startMenuEnabled: Bool = false
     /// 指针是否还在整条悬浮条上。窗口被 orderOut 时 onHover 可能收不到
     /// false，用外层信号兜底，免得下次唤出时残留高亮
     var barHovered: Bool = true
     var onHoverChange: (Bool) -> Void = { _ in }
-    /// 右键菜单动作（由外层接进 AppCatalog）
-    var onContextHide: (() -> Void)?
-    var onContextQuit: (() -> Void)?
+    /// 右键菜单动作的去处
+    var catalog: AppCatalog?
 
     @State private var hovering = false
 
@@ -46,27 +91,9 @@ struct AppTab: View {
     private var hot: Bool { hovering && barHovered }
 
     var body: some View {
-        HStack(spacing: TTLayout.s(6)) {
-            Image(nsImage: entry.icon)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: TTLayout.s(18), height: TTLayout.s(18))
-                // 只缩放图标本身：frame 是固定的，布局不会变，
-                // 上报给窗口层的命中区域也就不受影响。
-                .scaleEffect(hot && !isActive ? 1.12 : 1.0)
-                .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
-            Text(entry.name)
-                // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
-                // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
-                // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
-                // 选中态改用满不透明度的文字 + 蓝底 + 描边来表达。
-                .font(.system(size: TTLayout.font(12), weight: .medium))
-                .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : 0.85))
-                .lineLimit(1)
-                .fixedSize()
+        Group {
+            if iconOnly { dockCell } else { labelCell }
         }
-        .padding(.horizontal, TTLayout.s(9))
-        .padding(.vertical, TTLayout.s(6))
         .background(
             RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
                 .fill(backgroundColor)
@@ -92,13 +119,10 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
-        .help(entry.name)
-        // 右键单个标签：退出 / 隐藏这个 App。左键被窗口层截走做命中测试，
+        .help(entry.isRunning ? entry.name : "\(entry.name)（未运行，点击打开）")
+        // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
-        .contextMenu {
-            Button("隐藏此 App") { onContextHide?() }
-            Button("退出 App", role: .destructive) { onContextQuit?() }
-        }
+        .contextMenu { tabMenu }
         .background(
             GeometryReader { geo in
                 Color.clear.preference(
@@ -107,6 +131,87 @@ struct AppTab: View {
                 )
             }
         )
+    }
+
+    /// Dock 风格：大图标 + 下方运行指示点（同 macOS Dock：有点 = 在运行）
+    private var dockCell: some View {
+        VStack(spacing: TTLayout.s(3)) {
+            Image(nsImage: entry.icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: TTLayout.s(36), height: TTLayout.s(36))
+                // 只缩放图标本身：frame 是固定的，命中区域不受影响
+                .scaleEffect(hot && !isActive ? 1.12 : 1.0)
+                .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
+            runningDot(visible: entry.isRunning)
+        }
+        .padding(.horizontal, TTLayout.s(6))
+        .padding(.top, TTLayout.s(5))
+        .padding(.bottom, TTLayout.s(2))
+    }
+
+    /// 标签风格：图标 + 名称。固定组里没在运行的名字压淡，在运行的底部带小圆点。
+    private var labelCell: some View {
+        HStack(spacing: TTLayout.s(6)) {
+            Image(nsImage: entry.icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: TTLayout.s(18), height: TTLayout.s(18))
+                // 只缩放图标本身：frame 是固定的，布局不会变，
+                // 上报给窗口层的命中区域也就不受影响。
+                .scaleEffect(hot && !isActive ? 1.12 : 1.0)
+                .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
+            Text(entry.name)
+                // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
+                // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
+                // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
+                // 选中态改用满不透明度的文字 + 蓝底 + 描边来表达。
+                .font(.system(size: TTLayout.font(12), weight: .medium))
+                .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : (entry.isRunning ? 0.85 : 0.55)))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.horizontal, TTLayout.s(9))
+        .padding(.vertical, TTLayout.s(6))
+        .overlay(alignment: .bottom) {
+            if entry.isPinned { runningDot(visible: entry.isRunning).offset(y: TTLayout.s(-1)) }
+        }
+    }
+
+    private func runningDot(visible: Bool) -> some View {
+        Circle()
+            .fill(Color.primary.opacity(visible ? 0.75 : 0))
+            .frame(width: TTLayout.s(4), height: TTLayout.s(4))
+    }
+
+    /// 顶层保持原版的「隐藏此 App / 退出 App」，固定相关的收进「固定」子菜单
+    @ViewBuilder
+    private var tabMenu: some View {
+        if entry.isRunning {
+            if !entry.isPinned {
+                Button("隐藏此 App") { catalog?.hide(entry) }
+            }
+            Button("退出 App", role: .destructive) { catalog?.terminate(entry) }
+        } else {
+            Button("打开") { catalog?.activate(entry) }
+        }
+        Divider()
+        Menu("固定") {
+            if entry.isPinned {
+                Button("从任务栏取消固定") { catalog?.unpinFromDock(entry.id) }
+                Button("向左移") { catalog?.moveDockPin(entry.id, by: -1) }
+                Button("向右移") { catalog?.moveDockPin(entry.id, by: 1) }
+            } else {
+                Button("固定到任务栏") { catalog?.pinToDock(entry) }
+            }
+            if startMenuEnabled {
+                if startPinned {
+                    Button("从开始菜单取消固定") { catalog?.unpinFromStart(entry.id) }
+                } else {
+                    Button("固定到开始菜单") { catalog?.pinToStart(entry) }
+                }
+            }
+        }
     }
 
     private var backgroundColor: Color {
@@ -122,7 +227,7 @@ struct TabBarView: View {
     /// 不能用内容坐标系：标签多到横向滚动时，内容坐标系里卡片会跟着滚，
     /// 窗口层的命中区域却停在原地 —— 滚过之后再点边角就切错 App。
     /// 窗口坐标则天然随滚动更新（GeometryReader 每帧重报）。
-    static let space = "toptab.window"
+    static let space = "xtopbar.window"
 
     @ObservedObject var catalog: AppCatalog
     @ObservedObject var prefs: Preferences
@@ -135,7 +240,7 @@ struct TabBarView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             content
         }
-        .frame(width: catalog.barWidth, height: TTLayout.s(42))
+        .frame(width: catalog.barWidth, height: TTLayout.barHeight)
         // 溢出时两端渐隐。顺序很关键：fade 打在滚动内容上并立刻
         // compositingGroup 合成一张图，**之后**才垫玻璃 background ——
         // destinationOut 只咬掉内容，玻璃完好；玻璃反过来垫在前面会被咬穿。
@@ -189,14 +294,26 @@ struct TabBarView: View {
 
     private var content: some View {
         HStack(spacing: 0) {
+            if prefs.showStartButton {
+                StartButton(iconOnly: prefs.iconOnly,
+                            isOpen: catalog.startMenuOpen,
+                            animated: prefs.animationsEnabled)
+                if !catalog.groups.isEmpty { divider }
+            }
             ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
                 if index > 0 { divider }
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
-                    if i > 0 { divider }
+                    // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
+                    if i > 0, !prefs.iconOnly { divider }
                     AppTab(entry: entry,
-                               isActive: catalog.pointerOverBar && entry.pid == catalog.activePID,
-                               keyboardSelected: entry.pid == catalog.keyboardHighlightPID,
+                               // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
+                               isActive: catalog.pointerOverBar && entry.pid > 0
+                                   && entry.pid == catalog.activePID,
+                               keyboardSelected: entry.pid > 0 && entry.pid == catalog.keyboardHighlightPID,
                                animated: prefs.animationsEnabled,
+                               iconOnly: prefs.iconOnly,
+                               startPinned: prefs.startPins.contains { $0.bundleID == entry.id },
+                               startMenuEnabled: prefs.showStartButton,
                                barHovered: catalog.pointerOverBar,
                                onHoverChange: { hovering in
                                    if hovering {
@@ -205,8 +322,7 @@ struct TabBarView: View {
                                        catalog.onTabHoverEnd?()
                                    }
                                },
-                               onContextHide: { catalog.hide(entry) },
-                               onContextQuit: { catalog.terminate(entry) })
+                               catalog: catalog)
                     .padding(.horizontal, TTLayout.s(1))
                 }
             }
@@ -233,7 +349,7 @@ struct TabBarView: View {
     private var divider: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.14))
-            .frame(width: 1, height: TTLayout.s(16))
+            .frame(width: 1, height: TTLayout.s(prefs.iconOnly ? 30 : 16))
             .padding(.horizontal, TTLayout.s(6))
     }
 
@@ -242,8 +358,19 @@ struct TabBarView: View {
         Text(catalog.host?.permissionSummary() ?? "")
 
         Button("设置…") { catalog.host?.openSettings() }
+        if prefs.showStartButton {
+            Button("打开开始菜单") { catalog.host?.toggleStartMenu() }
+        }
 
         Divider()
+
+        Picker("Dock 位置", selection: $prefs.dockEdge) {
+            ForEach(DockEdge.allCases) { edge in
+                Text(edge.title).tag(edge)
+            }
+        }
+        Toggle("只显示图标", isOn: $prefs.iconOnly)
+        Toggle("只显示有窗口的 App", isOn: $prefs.onlyWindowedApps)
 
         Menu("自动隐藏") {
             ForEach(Preferences.delayOptions, id: \.value) { item in
@@ -263,6 +390,6 @@ struct TabBarView: View {
 
         Divider()
         Button("刷新列表") { catalog.refresh() }
-        Button("退出 TopTab") { NSApp.terminate(nil) }
+        Button("退出 Xtopbar") { NSApp.terminate(nil) }
     }
 }

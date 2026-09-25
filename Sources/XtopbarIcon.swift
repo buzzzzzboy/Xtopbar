@@ -1,10 +1,10 @@
 import AppKit
 
-/// TopTab 的图形标识。
+/// Xtopbar 的图形标识。
 ///
 /// 状态栏图标走 **template** 渲染 —— 系统只取 alpha 通道，按当前菜单栏
 /// 配色（浅色/深色菜单栏、选中态反白）自动上色，所以这里只画形状不画颜色。
-enum TopTabIcon {
+enum XtopbarIcon {
 
     /// 状态栏图标（18×18 pt）：顶部一条悬浮栏，下面三个 App 圆点。
     ///
