@@ -6,6 +6,11 @@ struct LibraryApp: Identifiable, Equatable, Hashable {
     let bundleID: String
     let url: URL
     let name: String
+    /// 第一次装上的时间（「最近加入」排序用）。扫描时先填目录的加入时间，
+    /// 回到主线程后换成持久化的首次出现时间（见 `AppLibrary.applyFirstSeen`）
+    var added: Date? = nil
+    /// 最近一次安装 / 更新的时间（「最近更新」排序用）
+    var updated: Date? = nil
 
     var id: String { bundleID }
 
@@ -82,10 +87,35 @@ final class AppLibrary: ObservableObject {
                 let lib = AppLibrary.shared
                 lib.scanning = false
                 lib.lastScan = Date()
-                if found != lib.apps { lib.apps = found }
+                let merged = lib.applyFirstSeen(found)
+                if merged != lib.apps { lib.apps = merged }
                 TTLog("AppLibrary 扫描完成 \(found.count) 个 App")
             }
         }
+    }
+
+    /// 「最近加入」要的是**第一次装上**的时间，可目录的加入时间在 App 每次更新
+    /// （整个 .app 被换掉）后都会刷新。所以第一次见到某个 App 时把时间记下来，
+    /// 之后一直用记下的那个 —— 更新过的 App 不会因此跳到「最近加入」最前面。
+    /// （功能刚上线时没有历史，只能先用目录的加入时间当起点。）
+    private func applyFirstSeen(_ apps: [LibraryApp]) -> [LibraryApp] {
+        let prefs = Preferences.shared
+        var firstSeen = prefs.appFirstSeen
+        var changed = false
+        let result = apps.map { app -> LibraryApp in
+            var app = app
+            let current = (app.added ?? Date()).timeIntervalSince1970
+            let stored = firstSeen[app.bundleID] ?? current
+            let first = min(stored, current)
+            if firstSeen[app.bundleID] != first {
+                firstSeen[app.bundleID] = first
+                changed = true
+            }
+            app.added = Date(timeIntervalSince1970: first)
+            return app
+        }
+        if changed { prefs.appFirstSeen = firstSeen }
+        return result
     }
 
     /// 纯文件系统扫描：根目录下 `maxDepth` 层以内的 .app，外加套在 App 包里的独立 App；
@@ -113,7 +143,16 @@ final class AppLibrary: ObservableObject {
             // 显示名按 macOS 系统语言取（见 AppNames）；App 没做本地化就用访达里看到的文件名
             var name = AppNames.localized(url: real) ?? fm.displayName(atPath: url.path)
             if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
-            result.append(LibraryApp(bundleID: bid, url: real, name: name))
+            // 加入时间：放进所在目录的时刻（拖进 /Applications、安装器装进来）；
+            // 更新时间：再和包本身、Info.plist 的修改时间取最新 —— App 更新会换掉整个包
+            let values = try? real.resourceValues(
+                forKeys: [.addedToDirectoryDateKey, .creationDateKey, .contentModificationDateKey])
+            let added = values?.addedToDirectoryDate ?? values?.creationDate
+            let plistDate = (try? real.appendingPathComponent("Contents/Info.plist")
+                .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let updated = [added, values?.contentModificationDate, plistDate].compactMap { $0 }.max()
+            result.append(LibraryApp(bundleID: bid, url: real, name: name,
+                                     added: added, updated: updated))
 
             // 包里还套着独立 App 的话一起收。只翻一层：套娃里的套娃不再往里钻
             guard !embedded else { return }

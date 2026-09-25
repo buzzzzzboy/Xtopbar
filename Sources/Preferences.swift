@@ -106,6 +106,23 @@ enum DockEdge: String, CaseIterable, Identifiable {
     }
 }
 
+/// 开始菜单「所有应用」的排序
+enum StartMenuSort: String, CaseIterable, Identifiable {
+    case name       // 按名称 A–Z（中文按拼音首字母）
+    case added      // 最近加入（第一次装上的时间，新的在前）
+    case updated    // 最近更新（最近一次安装 / 更新的时间，新的在前）
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .name:    return "名称"
+        case .added:   return "最近加入"
+        case .updated: return "最近更新"
+        }
+    }
+}
+
 /// 一个被固定的 App（任务栏 / 开始菜单各一份列表）。
 ///
 /// 存路径是为了 App 没在运行时也能画图标、能启动；
@@ -155,6 +172,8 @@ final class Preferences: ObservableObject {
         static let hideSystemDock = "hideSystemDock"
         static let avoidWindows  = "avoidWindows"
         static let clickToMinimize = "clickToMinimize"
+        static let startMenuSort = "startMenuSort"
+        static let appFirstSeen  = "appFirstSeen"
         static let savedDockAutohide = "savedSystemDockAutohide"
         static let savedDockDelay    = "savedSystemDockDelay"
     }
@@ -308,6 +327,18 @@ final class Preferences: ObservableObject {
         didSet { d.set(clickToMinimize, forKey: Key.clickToMinimize) }
     }
 
+    /// 开始菜单「所有应用」的排序方式
+    @Published var startMenuSort: StartMenuSort = .name {
+        didSet { d.set(startMenuSort.rawValue, forKey: Key.startMenuSort) }
+    }
+
+    /// 每个 App 第一次被开始菜单索引看到的时间（bundle id → 秒），「最近加入」排序用。
+    /// 不发布：只有索引扫描在读写，变了也不需要重绘任何东西。
+    var appFirstSeen: [String: Double] {
+        get { d.dictionary(forKey: Key.appFirstSeen) as? [String: Double] ?? [:] }
+        set { d.set(newValue, forKey: Key.appFirstSeen) }
+    }
+
     /// 开启「隐藏系统 Dock」之前系统 Dock 的原值，关掉时照原样写回。
     /// nil = 那个 key 原本就没写过（还原时删掉而不是写一个值进去）。
     var savedDockAutohide: Bool? {
@@ -383,6 +414,7 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
         if d.object(forKey: Key.avoidWindows) != nil { avoidWindows = d.bool(forKey: Key.avoidWindows) }
         if d.object(forKey: Key.clickToMinimize) != nil { clickToMinimize = d.bool(forKey: Key.clickToMinimize) }
+        if let raw = d.string(forKey: Key.startMenuSort), let s = StartMenuSort(rawValue: raw) { startMenuSort = s }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }
