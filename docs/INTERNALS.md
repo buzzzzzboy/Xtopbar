@@ -290,7 +290,7 @@ Google Chrome          2              7
 - 键盘不走 SwiftUI `onKeyPress`：焦点在搜索框里时 ↑↓ 会先被文本框吃掉。控制器装一个本地 keyDown 监听处理 Esc / ↑↓ / 回车。监听回调里只用 `MainActor.assumeIsolated` 带出 `Bool`（"吃不吃"）—— 它只允许带出 Sendable 的值
 - 收起时机：Esc、打开 App、点外面（本地 + 全局鼠标监听）、面板失去 key。**点在条上不算点外面**：否则点开始按钮想关菜单时，本地监听先把它关了，按钮的命中测试又把它打开
 - 菜单开着时 `tick` 把它当成 `menuTracking` 一样续命：条不自动隐藏、保持满不透明度、不弹窗口预览
-- 已安装 App 索引（`AppLibrary`）：直接扫 `/Applications`、`/System/Applications`（含 Utilities）、`/System/Library/CoreServices/Applications`、`~/Applications` 两层以内的 `.app`，按 bundle id 去重。不用 Spotlight：索引被关掉 / 重建中时会返回空。启动时扫一次，之后每次打开菜单超过 60 秒就后台重扫
+- 已安装 App 索引（`AppLibrary`）：直接扫 `/Applications`、`/System/Applications`、`/System/Library/CoreServices/Applications`、`/System/Cryptexes/App/System/Applications`（macOS 13+ 的 Safari）、`~/Applications` 往下 4 层以内的 `.app`（符号链接先解析到真身），外加套在 App 包 `Contents/Applications`、`Contents/Developer/Applications` 里的独立 App（Xcode 的 Simulator、Instruments…，菜单栏辅助进程不收），再单独补上 CoreServices 根下的访达；访达、Safari 最后按 bundle id 向 LaunchServices 兜底查一次。纯后台 App（`LSBackgroundOnly`）不收，按 bundle id 去重。不用 Spotlight：索引被关掉 / 重建中时会返回空。启动时扫一次，之后每次打开菜单超过 60 秒就后台重扫
 - 「所有应用」按首字母分组：中文名先 `applyingTransform(.toLatin)` + `.stripDiacritics` 转拼音取首字母（「微信」→ W），非字母开头归「#」排最后
 - 「最近使用」= `Preferences.recentApps`（bundle id，最多 8 个，`noteActive` 与 `launch` 时记一笔），已固定到开始菜单的不重复列
 
