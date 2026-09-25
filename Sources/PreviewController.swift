@@ -576,9 +576,11 @@ final class PreviewController {
               + "perm=\(ScreenCaptureEngine.hasPermission) "
               + "titles=\(all.map(\.title))")
 
-        // 预览只在「多窗口、需要挑选」时才有意义：单窗口的 App 点标签本身就切过去了，
-        // 再弹一张预览纯属打扰。窗口数 < 2 一律不弹（空态面板若还在屏上顺手收掉）。
-        guard windows.count >= 2 else {
+        // 预览只在「需要挑选」时才有意义：单窗口的 App 点标签本身就切过去了，
+        // 再弹一张预览纯属打扰。例外是被最小化的窗口 —— 点图标把它收进去之后，
+        // 预览卡片就是把它点回来的地方（Windows 任务栏同款），哪怕只有一个也要弹。
+        // 其余窗口数 < 2 一律不弹（空态面板若还在屏上顺手收掉）。
+        guard windows.count >= 2 || windows.contains(where: \.isMinimized) else {
             if panel.isVisible { hide() }
             TTLog("preview \(entry.name) → \(windows.count) 个窗口，不弹")
             return

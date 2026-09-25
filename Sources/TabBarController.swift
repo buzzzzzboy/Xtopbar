@@ -131,6 +131,30 @@ final class TabBarController: TabBarHost {
     private var menuTracking = false
     private var menuObservers: [NSObjectProtocol] = []
 
+    // MARK: - 常驻 / 不挡窗口 / 全屏让位
+
+    /// 前台 App 在条所在的屏上全屏中。常驻的条（不自动隐藏 / 不挡窗口）此时也要让开，
+    /// 和系统 Dock、Windows 任务栏一样；顶到屏幕边缘仍能临时唤出。
+    private var fullscreenActive = false
+    /// 巡检（全屏判断 + 挪窗口）的节拍器；一轮 AX 没跑完不叠下一轮
+    private var environmentTimer: Timer?
+    private var environmentPassRunning = false
+
+    /// 调度中心开着：条淡出让位，期间不响应唤出；退出后按原模式恢复
+    private let missionControl = MissionControlWatcher()
+
+    /// 条该不该一直显示：常驻模式或「不挡窗口」，且没有 App 在全屏
+    private var wantsResident: Bool {
+        (prefs.hideDelay <= 0 || prefs.avoidWindows) && !fullscreenActive && !missionControl.isActive
+    }
+
+    /// 实际生效的自动隐藏延迟。该常驻时为 0；全屏让位时，本来常驻的条退回 0.2s，
+    /// 这样顶边缘临时唤出后鼠标一走它还能自己收回去。
+    private var effectiveHideDelay: Double {
+        if wantsResident { return 0 }
+        return prefs.hideDelay > 0 ? prefs.hideDelay : 0.2
+    }
+
     // MARK: - ⌘Tab 呼出
 
     private let cmdTap = CmdTabTap()
@@ -319,14 +343,20 @@ final class TabBarController: TabBarHost {
         prefs.$hideDelay
             .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { [weak self] delay in
-                guard let self else { return }
-                if delay <= 0 {
-                    self.reveal()                      // 切到"常驻"立刻显示
-                } else if self.isRevealed,
-                          Date().timeIntervalSince(self.lastInteraction) > delay {
-                    self.hide()                        // 切到更短的延迟立刻生效
-                }
+            .sink { [weak self] _ in
+                // 切到"常驻"立刻显示；切到更短的延迟由 tick 按 effectiveHideDelay 立刻收
+                self?.applyResidency()
+                self?.environmentTick()
+            }
+            .store(in: &cancellables)
+
+        // 不挡窗口：打开立刻常驻并巡检一轮；关掉后 tick 按原来的自动隐藏延迟收
+        prefs.$avoidWindows
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.applyResidency()
+                self?.environmentTick()
             }
             .store(in: &cancellables)
 
@@ -402,6 +432,8 @@ final class TabBarController: TabBarHost {
               + "锚定屏=\(anchorScreen?.localizedName ?? "-") 热区=\(hotZone)")
         relayout()
         startMouseTracking()
+        missionControl.onChange = { [weak self] active in self?.missionControlChanged(active) }
+        missionControl.start()
         promptAccessibilityIfNeeded()
         applyBarEnabled()
     }
@@ -493,6 +525,17 @@ final class TabBarController: TabBarHost {
             TTLog("  [\(edge.rawValue)] 条=\(bar) 唤出区=\(zone) 开始菜单=\(menu) "
                   + "向上弹=\(DockGeometry.opensUpward(barFrame: bar, visible: screen.visibleFrame))")
         }
+        // 不挡窗口：一扇铺满可用区的窗口，两种停靠边下各会被挪成什么样
+        let visibleCG = AvoidGeometry.cgRect(screen.visibleFrame)
+        for edge in DockEdge.allCases {
+            let bar = AvoidGeometry.cgRect(DockGeometry.barFrame(
+                edge: edge, visible: screen.visibleFrame, width: catalog.preferredWidth,
+                height: barHeight, inset: topInset))
+            let moved = AvoidGeometry.adjusted(window: visibleCG, bar: bar, gap: topInset, edge: edge,
+                                               screen: AvoidGeometry.cgRect(screen.frame),
+                                               visible: visibleCG)
+            TTLog("  [\(edge.rawValue)] 不挡窗口：铺满窗口 \(visibleCG) → \(moved.map { "\($0)" } ?? "不动")")
+        }
         TTLog("  只显示有窗口的 App=\(prefs.onlyWindowedApps)，判定无窗口：\(WindowPresence.shared.windowless.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
         let lib = AppLibrary.shared
         TTLog("  应用索引 \(lib.apps.count) 个；搜索「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
@@ -513,8 +556,8 @@ final class TabBarController: TabBarHost {
             panel.orderOut(nil)
             return
         }
-        if prefs.hideDelay <= 0 {
-            reveal()               // 常驻模式
+        if wantsResident {
+            reveal()               // 常驻模式 / 不挡窗口
         } else if !isRevealed {
             panel.alphaValue = 0
             panel.orderOut(nil)
@@ -557,7 +600,7 @@ final class TabBarController: TabBarHost {
     }
 
     private func reveal() {
-        guard !isRevealed, prefs.barEnabled else { return }
+        guard !isRevealed, prefs.barEnabled, !missionControl.isActive else { return }
         beginReveal()
     }
 
@@ -614,7 +657,7 @@ final class TabBarController: TabBarHost {
     @discardableResult
     func dismissQuickSwitch() -> Bool {
         switch QuickSwitchDismiss.action(pinnedToMouse: pinnedToMouse,
-                                         hideDelay: prefs.hideDelay) {
+                                         hideDelay: effectiveHideDelay) {
         case .ignore:
             return false
         case .parkBack:
@@ -639,7 +682,7 @@ final class TabBarController: TabBarHost {
     /// 走**无动画**路径：⌘Tab 是高频、纯键盘的动作，弹出速度直接影响手感，
     /// 滑落 + 淡入在这里只会显得拖沓。动效留给顶部热区唤出。
     func revealAtMouse() {
-        guard prefs.barEnabled else { return }
+        guard prefs.barEnabled, !missionControl.isActive else { return }
         pinnedToMouse = true
         pinnedAnchor = NSEvent.mouseLocation
         TTLog("revealAtMouse anchor=\(pinnedAnchor) revealed=\(isRevealed)")
@@ -659,7 +702,8 @@ final class TabBarController: TabBarHost {
         lastInteraction = max(lastInteraction, Date().addingTimeInterval(0.8))
     }
 
-    private func beginReveal(animated: Bool = true) {
+    /// - fade: 纯淡入、不滑动、稍慢一点（从调度中心回来时用，跟系统的过渡节奏一致）
+    private func beginReveal(animated: Bool = true, fade: Bool = false) {
         isRevealed = true
         lastInteraction = Date()
         relayout()
@@ -681,11 +725,11 @@ final class TabBarController: TabBarHost {
         let target = panel.frame
         var start = target
         // 顶部从上方落下，底部从下方升起
-        start.origin.y += 14 * DockGeometry.slideSign(edge: prefs.dockEdge)
+        start.origin.y += (fade ? 0 : 14) * DockGeometry.slideSign(edge: prefs.dockEdge)
         panel.alphaValue = 0
         panel.setFrame(start, display: false)
         panel.orderFrontRegardless()
-        animateWindow(to: target, alpha: idle, duration: 0.05, timing: .easeOut)
+        animateWindow(to: target, alpha: idle, duration: fade ? 0.2 : 0.05, timing: .easeOut)
         warmup()
     }
 
@@ -708,7 +752,8 @@ final class TabBarController: TabBarHost {
         }
     }
 
-    private func hide(animated: Bool = true) {
+    /// - fade: 纯淡出、不滑动、稍慢一点（进调度中心时用）
+    private func hide(animated: Bool = true, fade: Bool = false) {
         guard isRevealed else { return }
         isRevealed = false
         pinnedToMouse = false
@@ -734,8 +779,8 @@ final class TabBarController: TabBarHost {
 
         // 反向滑回屏幕边缘 + 淡出（和呼出同级别的快，0.07s）
         var end = panel.frame
-        end.origin.y += 8 * DockGeometry.slideSign(edge: prefs.dockEdge)
-        animateWindow(to: end, alpha: 0, duration: 0.07) { [weak self] in
+        end.origin.y += (fade ? 0 : 8) * DockGeometry.slideSign(edge: prefs.dockEdge)
+        animateWindow(to: end, alpha: 0, duration: fade ? 0.2 : 0.07) { [weak self] in
             guard let self, !self.isRevealed else { return }
             // 先离场再复位透明度，避免 orderOut 之前那一帧闪出全不透明的面板
             self.panel.orderOut(nil)
@@ -876,6 +921,96 @@ final class TabBarController: TabBarHost {
         }
         RunLoop.main.add(timer, forMode: .common)
         mouseTimer = timer
+
+        // 全屏判断 + 挪窗口走 AX，比鼠标轮询贵得多：0.5s 一轮足够跟上窗口变化
+        let env = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.environmentTick() }
+        }
+        RunLoop.main.add(env, forMode: .common)
+        environmentTimer = env
+    }
+
+    /// 该常驻就把条亮出来（切换设置 / 退出全屏时调）。反方向不用管：
+    /// 不该常驻时 tick 会按 effectiveHideDelay 把闲着的条收掉。
+    private func applyResidency() {
+        guard prefs.barEnabled, wantsResident else { return }
+        reveal()
+    }
+
+    /// 常驻类模式的巡检（0.5s 一轮）：
+    /// 1. 前台 App 在条所在屏上有没有全屏窗口 —— 有就让条让位；
+    /// 2. 「不挡窗口」开着时，把前台 App 压到条上的窗口挪开 / 缩短（Windows 任务栏同款）。
+    ///
+    /// 只看前台 App：后台窗口就算被条盖住一角，切到前台的那一刻（0.5s 内）也会被挪开；
+    /// 每轮去问所有 App 的窗口，对 Electron 系既慢又容易问出空列表。
+    private func environmentTick() {
+        guard prefs.barEnabled, prefs.hideDelay <= 0 || prefs.avoidWindows else {
+            setFullscreen(false)
+            return
+        }
+        // 调度中心里窗口都被缩成缩略图了，这时候量窗口 / 挪窗口都没有意义
+        guard !environmentPassRunning, !missionControl.isActive,
+              let screen = anchorScreen else { return }
+        guard let front = NSWorkspace.shared.frontmostApplication,
+              front.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            // 前台是自己（设置窗口）：不存在"别人全屏"
+            setFullscreen(false)
+            return
+        }
+
+        let rest = TabBarController.targetFrame(for: screen, edge: prefs.dockEdge,
+                                                width: catalog.preferredWidth,
+                                                height: barHeight, inset: topInset)
+        // 用户正按着鼠标（拖窗口 / 拉窗口边）时别抢，松手后下一轮再挪
+        let adjust = prefs.avoidWindows && isRevealed && !pinnedToMouse
+            && NSEvent.pressedMouseButtons == 0
+        let bar = AvoidGeometry.cgRect(rest)
+        let screenCG = AvoidGeometry.cgRect(screen.frame)
+        let visibleCG = AvoidGeometry.cgRect(screen.visibleFrame)
+        let edge = prefs.dockEdge
+        let gap = topInset
+        let pid = front.processIdentifier
+
+        environmentPassRunning = true
+        Task.detached(priority: .utility) { [weak self] in
+            let fullscreen = WindowBridge.avoidPass(pid: pid, bar: bar, gap: gap, edge: edge,
+                                                    screen: screenCG, visible: visibleCG,
+                                                    adjust: adjust)
+            await self?.finishEnvironmentPass(fullscreen: fullscreen)
+        }
+    }
+
+    private func finishEnvironmentPass(fullscreen: Bool) {
+        environmentPassRunning = false
+        setFullscreen(fullscreen)
+    }
+
+    private func setFullscreen(_ on: Bool) {
+        guard fullscreenActive != on else { return }
+        fullscreenActive = on
+        TTLog("fullscreen \(on ? "进入 → 条让位" : "退出 → 条恢复常驻")")
+        // 进入全屏：lastInteraction 早就过期了，下一帧 tick 按 0.2s 延迟收起（鼠标正停在条上则等它离开）
+        if !on { applyResidency() }
+    }
+
+    /// 进调度中心：条（连同预览、开始菜单）淡出；退出：常驻类模式淡入恢复，
+    /// 自动隐藏模式本来就藏着，保持藏着等鼠标顶边唤出。
+    private func missionControlChanged(_ active: Bool) {
+        TTLog("MissionControl \(active ? "进入 → 条淡出" : "退出 → 恢复")")
+        if active {
+            hidePreview()
+            startMenu.close()
+            if catalog.keyboardSession {
+                catalog.endKeyboardSession()
+                cmdTap.swallowEscape = false
+            }
+            hide(fade: true)
+        } else {
+            // 从这一刻重新计时，别一回来就被判定为"闲置太久"立刻又收掉
+            lastInteraction = Date()
+            guard prefs.barEnabled, wantsResident, !isRevealed else { return }
+            beginReveal(fade: true)
+        }
     }
 
     private func tick() {
@@ -883,10 +1018,12 @@ final class TabBarController: TabBarHost {
             if isRevealed { hide() }
             return
         }
+        // 调度中心开着：条已经淡出，期间唤出区、自动隐藏计时一概不管
+        guard !missionControl.isActive else { return }
 
         let mouse = NSEvent.mouseLocation
         let now = Date()
-        let delay = prefs.hideDelay
+        let delay = effectiveHideDelay
 
         let panelZone = panel.frame.insetBy(dx: -1, dy: -1)
         let inPanel = isRevealed && panelZone.contains(mouse)
@@ -1016,7 +1153,7 @@ final class TabBarController: TabBarHost {
             startMenu.close()
             return
         }
-        guard prefs.barEnabled else { return }
+        guard prefs.barEnabled, !missionControl.isActive else { return }
         // 从状态栏菜单 / 快捷入口打开时条可能还藏着：先把条唤出来，菜单要贴着开始按钮弹
         if !isRevealed { beginReveal(animated: false) }
         hidePreview()

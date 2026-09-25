@@ -516,6 +516,152 @@ enum WindowBridge {
         return size
     }
 
+    // MARK: - 点任务栏图标：最小化 / 恢复（Windows 任务栏同款）
+
+    /// 上一次「点图标全部最小化」收进去的是哪几个窗口，再点一次时只把它们放回来，
+    /// 不会把用户很早以前自己最小化的窗口也一并翻出来。
+    private static let minimizedLock = NSLock()
+    private static var minimizedByTap: [pid_t: [AXUIElement]] = [:]
+
+    private static func boolAttribute(_ element: AXUIElement, _ attribute: String) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success
+        else { return nil }
+        return (value as? NSNumber)?.boolValue
+    }
+
+    /// 普通文档窗口（排除浮动面板、对话框、Chrome 状态气泡这类小表面）
+    private static func isStandardWindow(_ window: AXUIElement) -> Bool {
+        var subrole: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subrole)
+                == .success, let s = subrole as? String else { return false }
+        return s == (kAXStandardWindowSubrole as String)
+    }
+
+    /// App 在前台时点它的图标：把所有开着（没最小化）的标准窗口收进 Dock。
+    /// 返回 true = 真的收了至少一个；一个开着的都没有时返回 false，由调用方走"激活 + 恢复"。
+    static func minimizeOpenWindows(pid: pid_t) -> Bool {
+        guard isTrusted else { return false }
+        return axGate(for: pid) { () -> Bool in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.3)
+            let open = axWindows(app).map(\.element).filter {
+                isStandardWindow($0) && boolAttribute($0, kAXMinimizedAttribute as String) != true
+            }
+            guard !open.isEmpty else { return false }
+            for window in open {
+                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            }
+            minimizedLock.lock()
+            minimizedByTap[pid] = open
+            minimizedLock.unlock()
+            TTLog("tap-minimize pid=\(pid) 收起 \(open.count) 个窗口")
+            return true
+        }
+    }
+
+    /// 点图标激活 App 时把窗口放回来：
+    /// - 上次点图标收进去的那几个，还在 Dock 里的全部放回（和激活并发跑也没关系 ——
+    ///   激活时 App 自己可能先放出来一个，剩下的这里补齐）；
+    /// - 没有记录（用户自己最小化的）且窗口全在 Dock 里：放回最近的一个；
+    /// - 其余情况什么都不做，激活本身就够了。
+    static func restoreMinimized(pid: pid_t) {
+        guard isTrusted else { return }
+        axGate(for: pid) { () -> Void in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.3)
+            let standard = axWindows(app).map(\.element).filter(isStandardWindow)
+            let minimized = standard.filter { boolAttribute($0, kAXMinimizedAttribute as String) == true }
+            minimizedLock.lock()
+            let remembered = minimizedByTap.removeValue(forKey: pid) ?? []
+            minimizedLock.unlock()
+            var targets = minimized.filter { w in remembered.contains { CFEqual($0, w) } }
+            if targets.isEmpty, !standard.isEmpty, minimized.count == standard.count,
+               let latest = minimized.first {
+                targets = [latest]
+            }
+            guard !targets.isEmpty else { return }
+            // 倒序放回：最后一个恢复的会叠在最上面，保持原来的前后次序
+            for window in targets.reversed() {
+                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            }
+            if let top = targets.first {
+                AXUIElementPerformAction(top, kAXRaiseAction as CFString)
+            }
+            TTLog("tap-restore pid=\(pid) 放回 \(targets.count) 个窗口")
+        }
+    }
+
+    // MARK: - 不挡窗口
+
+    /// 给「不挡窗口」用的一次巡检：前台 App 的窗口有没有全屏，
+    /// 以及（`adjust` 时）把压在条上的窗口挪开 / 缩短。
+    ///
+    /// 坐标全部是 CG / AX 的全局坐标（原点在主屏左上）。
+    /// 返回：前台 App 在 `screen` 上有没有全屏窗口。
+    static func avoidPass(pid: pid_t, bar: CGRect, gap: CGFloat, edge: DockEdge,
+                          screen: CGRect, visible: CGRect, adjust: Bool) -> Bool {
+        guard isTrusted else {
+            // 没有辅助功能权限：挪不了窗口，只能靠窗口服务器猜全屏（窗口正好盖满整块屏）
+            return cgCoversScreen(pid: pid, screen: screen)
+        }
+        return axGate(for: pid) { () -> Bool in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.25)
+            var fullscreen = false
+            for win in axWindows(app) {
+                guard let frame = win.frame, frame.intersects(screen) else { continue }
+                if boolAttribute(win.element, "AXFullScreen") == true {
+                    fullscreen = true
+                    continue
+                }
+                guard adjust, isStandardWindow(win.element),
+                      boolAttribute(win.element, kAXMinimizedAttribute as String) != true,
+                      let target = AvoidGeometry.adjusted(window: frame, bar: bar, gap: gap, edge: edge,
+                                                          screen: screen, visible: visible),
+                      !AvoidGeometry.recentlyRefused(pid: pid, frame: frame)
+                else { continue }
+
+                var origin = target.origin
+                var size = target.size
+                if origin != frame.origin, let v = AXValueCreate(.cgPoint, &origin) {
+                    AXUIElementSetAttributeValue(win.element, kAXPositionAttribute as CFString, v)
+                }
+                if size != frame.size, let v = AXValueCreate(.cgSize, &size) {
+                    AXUIElementSetAttributeValue(win.element, kAXSizeAttribute as CFString, v)
+                }
+                // 有最小尺寸限制 / 不接受外部改尺寸的窗口会原样弹回来：记下这个几何，
+                // 别每 0.5 秒跟它较一次劲
+                let after = axFrame(win.element) ?? frame
+                if AvoidGeometry.adjusted(window: after, bar: bar, gap: gap, edge: edge,
+                                          screen: screen, visible: visible) != nil {
+                    AvoidGeometry.noteRefused(pid: pid, frame: after)
+                }
+                TTLog("avoid pid=\(pid) \(frame) → \(after)")
+            }
+            return fullscreen
+        }
+    }
+
+    /// 窗口服务器兜底的全屏判断：该进程有一个普通窗口正好盖满整块屏
+    private static func cgCoversScreen(pid: pid_t, screen: CGRect) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return false }
+        for info in list {
+            guard (info[kCGWindowOwnerPID as String] as? pid_t) == pid,
+                  (info[kCGWindowLayer as String] as? Int) == 0,
+                  let b = info[kCGWindowBounds as String] as? [String: NSNumber] else { continue }
+            let rect = CGRect(x: b["X"]?.doubleValue ?? 0, y: b["Y"]?.doubleValue ?? 0,
+                              width: b["Width"]?.doubleValue ?? 0, height: b["Height"]?.doubleValue ?? 0)
+            if abs(rect.minX - screen.minX) < 1, abs(rect.minY - screen.minY) < 1,
+               abs(rect.width - screen.width) < 1, abs(rect.height - screen.height) < 1 {
+                return true
+            }
+        }
+        return false
+    }
+
     /// 拿不到 AX 窗口时的兜底：走 LaunchServices 激活整个 App
     static func activateApp(_ pid: pid_t) {
         guard let running = NSRunningApplication(processIdentifier: pid),

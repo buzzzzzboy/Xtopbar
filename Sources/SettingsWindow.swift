@@ -123,6 +123,20 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Toggle("不挡窗口（常驻，窗口自动让位）", isOn: $prefs.avoidWindows)
+                .toggleStyle(.switch)
+
+            Text("像 Windows 任务栏：条一直显示，压到条上的窗口会被自动挪开或缩短，不会再盖住窗口底部（停在顶部时是顶部）。有 App 全屏时条自动隐藏，鼠标顶到屏幕边缘仍可临时唤出。需要「辅助功能」权限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Toggle("点击前台 App 最小化窗口", isOn: $prefs.clickToMinimize)
+                .toggleStyle(.switch)
+
+            Text("点正在前台的 App 图标：把它的窗口全部最小化；再点一次恢复。窗口预览里也能直接点回被最小化的窗口。需要「辅助功能」权限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             PinnedAppsRow(title: "固定到任务栏", pins: $prefs.dockPins, reorderable: true)
             PinnedAppsRow(title: "固定到开始菜单", pins: $prefs.startPins, reorderable: true)
 

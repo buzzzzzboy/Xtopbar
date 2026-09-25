@@ -137,7 +137,7 @@ struct StartMenuView: View {
         }
     }
 
-    // MARK: - 所有应用（A–Z）
+    // MARK: - 所有应用（A–Z / 最近加入 / 最近更新）
 
     private var allApps: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -154,16 +154,28 @@ struct StartMenuView: View {
             .padding(.horizontal, TTLayout.s(24))
             .padding(.bottom, TTLayout.s(6))
 
+            Picker("排序", selection: $prefs.startMenuSort) {
+                ForEach(StartMenuSort.allCases) { sort in
+                    Text(sort.title).tag(sort)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .padding(.horizontal, TTLayout.s(24))
+            .padding(.bottom, TTLayout.s(8))
+
             if library.apps.isEmpty {
                 ProgressView().controlSize(.small)
                     .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ForEach(StartMenuIndex.sections(library.apps), id: \.letter) { section in
+                        ForEach(allAppsSections, id: \.letter) { section in
                             Section {
                                 ForEach(section.apps) { app in
-                                    StartRow(app: app, icon: library.icon(for: app.url)) { onLaunch(app) }
+                                    StartRow(app: app, icon: library.icon(for: app.url),
+                                             subtitle: dateSubtitle(app)) { onLaunch(app) }
                                         .contextMenu { itemMenu(app) }
                                 }
                             } header: {
@@ -182,6 +194,26 @@ struct StartMenuView: View {
                 }
             }
         }
+    }
+
+    /// 按当前排序方式分组：名称 → 字母；最近加入 / 更新 → 今天、昨天、最近 7 天…
+    private var allAppsSections: [StartMenuIndex.Section] {
+        switch prefs.startMenuSort {
+        case .name:    return StartMenuIndex.sections(library.apps)
+        case .added:   return StartMenuIndex.dateSections(library.apps, date: \.added)
+        case .updated: return StartMenuIndex.dateSections(library.apps, date: \.updated)
+        }
+    }
+
+    /// 按时间排序时，每行下面标一下日期（按系统语言格式化）
+    private func dateSubtitle(_ app: LibraryApp) -> String? {
+        let date: Date?
+        switch prefs.startMenuSort {
+        case .name:    return nil
+        case .added:   date = app.added
+        case .updated: date = app.updated
+        }
+        return date?.formatted(date: .abbreviated, time: .omitted)
     }
 
     // MARK: - 搜索结果
@@ -249,7 +281,8 @@ struct StartMenuView: View {
         prefs.startPins.compactMap { pin -> LibraryApp? in
             if let app = library.app(bundleID: pin.bundleID) { return app }
             if FileManager.default.fileExists(atPath: pin.path) {
-                return LibraryApp(bundleID: pin.bundleID, url: pin.url, name: pin.name)
+                return LibraryApp(bundleID: pin.bundleID, url: pin.url,
+                                  name: AppNames.localized(url: pin.url) ?? pin.name)
             }
             return nil
         }
@@ -264,8 +297,9 @@ struct StartMenuView: View {
             if let app = library.app(bundleID: bid) {
                 result.append(app)
             } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
-                let name = FileManager.default.displayName(atPath: url.path)
-                    .replacingOccurrences(of: ".app", with: "")
+                let name = AppNames.localized(url: url)
+                    ?? FileManager.default.displayName(atPath: url.path)
+                        .replacingOccurrences(of: ".app", with: "")
                 result.append(LibraryApp(bundleID: bid, url: url, name: name))
             }
             if result.count == 6 { break }
@@ -344,6 +378,41 @@ enum StartMenuIndex {
             }
             return Section(letter: letter, apps: items.map { $0.app })
         }
+    }
+
+    /// 按时间分组（新的在前）：今天 / 昨天 / 最近 7 天 / 最近 30 天 / 今年 / 更早。
+    /// 没有时间的（读不到文件日期）排在最后。
+    static func dateSections(_ apps: [LibraryApp], date: KeyPath<LibraryApp, Date?>,
+                             now: Date = Date(), calendar: Calendar = .current) -> [Section] {
+        let sorted = apps.sorted { a, b in
+            switch (a[keyPath: date], b[keyPath: date]) {
+            case let (x?, y?) where x != y: return x > y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+        }
+        let today = calendar.startOfDay(for: now)
+        func bucket(_ d: Date?) -> String {
+            guard let d else { return "未知" }
+            if d >= today { return "今天" }
+            if let y = calendar.date(byAdding: .day, value: -1, to: today), d >= y { return "昨天" }
+            if let w = calendar.date(byAdding: .day, value: -7, to: today), d >= w { return "最近 7 天" }
+            if let m = calendar.date(byAdding: .day, value: -30, to: today), d >= m { return "最近 30 天" }
+            if calendar.isDate(d, equalTo: now, toGranularity: .year) { return "今年" }
+            return "更早"
+        }
+        // 已经按时间排好，顺着切段即可（同一段内保持时间顺序）
+        var sections: [Section] = []
+        for app in sorted {
+            let title = bucket(app[keyPath: date])
+            if let last = sections.last, last.letter == title {
+                sections[sections.count - 1] = Section(letter: title, apps: last.apps + [app])
+            } else {
+                sections.append(Section(letter: title, apps: [app]))
+            }
+        }
+        return sections
     }
 }
 
