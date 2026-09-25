@@ -287,7 +287,7 @@ final class AppCatalog: ObservableObject {
             // ⌘Tab 会话中用鼠标点了标签：点击本身就是选择，
             // 结束会话避免松 ⌘ 时再提交一次高亮（可能不是点中的这个）
             if keyboardSession { endKeyboardSession() }
-            activate(hit)
+            activate(hit, fromClick: true)
             // 这次如果条是 ⌘Tab 呼出来的，选完立刻消失，不等鼠标离开的倒计时
             host?.dismissQuickSwitch()
             return true
@@ -295,13 +295,34 @@ final class AppCatalog: ObservableObject {
         return false
     }
 
-    func activate(_ entry: AppEntry) {
+    /// - fromClick: 鼠标点标签（Windows 任务栏语义：前台 App 再点一下 = 最小化）。
+    ///   ⌘Tab 提交 / 右键菜单等其它入口只管激活。
+    func activate(_ entry: AppEntry, fromClick: Bool = false) {
         guard entry.isRunning, entry.pid > 0 else {
             // 固定了但没在运行：点一下 = 启动（同点 Dock 上没有小圆点的图标）
             if let url = entry.bundleURL { launch(url: url, bundleID: entry.id) }
             return
         }
-        activatePID(entry.pid)
+        let pid = entry.pid
+        guard fromClick, Preferences.shared.clickToMinimize, WindowBridge.isTrusted else {
+            activatePID(pid)
+            return
+        }
+        // 点前台 App：把它开着的窗口全部最小化；一个开着的都没有（上次点图标收起来了）
+        // 就恢复它们再激活。条是不抢焦点的面板，点它不会改变前台 App，这里读到的就是点之前的前台。
+        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        guard isFront else {
+            // 后台 App：照常立刻激活（切换手感不能等 AX），被点图标收进 Dock 的窗口顺手放回来
+            activatePID(pid)
+            Task.detached(priority: .userInitiated) { WindowBridge.restoreMinimized(pid: pid) }
+            return
+        }
+        // AX 读写可能卡到超时，挪到后台，别卡住鼠标
+        Task.detached(priority: .userInitiated) { [weak self] in
+            if WindowBridge.minimizeOpenWindows(pid: pid) { return }
+            WindowBridge.restoreMinimized(pid: pid)
+            await self?.activatePID(pid)
+        }
     }
 
     /// 启动 / 激活一个 .app（开始菜单和没在运行的固定项共用）

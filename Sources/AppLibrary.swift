@@ -44,6 +44,12 @@ final class AppLibrary: ObservableObject {
         return list
     }
 
+    /// 不在上面任何目录里、但开始菜单必须有的 App：访达住在 CoreServices 根下，
+    /// 那一层还有一堆后台服务 .app（Dock、SystemUIServer…），不能整个目录扫进来。
+    nonisolated static var extraApps: [URL] {
+        ["/System/Library/CoreServices/Finder.app"].map { URL(fileURLWithPath: $0) }
+    }
+
     /// 超过 maxAge 秒没扫过就后台重扫一次（开始菜单每次打开都会调）
     func refreshIfStale(maxAge: TimeInterval = 60) {
         guard !scanning, Date().timeIntervalSince(lastScan) > maxAge else { return }
@@ -93,6 +99,7 @@ final class AppLibrary: ObservableObject {
                 }
             }
         }
+        extraApps.filter { fm.fileExists(atPath: $0.path) }.forEach(consider)
         return result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 

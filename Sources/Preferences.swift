@@ -153,6 +153,8 @@ final class Preferences: ObservableObject {
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
         static let hideSystemDock = "hideSystemDock"
+        static let avoidWindows  = "avoidWindows"
+        static let clickToMinimize = "clickToMinimize"
         static let savedDockAutohide = "savedSystemDockAutohide"
         static let savedDockDelay    = "savedSystemDockDelay"
     }
@@ -294,6 +296,17 @@ final class Preferences: ObservableObject {
         didSet { d.set(hideSystemDock, forKey: Key.hideSystemDock) }
     }
 
+    /// 不挡窗口（Windows 任务栏同款）：条常驻，并把盖到条上的窗口挪开 / 缩短，
+    /// 让出条占的那一条带状区域；有 App 全屏时条自动藏起来。需要辅助功能权限。
+    @Published var avoidWindows: Bool = false {
+        didSet { d.set(avoidWindows, forKey: Key.avoidWindows) }
+    }
+
+    /// 点前台 App 的标签 = 把它的窗口全部最小化；再点一次（或点预览）恢复。同 Windows 任务栏。
+    @Published var clickToMinimize: Bool = true {
+        didSet { d.set(clickToMinimize, forKey: Key.clickToMinimize) }
+    }
+
     /// 开启「隐藏系统 Dock」之前系统 Dock 的原值，关掉时照原样写回。
     /// nil = 那个 key 原本就没写过（还原时删掉而不是写一个值进去）。
     var savedDockAutohide: Bool? {
@@ -367,6 +380,8 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
+        if d.object(forKey: Key.avoidWindows) != nil { avoidWindows = d.bool(forKey: Key.avoidWindows) }
+        if d.object(forKey: Key.clickToMinimize) != nil { clickToMinimize = d.bool(forKey: Key.clickToMinimize) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }
