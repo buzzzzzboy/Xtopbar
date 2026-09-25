@@ -36,7 +36,7 @@ final class SettingsWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "TopTab 设置"
+        window.title = "Xtopbar 设置"
         window.contentView = hosting
         window.isReleasedWhenClosed = false
         window.titlebarSeparatorStyle = .automatic
@@ -112,7 +112,7 @@ struct SettingsView: View {
             Toggle("隐藏系统 Dock", isOn: $prefs.hideSystemDock)
                 .toggleStyle(.switch)
 
-            Text("把系统 Dock 设为自动隐藏并把唤出延迟调到极长，让 TopTab 接替它。会重启一次 Dock；关掉即恢复原来的设置。")
+            Text("把系统 Dock 设为自动隐藏并把唤出延迟调到极长，让 Xtopbar 接替它。会重启一次 Dock；关掉即恢复原来的设置。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -243,7 +243,7 @@ struct SettingsView: View {
                 }
             )
 
-            Text("改动系统权限后需要重启 TopTab 才会生效。")
+            Text("改动系统权限后需要重启 Xtopbar 才会生效。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -267,7 +267,7 @@ struct SettingsView: View {
                     .resizable()
                     .frame(width: 48, height: 48)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("TopTab")
+                    Text("Xtopbar")
                         .font(.system(size: 14, weight: .semibold))
                     Text("Dock / App 切换条 · v\(appVersion)")
                         .font(.system(size: 11))

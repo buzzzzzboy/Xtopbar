@@ -234,7 +234,7 @@ struct StartMenuView: View {
                     .font(.system(size: TTLayout.font(14)))
             }
             .buttonStyle(PillButtonStyle())
-            .help("TopTab 设置")
+            .help("Xtopbar 设置")
         }
         .padding(.horizontal, TTLayout.s(24))
         .padding(.vertical, TTLayout.s(12))

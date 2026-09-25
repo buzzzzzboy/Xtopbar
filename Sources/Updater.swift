@@ -28,8 +28,8 @@ final class Updater: ObservableObject {
     static let shared = Updater()
 
     /// 改这两行就能指到别的仓库
-    static let owner = "lrylnx"
-    static let repo  = "TopTab"
+    static let owner = "buzzzzzboy"
+    static let repo  = "Xtopbar"
 
     enum Phase: Equatable {
         case idle
@@ -99,9 +99,9 @@ final class Updater: ObservableObject {
 
     // MARK: - 接口
 
-    /// 测试用：设了 `TOPTAB_UPDATE_FEED` 就换成自己的地址（本地文件 URL 也行）
+    /// 测试用：设了 `XTOPBAR_UPDATE_FEED` 就换成自己的地址（本地文件 URL 也行）
     static var feedURL: URL {
-        if let raw = ProcessInfo.processInfo.environment["TOPTAB_UPDATE_FEED"],
+        if let raw = ProcessInfo.processInfo.environment["XTOPBAR_UPDATE_FEED"],
            let url = URL(string: raw) {
             return url
         }
@@ -115,7 +115,7 @@ final class Updater: ObservableObject {
     private func fetchLatest() async throws -> UpdateRelease {
         var request = URLRequest(url: Self.feedURL)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("TopTab", forHTTPHeaderField: "User-Agent")
+        request.setValue("Xtopbar", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
 
         let data: Data
@@ -234,7 +234,7 @@ final class Updater: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
-        alert.messageText = "TopTab \(release.version) 可以更新"
+        alert.messageText = "Xtopbar \(release.version) 可以更新"
         var info = "当前版本 v\(Self.currentVersion) → v\(release.version)"
         if !release.notes.isEmpty {
             let notes = release.notes.prefix(600)
@@ -284,9 +284,9 @@ final class Updater: ObservableObject {
         // App Translocation：从 DMG 直接打开、没拖进 Applications 时，
         // 系统会把 App 挂到一个随机只读路径下跑，那里替换不了。
         if destination.path.contains("/AppTranslocation/") {
-            presentInfo("请先移动 TopTab",
-                        "TopTab 现在运行在系统的临时挂载位置。\n"
-                        + "请把 TopTab.app 拖到「应用程序」文件夹里再打开，之后就能自动更新了。")
+            presentInfo("请先移动 Xtopbar",
+                        "Xtopbar 现在运行在系统的临时挂载位置。\n"
+                        + "请把 Xtopbar.app 拖到「应用程序」文件夹里再打开，之后就能自动更新了。")
             openReleasePage(release)
             return
         }
@@ -295,7 +295,7 @@ final class Updater: ObservableObject {
         let parent = destination.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             presentInfo("无法自动更新",
-                        "TopTab 所在的 \(parent.path) 没有写入权限。\n"
+                        "Xtopbar 所在的 \(parent.path) 没有写入权限。\n"
                         + "请到发布页手动下载，或把 App 移到自己的用户目录下再试。")
             openReleasePage(release)
             return
@@ -305,7 +305,7 @@ final class Updater: ObservableObject {
             var work: URL?
             do {
                 let workDir = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("TopTabUpdate-\(UUID().uuidString)")
+                    .appendingPathComponent("XtopbarUpdate-\(UUID().uuidString)")
                 try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
                 work = workDir
 
@@ -336,7 +336,7 @@ final class Updater: ObservableObject {
                     warn.messageText = "更新后需要重新授权"
                     warn.informativeText =
                         "这个版本的签名与当前安装的不同。\n"
-                        + "更新完成后 TopTab 会需要重新授予「屏幕录制」和「辅助功能」权限。\n\n"
+                        + "更新完成后 Xtopbar 会需要重新授予「屏幕录制」和「辅助功能」权限。\n\n"
                         + "（如果你是拿同一台机器、同一张证书重新构建的，看到这个提示说明证书被重建过。）"
                     warn.addButton(withTitle: "继续更新")
                     warn.addButton(withTitle: "取消")
@@ -349,7 +349,7 @@ final class Updater: ObservableObject {
                 phase = .working("正在安装…")
                 try Self.launchInstaller(source: newApp, destination: destination)
 
-                TTLog("updater: helper 已启动，TopTab 即将退出并由 helper 重新拉起")
+                TTLog("updater: helper 已启动，Xtopbar 即将退出并由 helper 重新拉起")
                 // 给 helper 一点时间起来，然后退出自己 —— 剩下的交给它
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     NSApp.terminate(nil)
@@ -394,7 +394,7 @@ final class Updater: ObservableObject {
     private static func designatedRequirement(of app: URL) -> String? {
         let result = run("/usr/bin/codesign", ["-d", "-r-", app.path])
         // codesign 把 requirement 写在 stderr，形如：
-        //   # designated => identifier "com.zxwzz.toptab" and certificate root = H"..."
+        //   # designated => identifier "com.buzzzzzboy.xtopbar" and certificate root = H"..."
         for line in result.output.split(separator: "\n") {
             guard let range = line.range(of: "designated =>") else { continue }
             return String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
@@ -408,7 +408,7 @@ final class Updater: ObservableObject {
             throw UpdateError.verify("包内缺少 Info.plist")
         }
         guard bundleID == Bundle.main.bundleIdentifier else {
-            throw UpdateError.verify("包内的 App 不是 TopTab（\(bundleID)）")
+            throw UpdateError.verify("包内的 App 不是 Xtopbar（\(bundleID)）")
         }
         let newVersion = (info["CFBundleShortVersionString"] as? String) ?? ""
         guard !Self.isNewer(release.version, than: newVersion) else {
@@ -448,7 +448,7 @@ final class Updater: ObservableObject {
         let script = workDir.appendingPathComponent("install.sh")
         let body = """
         #!/bin/sh
-        # TopTab 自动更新 helper
+        # Xtopbar 自动更新 helper
         # $1 = 旧进程 pid   $2 = 新 .app   $3 = 目标 .app
         PID="$1"; SRC="$2"; DST="$3"
         if [ -z "$PID" ] || [ -z "$SRC" ] || [ -z "$DST" ]; then exit 2; fi

@@ -27,7 +27,7 @@ final class StartMenuModel: ObservableObject {
 /// 开始菜单浮层：贴着条上的开始按钮弹出（条在底部就向上弹，在顶部就向下弹）。
 ///
 /// 和主面板 / 预览面板不同，它要接收键盘输入（搜索框），所以打开时 `makeKey`。
-/// 面板是 nonactivating 的：变成 key 窗口但**不激活 TopTab**，
+/// 面板是 nonactivating 的：变成 key 窗口但**不激活 Xtopbar**，
 /// 前台 App 不会失焦（Spotlight / Alfred 同款做法）。
 @MainActor
 final class StartMenuController {

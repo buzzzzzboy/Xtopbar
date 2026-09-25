@@ -59,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // 调试用：`open TopTab.app --args --settings` 直接拉起设置窗口
+        // 调试用：`open Xtopbar.app --args --settings` 直接拉起设置窗口
         if CommandLine.arguments.contains("--settings") {
             // 延后一拍：applicationDidFinishLaunching 期间窗口还没法正确上屏
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

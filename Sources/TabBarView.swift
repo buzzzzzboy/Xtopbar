@@ -225,7 +225,7 @@ struct TabBarView: View {
     /// 不能用内容坐标系：标签多到横向滚动时，内容坐标系里卡片会跟着滚，
     /// 窗口层的命中区域却停在原地 —— 滚过之后再点边角就切错 App。
     /// 窗口坐标则天然随滚动更新（GeometryReader 每帧重报）。
-    static let space = "toptab.window"
+    static let space = "xtopbar.window"
 
     @ObservedObject var catalog: AppCatalog
     @ObservedObject var prefs: Preferences
@@ -383,6 +383,6 @@ struct TabBarView: View {
 
         Divider()
         Button("刷新列表") { catalog.refresh() }
-        Button("退出 TopTab") { NSApp.terminate(nil) }
+        Button("退出 Xtopbar") { NSApp.terminate(nil) }
     }
 }

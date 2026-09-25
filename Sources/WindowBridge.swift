@@ -25,7 +25,7 @@ enum WindowBridge {
     /// 6 路并发 48/48 **全部返回空**，且错误码是 success（不是超时）——
     /// 所以「查到空」和「没有窗口」根本分不开。
     ///
-    /// 而 TopTab 恰好会在同一个瞬间对同一个进程发两路：预览枚举（`refresh`）+
+    /// 而 Xtopbar 恰好会在同一个瞬间对同一个进程发两路：预览枚举（`refresh`）+
     /// 关窗前的重新配对（`closeWindow`）。两边一撞，关窗永远拿不到窗口列表，
     /// 用户看到的就是"App 没有响应关闭请求"。
     ///
@@ -166,7 +166,7 @@ enum WindowBridge {
 
     /// 窗口服务器地面真值：pid 的 layer-0 最前面的「大窗口」是否就是目标窗口。
     /// 只有 AX 汇报不可信（Chrome 会接受 main 写入但屏幕不真切），层级以 CG 为准。
-    /// kCGWindowName 需要录屏权限（TopTab 有）；名字拿不到时退回几何配对。
+    /// kCGWindowName 需要录屏权限（Xtopbar 有）；名字拿不到时退回几何配对。
     /// 返回 true 表示"已就位 / 无法判断"，只有确凿不匹配才返回 false 触发重试。
     private static func cgFrontMatches(pid: pid_t, frame: CGRect, title: String) -> Bool {
         let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]

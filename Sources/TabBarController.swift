@@ -1065,7 +1065,7 @@ final class TabBarController: TabBarHost {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = "无法接管 ⌘Tab"
-            alert.informativeText = "安装键盘事件钩子需要「辅助功能」权限。\n请先在系统设置中勾选 TopTab，再回到设置里重新打开这个开关。"
+            alert.informativeText = "安装键盘事件钩子需要「辅助功能」权限。\n请先在系统设置中勾选 Xtopbar，再回到设置里重新打开这个开关。"
             alert.addButton(withTitle: "去授权")
             alert.addButton(withTitle: "取消")
             NSApp.activate(ignoringOtherApps: true)

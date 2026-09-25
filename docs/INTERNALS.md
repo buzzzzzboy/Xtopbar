@@ -1,4 +1,4 @@
-# TopTab 实现细节（开发笔记）
+# Xtopbar 实现细节（开发笔记）
 
 README 只讲用户看得见的东西，这一份放工程内幕：窗口枚举方案、AX 的坑、签名机制、动效参数。改代码前先看这里。
 
@@ -11,7 +11,7 @@ Sources/
   Preferences.swift          全局偏好（UserDefaults 的唯一入口）
   AppCatalog.swift           固定项 + 运行中 App 采集 / 分类 / 排序 / 激活 / 启动 / 固定
   AppCategory.swift          分类关键词表（启发式，仅决定排序）
-  TopTabIcon.swift           状态栏 template 图标的程序化绘制
+  XtopbarIcon.swift           状态栏 template 图标的程序化绘制
   StatusItemController.swift 菜单栏图标 + 下拉菜单
   SettingsWindow.swift       设置窗口（NSWindow + SwiftUI Form）
   LaunchAtLogin.swift        SMAppService 开机自启封装
@@ -81,7 +81,7 @@ ad-hoc 签名（`codesign --sign -`）的指定要求里带的是**这次构建�
 `scripts/make-signing-identity.sh` 生成一张自签名代码签名证书（首次构建自动创建）放进独立 keychain，`build.sh` 用它签名。指定要求变成：
 
 ```
-designated => identifier "com.zxwzz.toptab" and certificate root = H"58d0e1e7…"
+designated => identifier "com.buzzzzzboy.xtopbar" and certificate root = H"58d0e1e7…"
 ```
 
 证书不变 → 哈希不变 → 授权一直有效。两个容易踩的细节：
@@ -226,7 +226,7 @@ Google Chrome          2              7
 - **关闭结果不看 AX 的返回值，看窗口还在不在**。Chromium / Electron 系（QQ、微信、抖店工作台）经常"返回成功其实没关"，反之也有"返回失败其实关了"。所以按下前后各数一次「这个几何下、属于该 pid 的窗口有几个」（`CGWindowListCopyWindowInfo`，按 owner pid + bounds 匹配），数量减少才算成功
 - **数数量而不是查存在**：Chrome 两个窗口都是 `0,33 1470×841` 是常态（实测同名同尺寸一次 4 个），"还在不在"必然误判
 - **验证用窗口服务器而不是 AX**：AX 是同步阻塞的，对端卡住时要等超时；轮询验证需要 120ms 一次地反复问，只能用 `CGWindowList`
-- **必须按目标进程串行 AX 查询（`WindowBridge.axGate`）**。这是"App 没有响应关闭请求"的真正根因：Electron 系被**并发**询问 `kAXWindowsAttribute` 会返回「success + 空数组」—— 实测 QQ 串行 5/5 正常，6 路并发 **48/48 全空**，错误码还是 0，跟"真的没窗口"分不开。而 TopTab 恰好会同一瞬间对同一进程发两路（预览枚举 + 关窗前重新配对）。按 pid 上闸之后不同 App 仍并行，同一 App 排队
+- **必须按目标进程串行 AX 查询（`WindowBridge.axGate`）**。这是"App 没有响应关闭请求"的真正根因：Electron 系被**并发**询问 `kAXWindowsAttribute` 会返回「success + 空数组」—— 实测 QQ 串行 5/5 正常，6 路并发 **48/48 全空**，错误码还是 0，跟"真的没窗口"分不开。而 Xtopbar 恰好会同一瞬间对同一进程发两路（预览枚举 + 关窗前重新配对）。按 pid 上闸之后不同 App 仍并行，同一 App 排队
 - **AX 问不出来还有最后一条路：真实点击红点**。`closeByRedDotClick` 点窗口左上角 `(minX+13, minY+13)`，点之前必须确认①红点位置最上层就是目标窗口（`topmostWindowOwner`）②这个点不被自己的预览/主面板压住（`avoid`），否则宁可不点 —— 点歪了就是切窗口。实测对**后台** App 的窗口点红点能关掉，而且不会把那个 App 拉到前台
 - Electron 冷启动树没建好时写 `AXManualAccessibility`（Electron）/ `AXEnhancedUserInterface`（Chromium）唤醒，代价是对端要维护整棵树，只在「明明有窗口却问不出来」时才用
 - 关掉之后要 `refresh(minInterval: 0)` 再重新枚举，且**等 200ms** 让窗口真的消失。重枚举后用窗口服务器确认窗口**还在**才提示失败 —— 幽灵卡片（微信挂在屏幕外的主界面）点不动是正常的，不该报错吓人
@@ -286,7 +286,7 @@ Google Chrome          2              7
 **3. 开始按钮 / 开始菜单**
 
 - 开始按钮是条上的第一个元素，命中区域用保留 id `AppCatalog.startButtonID`（`"__start__"`）上报，`handleTap` 先判它 → `host.toggleStartMenu()`。和标签一样走窗口层命中，不走 SwiftUI 手势
-- 开始菜单是独立的 `FloatingPanel`，比主面板高一层。它要接收键盘（搜索框），所以打开时 `makeKeyAndOrderFront` —— 面板是 nonactivating 的，能成为 key 窗口但**不激活 TopTab**，前台 App 不会失焦（Spotlight / Alfred 同款）。面板是 key，所以里面直接用 SwiftUI `Button`
+- 开始菜单是独立的 `FloatingPanel`，比主面板高一层。它要接收键盘（搜索框），所以打开时 `makeKeyAndOrderFront` —— 面板是 nonactivating 的，能成为 key 窗口但**不激活 Xtopbar**，前台 App 不会失焦（Spotlight / Alfred 同款）。面板是 key，所以里面直接用 SwiftUI `Button`
 - 键盘不走 SwiftUI `onKeyPress`：焦点在搜索框里时 ↑↓ 会先被文本框吃掉。控制器装一个本地 keyDown 监听处理 Esc / ↑↓ / 回车。监听回调里只用 `MainActor.assumeIsolated` 带出 `Bool`（"吃不吃"）—— 它只允许带出 Sendable 的值
 - 收起时机：Esc、打开 App、点外面（本地 + 全局鼠标监听）、面板失去 key。**点在条上不算点外面**：否则点开始按钮想关菜单时，本地监听先把它关了，按钮的命中测试又把它打开
 - 菜单开着时 `tick` 把它当成 `menuTracking` 一样续命：条不自动隐藏、保持满不透明度、不弹窗口预览
@@ -323,7 +323,7 @@ Google Chrome          2              7
 
 ```bash
 ./build.sh          # 生成图标 + 双架构编译 + 自签名 + 校验
-open TopTab.app
+open Xtopbar.app
 ```
 
 要求：Xcode 命令行工具；SDK 走 `xcrun --sdk macosx --show-sdk-path`（不要用 `/Library/Developer/CommandLineTools` 的 SDK，版本可能与编译器不匹配）。
@@ -332,7 +332,7 @@ open TopTab.app
 
 **没有服务器，也没有云空间。** 更新源就是 GitHub Releases：
 
-- 地址恒定：`https://api.github.com/repos/lrylnx/TopTab/releases/latest`
+- 地址恒定：`https://api.github.com/repos/buzzzzzboy/Xtopbar/releases/latest`
 - 仓库公开 → 客户端下载不需要任何 token
 - 发布流程见 `docs/RELEASING.md`
 
@@ -365,12 +365,12 @@ checkInteractively / 启动静默检查
 调试入口：
 
 ```bash
-open TopTab.app --args --check-update    # 检查并正常弹窗
-open TopTab.app --args --update-install  # 跳过弹窗，发现新版直接装
+open Xtopbar.app --args --check-update    # 检查并正常弹窗
+open Xtopbar.app --args --update-install  # 跳过弹窗，发现新版直接装
 
 # 指向任意更新源（本地文件或自己的 http 服务），用来测整条链路
-TOPTAB_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
-  /path/to/TopTab.app/Contents/MacOS/TopTab --update-install
+XTOPBAR_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
+  /path/to/Xtopbar.app/Contents/MacOS/Xtopbar --update-install
 ```
 
 相关偏好：`autoCheckUpdates`（默认开）、`ignoredVersion`（点过「跳过这个版本」的版本号，
@@ -378,18 +378,18 @@ TOPTAB_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
 
 ## 调试
 
-环境变量 `TOPTAB_DEBUG=1`，或存在标记文件 `/tmp/toptab.debug`（后者用于 `open TopTab.app` 启动的场景 —— 走 LaunchServices 时环境变量传不进去）。日志写到 `/tmp/toptab.log`。
+环境变量 `XTOPBAR_DEBUG=1`，或存在标记文件 `/tmp/xtopbar.debug`（后者用于 `open Xtopbar.app` 启动的场景 —— 走 LaunchServices 时环境变量传不进去）。日志写到 `/tmp/xtopbar.log`。
 
 启动参数：
 
 ```bash
-open TopTab.app --args --settings      # 直接拉起设置窗口
-open TopTab.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
-open TopTab.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
-open TopTab.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
-open TopTab.app --args --test-quickswitch # 模拟"⌘Tab 呼出 → 选完"，看条是否当场消失、会不会被唤出区拉回来
-open TopTab.app --args --test-pins       # 打印固定 / 运行分组、两种停靠边的条 / 唤出区 / 开始菜单位置、一次应用搜索
-open TopTab.app --args --start-menu      # 启动后直接弹开始菜单
+open Xtopbar.app --args --settings      # 直接拉起设置窗口
+open Xtopbar.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
+open Xtopbar.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
+open Xtopbar.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
+open Xtopbar.app --args --test-quickswitch # 模拟"⌘Tab 呼出 → 选完"，看条是否当场消失、会不会被唤出区拉回来
+open Xtopbar.app --args --test-pins       # 打印固定 / 运行分组、两种停靠边的条 / 唤出区 / 开始菜单位置、一次应用搜索
+open Xtopbar.app --args --start-menu      # 启动后直接弹开始菜单
 ```
 
 `--test-hotzone=<屏序号>` 就是上面 5b 那个 bug 的回归入口：它会模拟 ⌘Tab 把面板钉到指定屏，再按正常流程收起，然后把面板停靠位置、热区矩形、热区落在哪块屏一起写进日志。换个屏号再跑一次，就能看出热区是否会被 ⌘Tab 带跑。

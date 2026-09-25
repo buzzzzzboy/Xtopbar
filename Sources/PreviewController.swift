@@ -217,7 +217,7 @@ enum PreviewLayout {
 }
 
 struct PreviewView: View {
-    static let space = "toptab.preview"
+    static let space = "xtopbar.preview"
 
     @ObservedObject var model: PreviewModel
     @ObservedObject var prefs: Preferences

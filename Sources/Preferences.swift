@@ -323,7 +323,21 @@ final class Preferences: ObservableObject {
         return try? JSONDecoder().decode([PinnedApp].self, from: data)
     }
 
+    /// 改名前叫 TopTab（bundle id `com.zxwzz.toptab`），设置存在旧的偏好域里。
+    /// 第一次以 Xtopbar 启动时把旧设置（固定项、隐藏列表、各种开关）搬过来，只搬一次，
+    /// 新域里已经有的 key 不覆盖。非沙盒 App 可以直接读别的域。
+    private static func migrateLegacyDefaults(_ d: UserDefaults) {
+        let flag = "migratedFromTopTab"
+        guard !d.bool(forKey: flag) else { return }
+        d.set(true, forKey: flag)
+        guard let old = d.persistentDomain(forName: "com.zxwzz.toptab") else { return }
+        for (key, value) in old where d.object(forKey: key) == nil {
+            d.set(value, forKey: key)
+        }
+    }
+
     private init() {
+        Self.migrateLegacyDefaults(d)
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
         if d.object(forKey: Key.hideMinimized) != nil { hideMinimizedWindows = d.bool(forKey: Key.hideMinimized) }

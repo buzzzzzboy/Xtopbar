@@ -11,7 +11,7 @@
 # 仓库是公开的，所以客户端拉取更新不需要任何 token。
 #
 # 一件事必须守住：**每次都必须用同一张自签名证书构建**（build.sh 里那张
-# TopTab Self-Signed）。证书一变，macOS 的 TCC 授权记录（屏幕录制 / 辅助功能）
+# Xtopbar Self-Signed）。证书一变，macOS 的 TCC 授权记录（屏幕录制 / 辅助功能）
 # 就全部失效，用户更新完得重新授权一次。
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -21,8 +21,8 @@ cd "$(dirname "$0")/.."
 #    而且是在写完版本号、还没构建的时候断掉，留下的状态很难看。
 #    所以变量后面接中文标点时一律写 ${VAR} 花括号形式。改脚本时注意别退回 $VAR。
 
-OWNER="lrylnx"
-REPO="TopTab"
+OWNER="buzzzzzboy"
+REPO="Xtopbar"
 PLIST="Resources/Info.plist"
 
 VERSION="${1:-}"
@@ -38,7 +38,7 @@ fi
 # 但 git tag 保留 v 前缀，跟历史版本一致（v1.1.1 / v1.1.2 / v1.2.0）。
 VERSION="${VERSION#v}"
 TAG="v$VERSION"
-TITLE="${3:-TopTab $TAG}"
+TITLE="${3:-Xtopbar $TAG}"
 
 # ── 1. 写版本号（Info.plist 是唯一的版本来源） ────────────────────────────
 CURRENT_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")"
@@ -49,11 +49,11 @@ echo "→ 版本 ${VERSION}（tag ${TAG}，CFBundleVersion $((CURRENT_BUILD + 1)
 # ── 2. 构建 ──────────────────────────────────────────────────────────────
 ./build.sh
 
-# ── 3. 打包。--keepParent 让 zip 里就是 TopTab.app（更新器靠这个找包） ────
+# ── 3. 打包。--keepParent 让 zip 里就是 Xtopbar.app（更新器靠这个找包） ────
 mkdir -p dist
-ZIP="dist/TopTab-${TAG}.zip"
+ZIP="dist/Xtopbar-${TAG}.zip"
 rm -f "$ZIP"
-ditto -c -k --sequesterRsrc --keepParent TopTab.app "$ZIP"
+ditto -c -k --sequesterRsrc --keepParent Xtopbar.app "$ZIP"
 
 echo "→ 打包完成 $ZIP ($(du -h "$ZIP" | cut -f1))"
 echo "  sha256: $(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
@@ -62,7 +62,7 @@ echo "  sha256: $(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 ditto -x -k "$ZIP" "$TMP"
-codesign --verify --strict "$TMP/TopTab.app"
+codesign --verify --strict "$TMP/Xtopbar.app"
 echo "  ✓ 解压后签名校验通过"
 
 # ── 4. 发布 ──────────────────────────────────────────────────────────────
@@ -132,4 +132,4 @@ fi
 
 echo
 echo "✓ 已发布 https://github.com/$OWNER/$REPO/releases/tag/$TAG"
-echo "  已装老版本的用户，下次打开 TopTab 就会收到更新提示。"
+echo "  已装老版本的用户，下次打开 Xtopbar 就会收到更新提示。"

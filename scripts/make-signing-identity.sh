@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# 创建 TopTab 的自签名代码签名身份。
+# 创建 Xtopbar 的自签名代码签名身份。
 #
 # 为什么需要：ad-hoc 签名（codesign --sign -）的指定要求里带的是这次构建的
 # cdhash，每次重编译哈希都变，macOS 就当成"另一个 App"，屏幕录制 / 辅助功能
 # 授权全部失效，要重新授权一次。
 #
 # 换成固定证书后，指定要求变成
-#   identifier "com.zxwzz.toptab" and certificate leaf = H"xxxx"
+#   identifier "com.buzzzzzboy.xtopbar" and certificate leaf = H"xxxx"
 # 证书不变 → 哈希不变 → 授权一直有效。
 #
 # 证书放在独立的 keychain 里（不是 login keychain），配合
 # set-key-partition-list，codesign 调用时不会弹钥匙串授权对话框，可无人值守构建。
 set -euo pipefail
 
-IDENTITY="TopTab Self-Signed"
-KEYCHAIN="$HOME/Library/Keychains/toptab-signing.keychain-db"
-KEYCHAIN_PASS="toptab"
+IDENTITY="Xtopbar Self-Signed"
+KEYCHAIN="$HOME/Library/Keychains/xtopbar-signing.keychain-db"
+KEYCHAIN_PASS="xtopbar"
 
 if [ -f "$KEYCHAIN" ] && security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$IDENTITY"; then
   echo "✓ 签名身份已存在：$IDENTITY"
@@ -28,7 +28,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout "$TMP/key.pem" -out "$TMP/cert.pem" \
-  -subj "/CN=$IDENTITY/OU=TopTab/O=TopTab" \
+  -subj "/CN=$IDENTITY/OU=Xtopbar/O=Xtopbar" \
   -addext "basicConstraints=critical,CA:false" \
   -addext "keyUsage=critical,digitalSignature" \
   -addext "extendedKeyUsage=critical,codeSigning" 2>/dev/null

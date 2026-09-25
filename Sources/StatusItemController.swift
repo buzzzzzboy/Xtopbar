@@ -20,10 +20,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
-            let image = TopTabIcon.statusBar()
+            let image = XtopbarIcon.statusBar()
             image.isTemplate = true
             button.image = image
-            button.toolTip = "TopTab — Dock / App 切换条"
+            button.toolTip = "Xtopbar — Dock / App 切换条"
             TTLog("statusItem button ok image=\(image.size) visible=\(statusItem.isVisible)")
         } else {
             TTLog("statusItem button 为 nil")
@@ -50,7 +50,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         // 标题头（禁用项，纯展示）
-        let header = NSMenuItem(title: "TopTab", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Xtopbar", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
@@ -110,7 +110,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         add(to: menu, title: "刷新列表", action: #selector(refresh))
         menu.addItem(.separator())
-        add(to: menu, title: "退出 TopTab", action: #selector(quit), key: "q")
+        add(to: menu, title: "退出 Xtopbar", action: #selector(quit), key: "q")
     }
 
     private func add(to menu: NSMenu,
