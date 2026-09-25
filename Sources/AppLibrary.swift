@@ -37,7 +37,10 @@ final class AppLibrary: ObservableObject {
             "/Applications/Utilities",
             "/System/Applications",
             "/System/Applications/Utilities",
-            "/System/Library/CoreServices/Applications"
+            "/System/Library/CoreServices/Applications",
+            // macOS 13+ 的 Safari 住在 Cryptex 里（跟着快速安全响应单独更新），
+            // /Applications/Safari.app 只是指过来的符号链接
+            "/System/Cryptexes/App/System/Applications"
         ].map { URL(fileURLWithPath: $0) }
         list.append(FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Applications"))
@@ -49,6 +52,10 @@ final class AppLibrary: ObservableObject {
     nonisolated static var extraApps: [URL] {
         ["/System/Library/CoreServices/Finder.app"].map { URL(fileURLWithPath: $0) }
     }
+
+    /// 兜底：系统自带、放哪儿随系统版本变的 App，直接按 bundle id 问 LaunchServices 在哪。
+    /// 目录扫描漏掉（位置又搬了、符号链接解析失败）时靠这一层补上。
+    nonisolated static let essentialBundleIDs = ["com.apple.finder", "com.apple.Safari"]
 
     /// 超过 maxAge 秒没扫过就后台重扫一次（开始菜单每次打开都会调）
     func refreshIfStale(maxAge: TimeInterval = 60) {
@@ -73,14 +80,18 @@ final class AppLibrary: ObservableObject {
         var result: [LibraryApp] = []
 
         func consider(_ url: URL) {
-            guard url.pathExtension == "app",
-                  let bundle = Bundle(url: url),
+            guard url.pathExtension == "app" else { return }
+            // 符号链接先解析到真身再读 Bundle：/Applications/Safari.app 就是一个指向
+            // Cryptex 的链接，拿链接本身去读靠不住，Safari 就是这么漏掉的
+            let real = url.resolvingSymlinksInPath()
+            guard let bundle = Bundle(url: real),
                   let bid = bundle.bundleIdentifier,
                   !seen.contains(bid) else { return }
             seen.insert(bid)
+            // 显示名按用户看到的那个位置取（链接名 = 访达里看到的名字，含本地化）
             var name = fm.displayName(atPath: url.path)
             if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
-            result.append(LibraryApp(bundleID: bid, url: url, name: name))
+            result.append(LibraryApp(bundleID: bid, url: real, name: name))
         }
 
         for root in roots {
@@ -90,7 +101,8 @@ final class AppLibrary: ObservableObject {
             for item in items {
                 if item.pathExtension == "app" {
                     consider(item)
-                } else if (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+                } else if (try? item.resolvingSymlinksInPath()
+                            .resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
                           // 第二层：/Applications/Adobe xxx/xxx.app 这类套一层文件夹的
                           let inner = try? fm.contentsOfDirectory(
                             at: item, includingPropertiesForKeys: nil,
@@ -100,6 +112,9 @@ final class AppLibrary: ObservableObject {
             }
         }
         extraApps.filter { fm.fileExists(atPath: $0.path) }.forEach(consider)
+        for bid in essentialBundleIDs where !seen.contains(bid) {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) { consider(url) }
+        }
         return result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
