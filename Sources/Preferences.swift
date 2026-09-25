@@ -84,8 +84,8 @@ enum HotZoneScreen: String, CaseIterable, Identifiable {
 /// 底部 = macOS Dock 的替代品（鼠标顶到屏幕底边唤出，或常驻）；
 /// 顶部 = 早先的顶部切换条（鼠标顶到菜单栏中央唤出）。
 enum DockEdge: String, CaseIterable, Identifiable {
-    case bottom   // 默认：Dock 风格
-    case top
+    case top      // 默认：原版顶部切换条
+    case bottom   // Dock 风格
 
     var id: String { rawValue }
 
@@ -151,6 +151,7 @@ final class Preferences: ObservableObject {
         static let recentApps    = "recentApps"
         static let iconOnly      = "iconOnly"
         static let onlyWindowedApps = "onlyWindowedApps"
+        static let showStartButton = "showStartButton"
         static let hideSystemDock = "hideSystemDock"
         static let savedDockAutohide = "savedSystemDockAutohide"
         static let savedDockDelay    = "savedSystemDockDelay"
@@ -252,8 +253,8 @@ final class Preferences: ObservableObject {
         didSet { d.set(ignoredVersion, forKey: Key.ignoredVersion) }
     }
 
-    /// 悬浮条停靠边。默认底部：当 Dock 用。
-    @Published var dockEdge: DockEdge = .bottom {
+    /// 悬浮条停靠边。默认顶部（原版外观）；改成底部就能当 Dock 用。
+    @Published var dockEdge: DockEdge = .top {
         didSet { d.set(dockEdge.rawValue, forKey: Key.dockEdge) }
     }
 
@@ -273,8 +274,13 @@ final class Preferences: ObservableObject {
     }
 
     /// 只显示图标（Dock 风格大图标，名字放到悬停提示里）。关掉 = 图标 + 名称的标签。
-    @Published var iconOnly: Bool = true {
+    @Published var iconOnly: Bool = false {
         didSet { d.set(iconOnly, forKey: Key.iconOnly) }
+    }
+
+    /// 条最左边显示开始按钮（Windows 风格开始菜单）。默认关：保持原版外观。
+    @Published var showStartButton: Bool = false {
+        didSet { d.set(showStartButton, forKey: Key.showStartButton) }
     }
 
     /// 只显示有窗口的 App：运行中但一个窗口都没有的（关完窗口还挂着的 Safari、访达…）不上条。
@@ -358,6 +364,7 @@ final class Preferences: ObservableObject {
         if let pins = Self.load(Key.startPins, from: d) { startPins = pins }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
+        if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
 

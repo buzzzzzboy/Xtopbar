@@ -59,7 +59,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             title: prefs.barEnabled ? "隐藏悬浮条" : "显示悬浮条",
             action: #selector(toggleBar))
 
-        add(to: menu, title: "开始菜单", action: #selector(openStartMenu))
+        if prefs.showStartButton {
+            add(to: menu, title: "开始菜单", action: #selector(openStartMenu))
+        }
         add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
 
         // 有新版就把标题换成醒目的一行，点了直接弹更新框

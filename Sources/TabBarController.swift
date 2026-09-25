@@ -354,8 +354,9 @@ final class TabBarController: TabBarHost {
             .store(in: &cancellables)
 
         // 停靠边 / 图标风格改了：面板高度和位置都变了，预览、开始菜单位置作废，收起后重排
-        Publishers.Merge(prefs.$dockEdge.dropFirst().map { _ in () },
-                         prefs.$iconOnly.dropFirst().map { _ in () })
+        Publishers.Merge3(prefs.$dockEdge.dropFirst().map { _ in () },
+                          prefs.$iconOnly.dropFirst().map { _ in () },
+                          prefs.$showStartButton.dropFirst().map { _ in () })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }

@@ -262,7 +262,7 @@ Google Chrome          2              7
 
 **1. 停靠边（`DockEdge` / `DockGeometry`）**
 
-`Preferences.dockEdge`：`.bottom`（默认）/ `.top`。所有跟停靠边有关的几何都收在 `TabBarController.swift` 里的 `DockGeometry`（纯矩形运算，同 `ScreenPick` 的思路，`--test-pins` 会把两边都打一遍）：
+`Preferences.dockEdge`：`.top`（默认，原版外观）/ `.bottom`。「只显示图标」`iconOnly` 和「显示开始按钮」`showStartButton` 也默认关 —— 不动设置就是原版的顶部标签条。所有跟停靠边有关的几何都收在 `TabBarController.swift` 里的 `DockGeometry`（纯矩形运算，同 `ScreenPick` 的思路，`--test-pins` 会把两边都打一遍）：
 
 | 函数 | 顶部 | 底部 |
 |---|---|---|

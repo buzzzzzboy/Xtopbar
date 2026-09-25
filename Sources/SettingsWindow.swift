@@ -95,6 +95,13 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Toggle("显示开始按钮", isOn: $prefs.showStartButton)
+                .toggleStyle(.switch)
+
+            Text("条最左边加一个 Windows 风格的开始按钮：搜索、已固定、最近使用、所有应用。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Toggle("只显示图标（Dock 风格）", isOn: $prefs.iconOnly)
                 .toggleStyle(.switch)
 

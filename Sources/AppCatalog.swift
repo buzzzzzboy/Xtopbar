@@ -562,8 +562,9 @@ final class AppCatalog: ObservableObject {
         guard contentWidth <= 1 else { return contentWidth }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = Preferences.shared.iconOnly
-        // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线
-        var total: CGFloat = 24 + (iconOnly ? 54 : 44) + 13
+        // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算）
+        var total: CGFloat = 24
+        if Preferences.shared.showStartButton { total += (iconOnly ? 54 : 44) + 13 }
         for (index, group) in groups.enumerated() {
             if index > 0 { total += 13 }
             for entry in group.entries {

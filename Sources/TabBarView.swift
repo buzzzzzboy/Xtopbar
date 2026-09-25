@@ -76,6 +76,8 @@ struct AppTab: View {
     var iconOnly: Bool = false
     /// 是否已固定到开始菜单（决定右键菜单写「固定」还是「取消固定」）
     var startPinned: Bool = false
+    /// 开始按钮开着才给「固定到开始菜单」（没开始菜单时这一项没有意义）
+    var startMenuEnabled: Bool = false
     /// 指针是否还在整条悬浮条上。窗口被 orderOut 时 onHover 可能收不到
     /// false，用外层信号兜底，免得下次唤出时残留高亮
     var barHovered: Bool = true
@@ -182,33 +184,33 @@ struct AppTab: View {
             .frame(width: TTLayout.s(4), height: TTLayout.s(4))
     }
 
+    /// 顶层保持原版的「隐藏此 App / 退出 App」，固定相关的收进「固定」子菜单
     @ViewBuilder
     private var tabMenu: some View {
-        if !entry.isRunning {
-            Button("打开") { catalog?.activate(entry) }
-            Divider()
-        }
-        if entry.isPinned {
-            Button("从任务栏取消固定") { catalog?.unpinFromDock(entry.id) }
-            Button("向左移") { catalog?.moveDockPin(entry.id, by: -1) }
-            Button("向右移") { catalog?.moveDockPin(entry.id, by: 1) }
-        } else {
-            Button("固定到任务栏") { catalog?.pinToDock(entry) }
-        }
-        if startPinned {
-            Button("从开始菜单取消固定") { catalog?.unpinFromStart(entry.id) }
-        } else {
-            Button("固定到开始菜单") { catalog?.pinToStart(entry) }
-        }
-        if let url = entry.bundleURL {
-            Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-        }
         if entry.isRunning {
-            Divider()
             if !entry.isPinned {
                 Button("隐藏此 App") { catalog?.hide(entry) }
             }
             Button("退出 App", role: .destructive) { catalog?.terminate(entry) }
+        } else {
+            Button("打开") { catalog?.activate(entry) }
+        }
+        Divider()
+        Menu("固定") {
+            if entry.isPinned {
+                Button("从任务栏取消固定") { catalog?.unpinFromDock(entry.id) }
+                Button("向左移") { catalog?.moveDockPin(entry.id, by: -1) }
+                Button("向右移") { catalog?.moveDockPin(entry.id, by: 1) }
+            } else {
+                Button("固定到任务栏") { catalog?.pinToDock(entry) }
+            }
+            if startMenuEnabled {
+                if startPinned {
+                    Button("从开始菜单取消固定") { catalog?.unpinFromStart(entry.id) }
+                } else {
+                    Button("固定到开始菜单") { catalog?.pinToStart(entry) }
+                }
+            }
         }
     }
 
@@ -292,10 +294,12 @@ struct TabBarView: View {
 
     private var content: some View {
         HStack(spacing: 0) {
-            StartButton(iconOnly: prefs.iconOnly,
-                        isOpen: catalog.startMenuOpen,
-                        animated: prefs.animationsEnabled)
-            if !catalog.groups.isEmpty { divider }
+            if prefs.showStartButton {
+                StartButton(iconOnly: prefs.iconOnly,
+                            isOpen: catalog.startMenuOpen,
+                            animated: prefs.animationsEnabled)
+                if !catalog.groups.isEmpty { divider }
+            }
             ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
                 if index > 0 { divider }
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
@@ -309,6 +313,7 @@ struct TabBarView: View {
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
                                startPinned: prefs.startPins.contains { $0.bundleID == entry.id },
+                               startMenuEnabled: prefs.showStartButton,
                                barHovered: catalog.pointerOverBar,
                                onHoverChange: { hovering in
                                    if hovering {
@@ -353,7 +358,9 @@ struct TabBarView: View {
         Text(catalog.host?.permissionSummary() ?? "")
 
         Button("设置…") { catalog.host?.openSettings() }
-        Button("打开开始菜单") { catalog.host?.toggleStartMenu() }
+        if prefs.showStartButton {
+            Button("打开开始菜单") { catalog.host?.toggleStartMenu() }
+        }
 
         Divider()
 
