@@ -501,7 +501,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
     /// `kAXWindowsAttribute` 并不保证只给窗口：实测访达会多报一条
     /// role=AXScrollArea 的桌面滚动区（1470×956）；部分 App 还会把附属表面报成
     /// role=AXWindow。按 role / subrole / 尺寸三重判定。
-    private static func isRealWindow(role: String, subrole: String, size: CGSize) -> Bool {
+    static func isRealWindow(role: String, subrole: String, size: CGSize) -> Bool {
         guard role == "AXWindow", size.width >= 120, size.height >= 90 else { return false }
         switch subrole {
         case "AXStandardWindow":
@@ -515,7 +515,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         }
     }
 
-    private static func stringAttr(_ element: AXUIElement, _ attribute: CFString) -> String? {
+    static func stringAttr(_ element: AXUIElement, _ attribute: CFString) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
         return value as? String
@@ -527,7 +527,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         return (value as? Bool) ?? (value as? NSNumber)?.boolValue
     }
 
-    private static func axFrame(of win: AXUIElement) -> CGRect? {
+    static func axFrame(of win: AXUIElement) -> CGRect? {
         guard let origin = pointAttr(win, kAXPositionAttribute as CFString),
               let size = sizeAttr(win, kAXSizeAttribute as CFString) else { return nil }
         return CGRect(origin: origin, size: size)

@@ -150,6 +150,7 @@ final class Preferences: ObservableObject {
         static let startPins     = "startPins"
         static let recentApps    = "recentApps"
         static let iconOnly      = "iconOnly"
+        static let onlyWindowedApps = "onlyWindowedApps"
         static let hideSystemDock = "hideSystemDock"
         static let savedDockAutohide = "savedSystemDockAutohide"
         static let savedDockDelay    = "savedSystemDockDelay"
@@ -276,6 +277,12 @@ final class Preferences: ObservableObject {
         didSet { d.set(iconOnly, forKey: Key.iconOnly) }
     }
 
+    /// 只显示有窗口的 App：运行中但一个窗口都没有的（关完窗口还挂着的 Safari、访达…）不上条。
+    /// 最小化的窗口也算窗口；固定到任务栏的不受影响。需要辅助功能权限，没有时不过滤。
+    @Published var onlyWindowedApps: Bool = true {
+        didSet { d.set(onlyWindowedApps, forKey: Key.onlyWindowedApps) }
+    }
+
     /// 隐藏系统 Dock（把系统 Dock 设成自动隐藏 + 超长延迟，关掉时还原）
     @Published var hideSystemDock: Bool = false {
         didSet { d.set(hideSystemDock, forKey: Key.hideSystemDock) }
@@ -337,6 +344,7 @@ final class Preferences: ObservableObject {
         if let pins = Self.load(Key.startPins, from: d) { startPins = pins }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
+        if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项

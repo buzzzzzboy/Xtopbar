@@ -92,18 +92,27 @@ final class AppCatalog: ObservableObject {
         ]
         for name in names {
             let token = nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                MainActor.assumeIsolated {
+                    self?.refresh()
+                    self?.scanWindows()
+                }
             }
             subscribers.append(token)
         }
 
         // 兜底轮询：兜住任何漏掉的通知
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeIsolated {
+                self?.refresh()
+                // 关窗不会发任何 NSWorkspace 通知，"还有没有窗口"只能靠轮询
+                self?.scanWindows()
+            }
         }
         RunLoop.main.add(refreshTimer!, forMode: .common)
 
+        WindowPresence.shared.onChange = { [weak self] in self?.refresh() }
         refresh()
+        scanWindows()
     }
 
     func stop() {
@@ -115,6 +124,16 @@ final class AppCatalog: ObservableObject {
     }
 
     // MARK: - Collection
+
+    /// 后台查一轮"哪些 App 没有窗口"（结果变了会回调 refresh）。开关关着就不查。
+    func scanWindows() {
+        guard Preferences.shared.onlyWindowedApps else { return }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let pids = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != me }
+            .map(\.processIdentifier)
+        WindowPresence.shared.scan(pids: pids)
+    }
 
     /// 开始按钮在命中区域表里的保留 id（不会和 bundle id 撞）
     nonisolated static let startButtonID = "__start__"
@@ -147,8 +166,10 @@ final class AppCatalog: ObservableObject {
         }
 
         let hidden = prefs.hiddenApps
+        // 「只显示有窗口的 App」：没窗口的运行中 App 不上条（固定项上面已经收走了，不受影响）
+        let windowless: Set<pid_t> = prefs.onlyWindowedApps ? WindowPresence.shared.windowless : []
         let others = running.filter { e in
-            !pinnedIDs.contains(e.id) && hidden[e.id] == nil
+            !pinnedIDs.contains(e.id) && hidden[e.id] == nil && !windowless.contains(e.pid)
         }
         return (pinned, others)
     }

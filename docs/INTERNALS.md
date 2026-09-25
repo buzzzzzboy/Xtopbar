@@ -24,6 +24,7 @@ Sources/
   StartMenuController.swift  开始菜单浮层（定位 / key 窗口 / 键盘与点外面收起）
   StartMenuView.swift        开始菜单视图（搜索 / 已固定 / 最近使用 / 所有应用 A–Z）
   SystemDock.swift           隐藏 / 还原系统 Dock（defaults + killall Dock）
+  WindowPresence.swift       哪些运行中的 App 没有窗口（「只显示有窗口的 App」）
   PreviewController.swift    窗口预览浮层（模型 + 视图 + 面板 + 点击切窗口）
   FloatingPanel.swift        悬浮面板 + 窗口层命中测试 + 调试日志
   Updater.swift              在线更新（检查 GitHub Releases + 下载替换自身）
@@ -293,7 +294,16 @@ Google Chrome          2              7
 - 「所有应用」按首字母分组：中文名先 `applyingTransform(.toLatin)` + `.stripDiacritics` 转拼音取首字母（「微信」→ W），非字母开头归「#」排最后
 - 「最近使用」= `Preferences.recentApps`（bundle id，最多 8 个，`noteActive` 与 `launch` 时记一笔），已固定到开始菜单的不重复列
 
-**4. 隐藏系统 Dock（`SystemDock`）**
+**4. 只显示有窗口的 App（`WindowPresence`）**
+
+`Preferences.onlyWindowedApps`（默认开）。关窗不发任何 `NSWorkspace` 通知，只能跟着 catalog 的 1.2s 兜底轮询（外加 launch / activate 等通知）后台查一轮：
+
+- AX `kAXWindowsAttribute` + 预览同款 `isRealWindow` 过滤数真窗口，**最小化的也算**；按 pid 走 `axGate`，不同 App 并发，整轮在 `Task.detached` 里
+- AX 回空但窗口服务器里这个 pid 在屏上有一块 ≥120×90、不透明的 layer-0 表面 → 算有窗口（Electron 系偶发「success + 空数组」，不兜会把开着窗口的微信藏掉）
+- 问不出来（超时 / 失败）= 维持原判；**连续两次**"没窗口"才藏 —— 新启动的 App 窗口还没建好时不闪
+- 固定项在 `collect` 里先被收走，不受过滤；没有辅助功能权限时不过滤（拿不到最小化窗口，宁可多显示）
+
+**5. 隐藏系统 Dock（`SystemDock`）**
 
 没有公开 API 能关掉系统 Dock，做法是 `defaults write com.apple.dock autohide -bool true` + `autohide-delay -float 1000`，再 `killall Dock`（launchd 立刻拉起，窗口不受影响）。
 

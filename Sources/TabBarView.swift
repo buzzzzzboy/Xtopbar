@@ -363,6 +363,7 @@ struct TabBarView: View {
             }
         }
         Toggle("只显示图标", isOn: $prefs.iconOnly)
+        Toggle("只显示有窗口的 App", isOn: $prefs.onlyWindowedApps)
 
         Menu("自动隐藏") {
             ForEach(Preferences.delayOptions, id: \.value) { item in

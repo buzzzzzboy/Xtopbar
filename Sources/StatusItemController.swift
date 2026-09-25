@@ -86,6 +86,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         delayItem.submenu = delayMenu
         menu.addItem(delayItem)
 
+        add(to: menu, title: "只显示有窗口的 App",
+            action: #selector(toggleOnlyWindowed),
+            state: prefs.onlyWindowedApps)
+
         add(to: menu, title: "窗口预览",
             action: #selector(togglePreview),
             state: prefs.previewEnabled)
@@ -150,6 +154,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let value = sender.representedObject as? Double else { return }
         prefs.hideDelay = value
         controller?.applyBarEnabled()   // 从「常驻」切回自动隐藏时要立刻收起
+    }
+
+    @objc private func toggleOnlyWindowed() {
+        prefs.onlyWindowedApps.toggle()
     }
 
     @objc private func togglePreview() {

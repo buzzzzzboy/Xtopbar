@@ -102,6 +102,13 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Toggle("只显示有窗口的 App", isOn: $prefs.onlyWindowedApps)
+                .toggleStyle(.switch)
+
+            Text("运行中但一个窗口都没有的 App（比如关完窗口还挂着的 Safari、访达）不显示；最小化的窗口也算有窗口。固定到任务栏的 App 始终显示。需要「辅助功能」权限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Toggle("隐藏系统 Dock", isOn: $prefs.hideSystemDock)
                 .toggleStyle(.switch)
 

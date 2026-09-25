@@ -266,6 +266,15 @@ final class TabBarController: TabBarHost {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.catalog.refresh() }
             .store(in: &cancellables)
+        // 「只显示有窗口的 App」开关：立刻重采；打开时顺手查一轮窗口
+        prefs.$onlyWindowedApps
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.catalog.refresh()
+                self?.catalog.scanWindows()
+            }
+            .store(in: &cancellables)
 
         // 右键菜单 / 状态栏菜单打开期间暂停自动隐藏。
         // 菜单窗口是面板的子窗口：不暂停的话，指针从标签移向"退出 App"
@@ -483,6 +492,7 @@ final class TabBarController: TabBarHost {
             TTLog("  [\(edge.rawValue)] 条=\(bar) 唤出区=\(zone) 开始菜单=\(menu) "
                   + "向上弹=\(DockGeometry.opensUpward(barFrame: bar, visible: screen.visibleFrame))")
         }
+        TTLog("  只显示有窗口的 App=\(prefs.onlyWindowedApps)，判定无窗口：\(WindowPresence.shared.windowless.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
         let lib = AppLibrary.shared
         TTLog("  应用索引 \(lib.apps.count) 个；搜索「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
     }
