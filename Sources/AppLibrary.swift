@@ -1,0 +1,146 @@
+import AppKit
+import Combine
+
+/// 一个已安装的 App（开始菜单「所有应用」/ 搜索结果的一行）
+struct LibraryApp: Identifiable, Equatable, Hashable {
+    let bundleID: String
+    let url: URL
+    let name: String
+
+    var id: String { bundleID }
+
+    var pinned: PinnedApp { PinnedApp(bundleID: bundleID, path: url.path, name: name) }
+}
+
+/// 已安装 App 索引：扫常见的 Applications 目录，给开始菜单用。
+///
+/// 不用 Spotlight（NSMetadataQuery）：索引被关掉 / 重建中时会返回空，
+/// 而开始菜单的"所有应用"必须稳定。直接扫目录，几百个 .app 也只要几十毫秒，
+/// 而且在后台线程做，不卡界面。
+@MainActor
+final class AppLibrary: ObservableObject {
+
+    static let shared = AppLibrary()
+
+    @Published private(set) var apps: [LibraryApp] = []
+
+    private var lastScan = Date.distantPast
+    private var scanning = false
+    private var iconCache: [String: NSImage] = [:]
+
+    private init() {}
+
+    /// 扫描根目录。~/Applications 放用户自装的（比如 Chrome 的 Web App）。
+    nonisolated static var roots: [URL] {
+        var list = [
+            "/Applications",
+            "/Applications/Utilities",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            "/System/Library/CoreServices/Applications"
+        ].map { URL(fileURLWithPath: $0) }
+        list.append(FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications"))
+        return list
+    }
+
+    /// 超过 maxAge 秒没扫过就后台重扫一次（开始菜单每次打开都会调）
+    func refreshIfStale(maxAge: TimeInterval = 60) {
+        guard !scanning, Date().timeIntervalSince(lastScan) > maxAge else { return }
+        scanning = true
+        Task.detached(priority: .utility) {
+            let found = AppLibrary.scan()
+            await MainActor.run {
+                let lib = AppLibrary.shared
+                lib.scanning = false
+                lib.lastScan = Date()
+                if found != lib.apps { lib.apps = found }
+                TTLog("AppLibrary 扫描完成 \(found.count) 个 App")
+            }
+        }
+    }
+
+    /// 纯文件系统扫描：根目录下两层以内的 .app，按 bundle id 去重，按名称排序
+    nonisolated static func scan() -> [LibraryApp] {
+        let fm = FileManager.default
+        var seen = Set<String>()
+        var result: [LibraryApp] = []
+
+        func consider(_ url: URL) {
+            guard url.pathExtension == "app",
+                  let bundle = Bundle(url: url),
+                  let bid = bundle.bundleIdentifier,
+                  !seen.contains(bid) else { return }
+            seen.insert(bid)
+            var name = fm.displayName(atPath: url.path)
+            if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
+            result.append(LibraryApp(bundleID: bid, url: url, name: name))
+        }
+
+        for root in roots {
+            guard let items = try? fm.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]) else { continue }
+            for item in items {
+                if item.pathExtension == "app" {
+                    consider(item)
+                } else if (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+                          // 第二层：/Applications/Adobe xxx/xxx.app 这类套一层文件夹的
+                          let inner = try? fm.contentsOfDirectory(
+                            at: item, includingPropertiesForKeys: nil,
+                            options: [.skipsHiddenFiles]) {
+                    inner.forEach(consider)
+                }
+            }
+        }
+        return result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// 按 bundle id 找已安装的 App（最近使用 / 固定项解析用）
+    func app(bundleID: String) -> LibraryApp? {
+        apps.first { $0.bundleID == bundleID }
+    }
+
+    /// 图标（按路径缓存；NSWorkspace 取图标是同步的，但有系统缓存，很快）
+    func icon(for url: URL) -> NSImage {
+        if let cached = iconCache[url.path] { return cached }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        image.size = NSSize(width: 64, height: 64)
+        iconCache[url.path] = image
+        return image
+    }
+
+    func search(_ query: String) -> [LibraryApp] {
+        AppLibrary.search(query, in: apps)
+    }
+
+    /// 搜索：名称前缀 > 名称里某个词的前缀 > 名称包含 > bundle id 包含。
+    /// 忽略大小写和变音符号。纯函数，不碰 UI，可离线回归（`--test-pins` 会打一次）。
+    nonisolated static func search(_ query: String, in apps: [LibraryApp]) -> [LibraryApp] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return apps }
+        let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+
+        func score(_ app: LibraryApp) -> Int? {
+            let name = app.name
+            if let r = name.range(of: q, options: opts) {
+                if r.lowerBound == name.startIndex { return 0 }
+                let before = name[name.index(before: r.lowerBound)]
+                if before == " " || before == "-" || before == "." { return 1 }
+                return 2
+            }
+            if app.bundleID.range(of: q, options: opts) != nil { return 3 }
+            return nil
+        }
+
+        var scored: [(app: LibraryApp, score: Int)] = []
+        for app in apps {
+            if let s = score(app) { scored.append((app, s)) }
+        }
+        scored.sort { a, b in
+            if a.score != b.score { return a.score < b.score }
+            return a.app.name.localizedStandardCompare(b.app.name) == .orderedAscending
+        }
+        return scored.map { $0.app }
+    }
+}

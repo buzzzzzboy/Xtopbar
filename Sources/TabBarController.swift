@@ -16,6 +16,70 @@ protocol TabBarHost: AnyObject {
     /// 返回 true 表示确实处理了（这次是 ⌘Tab 呼出的）。
     @discardableResult
     func dismissQuickSwitch() -> Bool
+    /// 开始按钮 / 右键菜单 / 状态栏菜单：开关开始菜单
+    func toggleStartMenu()
+}
+
+/// 停靠边相关的几何：纯矩形运算，不碰 NSScreen / 面板，
+/// 底部 / 顶部两套摆法能离线核对（`--test-pins` 会把两边都打一遍）。
+enum DockGeometry {
+    /// 面板落位：顶部 = 菜单栏正下方 inset；底部 = 可用区底边往上 inset
+    /// （系统 Dock 常驻时 visibleFrame 已经把它让出去了，不会叠在一起）。
+    static func barFrame(edge: DockEdge, visible: CGRect,
+                         width: CGFloat, height: CGFloat, inset: CGFloat) -> CGRect {
+        let maxWidth = visible.width - 24
+        let w = max(220, min(width, maxWidth))
+        let x = visible.midX - w / 2
+        let y = edge == .top
+            ? visible.maxY - inset - height   // visibleFrame 已排除菜单栏，maxY 即菜单栏正下方
+            : visible.minY + inset
+        return CGRect(x: x, y: y, width: w, height: height)
+    }
+
+    /// 唤出区。
+    /// - 顶部：菜单栏中央一块（宽度可调，默认 120pt，免得误触右上角状态图标）。
+    ///   上边界越过屏幕顶 2pt：鼠标贴顶时 y == maxY，半开区间不越过就会漏判。
+    /// - 底部：屏幕底边一条 6pt 高的窄带（向下越出 2pt，同理），宽度取条宽与设置值的较大者 ——
+    ///   底边没有状态图标可误触，跟 Dock 一样沿着条的整段都能顶出来。
+    static func hotZone(edge: DockEdge, screen: CGRect, visible: CGRect,
+                        zoneWidth: CGFloat, barWidth: CGFloat) -> CGRect {
+        switch edge {
+        case .top:
+            let menuBarHeight = screen.maxY - visible.maxY
+            let height = menuBarHeight + 5
+            return CGRect(x: screen.midX - zoneWidth / 2,
+                          y: screen.maxY - height + 2,
+                          width: zoneWidth, height: height)
+        case .bottom:
+            let width = max(zoneWidth, barWidth)
+            return CGRect(x: screen.midX - width / 2, y: screen.minY - 2,
+                          width: width, height: 6)
+        }
+    }
+
+    /// 进出场位移方向：顶部从上方落下（+），底部从下方升起（−）
+    static func slideSign(edge: DockEdge) -> CGFloat {
+        edge == .top ? 1 : -1
+    }
+
+    /// 预览 / 开始菜单往哪边弹：条在屏幕下半部 → 向上，否则向下。
+    /// 按条的实际位置而不是设置判定 —— ⌘Tab 把条钉在鼠标处时，两种停靠边都可能落在任何位置。
+    static func opensUpward(barFrame: CGRect, visible: CGRect) -> Bool {
+        barFrame.midY < visible.midY
+    }
+
+    /// 贴着条摆一个弹出面板（预览 / 开始菜单）：水平以 anchorX 为准（alignLeft 时左对齐），
+    /// 垂直在条的上方或下方留 gap，最后夹进可用区。
+    static func popupFrame(size: CGSize, anchorX: CGFloat, alignLeft: Bool,
+                           barFrame: CGRect, visible: CGRect, gap: CGFloat) -> CGRect {
+        var x = alignLeft ? anchorX : anchorX - size.width / 2
+        x = max(visible.minX + 8, min(x, visible.maxX - size.width - 8))
+        var y = opensUpward(barFrame: barFrame, visible: visible)
+            ? barFrame.maxY + gap
+            : barFrame.minY - gap - size.height
+        y = max(visible.minY + 4, min(y, visible.maxY - size.height - 4))
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
 }
 
 /// ⌘Tab 选完之后该怎么收场。
@@ -53,7 +117,7 @@ final class TabBarController: TabBarHost {
     private var currentWidth: CGFloat = 0
 
     /// 面板高度 / 距菜单栏间隙随界面缩放联动（计算属性，uiScale 变了下次 relayout 生效）
-    private var barHeight: CGFloat { TTLayout.s(42) }
+    private var barHeight: CGFloat { TTLayout.barHeight }
     private var topInset: CGFloat { TTLayout.s(6) }
 
     private var isRevealed = false
@@ -87,6 +151,7 @@ final class TabBarController: TabBarHost {
     // MARK: - 预览
 
     private let preview = PreviewController()
+    private lazy var startMenu = StartMenuController(catalog: catalog)
     private var previewWork: DispatchWorkItem?
     private var hoveredEntry: AppEntry?
     /// 鼠标离开标签的时刻：留一点宽限期，让光标能顺利从标签滑进预览面板
@@ -105,8 +170,9 @@ final class TabBarController: TabBarHost {
         self.prefs = Preferences.shared
 
         let frame = TabBarController.defaultScreen.map {
-            TabBarController.targetFrame(for: $0, width: 600, height: 42, topInset: 6)
-        } ?? NSRect(x: 0, y: 0, width: 600, height: 42)
+            DockGeometry.barFrame(edge: Preferences.shared.dockEdge, visible: $0.visibleFrame,
+                                  width: 600, height: TTLayout.barHeight, inset: 6)
+        } ?? NSRect(x: 0, y: 0, width: 600, height: TTLayout.barHeight)
         self.panel = FloatingPanel(contentRect: frame)
 
         let view = TabBarView(
@@ -189,8 +255,13 @@ final class TabBarController: TabBarHost {
             }
             .store(in: &cancellables)
 
-        // 隐藏列表变化 → 立刻重采（否则要等 1.2s 兜底轮询）
+        // 隐藏列表 / 任务栏固定变化 → 立刻重采（否则要等 1.2s 兜底轮询）
         prefs.$hiddenApps
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.catalog.refresh() }
+            .store(in: &cancellables)
+        prefs.$dockPins
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.catalog.refresh() }
@@ -271,6 +342,19 @@ final class TabBarController: TabBarHost {
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.hidePreview() }
+            .store(in: &cancellables)
+
+        // 停靠边 / 图标风格改了：面板高度和位置都变了，预览、开始菜单位置作废，收起后重排
+        Publishers.Merge(prefs.$dockEdge.dropFirst().map { _ in () },
+                         prefs.$iconOnly.dropFirst().map { _ in () })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.hidePreview()
+                self.startMenu.close()
+                self.currentWidth = 0
+                self.relayout()
+            }
             .store(in: &cancellables)
 
         // 顶部唤出位置改了：立刻把面板摆到正确的那块屏上
@@ -371,6 +455,36 @@ final class TabBarController: TabBarHost {
             TTLog("  +0.5s isRevealed=\(self.isRevealed) panel.isVisible=\(self.panel.isVisible) "
                   + "suppressHotZone=\(self.suppressHotZoneUntilExit) 热区=\(self.hotZone)")
         }
+    }
+
+    /// 调试自检：`--test-pins`
+    /// 把固定 / 运行分组、两种停靠边下的面板位置与唤出区、以及一次应用搜索写进日志，
+    /// 用来核对"固定项排最前、没运行的 pid=0"和底部停靠的几何是不是对的。
+    func diagnosePins() {
+        catalog.refresh()
+        TTLog("自检：任务栏固定 \(prefs.dockPins.map(\.name))，开始菜单固定 \(prefs.startPins.map(\.name))")
+        for group in catalog.groups {
+            TTLog("  组 \(group.category.title)：" + group.entries.map {
+                "\($0.name)[pid=\($0.pid) running=\($0.isRunning) pinned=\($0.isPinned)]"
+            }.joined(separator: ", "))
+        }
+        guard let screen = anchorScreen else { return }
+        for edge in DockEdge.allCases {
+            let bar = DockGeometry.barFrame(edge: edge, visible: screen.visibleFrame,
+                                            width: catalog.preferredWidth, height: barHeight,
+                                            inset: topInset)
+            let zone = DockGeometry.hotZone(edge: edge, screen: screen.frame,
+                                            visible: screen.visibleFrame,
+                                            zoneWidth: CGFloat(prefs.hotZoneWidth),
+                                            barWidth: bar.width)
+            let menu = DockGeometry.popupFrame(size: StartMenuController.size, anchorX: bar.minX + 12,
+                                               alignLeft: true, barFrame: bar,
+                                               visible: screen.visibleFrame, gap: 8)
+            TTLog("  [\(edge.rawValue)] 条=\(bar) 唤出区=\(zone) 开始菜单=\(menu) "
+                  + "向上弹=\(DockGeometry.opensUpward(barFrame: bar, visible: screen.visibleFrame))")
+        }
+        let lib = AppLibrary.shared
+        TTLog("  应用索引 \(lib.apps.count) 个；搜索「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
     }
 
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
@@ -555,7 +669,8 @@ final class TabBarController: TabBarHost {
         // 首帧布局/玻璃重采样会闪一下，透明度 0 时看不见，alpha=1 会闪烁。
         let target = panel.frame
         var start = target
-        start.origin.y += 14
+        // 顶部从上方落下，底部从下方升起
+        start.origin.y += 14 * DockGeometry.slideSign(edge: prefs.dockEdge)
         panel.alphaValue = 0
         panel.setFrame(start, display: false)
         panel.orderFrontRegardless()
@@ -572,7 +687,7 @@ final class TabBarController: TabBarHost {
             return
         }
         lastWarmup = Date()
-        let pids = catalog.groups.flatMap { $0.entries }.map(\.pid)
+        let pids = catalog.groups.flatMap { $0.entries }.map(\.pid).filter { $0 > 0 }
         Task { [weak self] in
             guard let self else { return }
             await self.engine.refresh(minInterval: 0, pids: pids)
@@ -587,6 +702,7 @@ final class TabBarController: TabBarHost {
         isRevealed = false
         pinnedToMouse = false
         hidePreview()
+        startMenu.close()
         // 整条要离场了，高亮状态跟着复位，下次唤出时不会残留
         catalog.pointerOverBar = false
         // 条都离场了，⌘Tab 会话不可能还在进行（正常路径松 ⌘ 已提交）；
@@ -605,9 +721,9 @@ final class TabBarController: TabBarHost {
             return
         }
 
-        // 反向滑回上方 + 淡出（和呼出同级别的快，0.07s）
+        // 反向滑回屏幕边缘 + 淡出（和呼出同级别的快，0.07s）
         var end = panel.frame
-        end.origin.y += 8
+        end.origin.y += 8 * DockGeometry.slideSign(edge: prefs.dockEdge)
         animateWindow(to: end, alpha: 0, duration: 0.07) { [weak self] in
             guard let self, !self.isRevealed else { return }
             // 先离场再复位透明度，避免 orderOut 之前那一帧闪出全不透明的面板
@@ -729,16 +845,15 @@ final class TabBarController: TabBarHost {
     /// 唤醒区会横向铺满大半个菜单栏，鼠标去点右上角状态图标就误唤醒，
     /// 干扰正常点击。唤醒只需要顶部中间一小块，面板出来后由面板区域
     /// 自己维持驻留（tick 里的并集判断），收窄不影响日常使用。
+    ///
+    /// 停靠在底部时是屏幕底边一条窄带（见 `DockGeometry.hotZone`）。
     private var hotZone: NSRect {
         let screen = anchorScreen ?? panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
-        let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
-        let height = menuBarHeight + 5
-        let width = CGFloat(prefs.hotZoneWidth)
-        // 上边界故意越过屏幕顶部 2pt：鼠标贴到最上面时 y 正好等于 maxY，
-        // 而 NSRect.contains 是半开区间，不越过就会漏判。
-        return NSRect(x: screen.frame.midX - width / 2,
-                      y: screen.frame.maxY - height + 2,
-                      width: width, height: height)
+        return DockGeometry.hotZone(edge: prefs.dockEdge,
+                                    screen: screen.frame,
+                                    visible: screen.visibleFrame,
+                                    zoneWidth: CGFloat(prefs.hotZoneWidth),
+                                    barWidth: catalog.barWidth)
     }
 
     private func startMouseTracking() {
@@ -785,9 +900,10 @@ final class TabBarController: TabBarHost {
             catalog.pointerOverBar = pointerNear
         }
 
-        if menuTracking || catalog.keyboardSession {
+        if menuTracking || catalog.keyboardSession || startMenu.isVisible {
             // 菜单开着：指针在菜单上（面板的子窗口），条不能收。
             // ⌘Tab 会话中：面板是键盘驱动的，条必须一直待到松 ⌘ 提交为止。
+            // 开始菜单开着：它是贴着条弹出的，条收了菜单就悬空了。
             // 持续续期，关菜单/会话结束后按正常延迟收起。
             lastInteraction = now
         } else if inPanel || inPreview || inHot {
@@ -804,7 +920,7 @@ final class TabBarController: TabBarHost {
         guard isRevealed else { return }
 
         // 悬停时更实一点，便于阅读
-        let target: CGFloat = inPanel ? 1.0 : CGFloat(prefs.idleOpacity)
+        let target: CGFloat = (inPanel || startMenu.isVisible) ? 1.0 : CGFloat(prefs.idleOpacity)
         if abs(panel.alphaValue - target) > 0.02 {
             animateAlpha(to: target, duration: 0.12)
         }
@@ -843,7 +959,8 @@ final class TabBarController: TabBarHost {
     private func schedulePreview(for entry: AppEntry) {
         hoveredEntry = entry
         previewWork?.cancel()
-        guard prefs.previewEnabled, isRevealed else { return }
+        // 没在运行的固定项没有窗口可看；开始菜单开着时也别在它旁边再弹一层
+        guard prefs.previewEnabled, isRevealed, entry.isRunning, !startMenu.isVisible else { return }
 
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.hoveredEntry?.id == entry.id else { return }
@@ -879,6 +996,33 @@ final class TabBarController: TabBarHost {
 
     func dismissPreview() {
         hidePreview()
+    }
+
+    // MARK: - 开始菜单
+
+    func toggleStartMenu() {
+        if startMenu.isVisible {
+            startMenu.close()
+            return
+        }
+        guard prefs.barEnabled else { return }
+        // 从状态栏菜单 / 快捷入口打开时条可能还藏着：先把条唤出来，菜单要贴着开始按钮弹
+        if !isRevealed { beginReveal(animated: false) }
+        hidePreview()
+        lastInteraction = Date()
+
+        let buttonRect = catalog.tabFrames[AppCatalog.startButtonID]
+            .map { r in
+                NSRect(x: panel.frame.minX + r.minX, y: panel.frame.maxY - r.maxY,
+                       width: r.width, height: r.height)
+            } ?? NSRect(x: panel.frame.minX + 12, y: panel.frame.minY, width: 1, height: 1)
+        startMenu.onClose = { [weak self] in
+            self?.catalog.startMenuOpen = false
+            // 从关菜单这一刻重新计时，别一关条就瞬间消失
+            self?.lastInteraction = Date()
+        }
+        startMenu.show(anchorInScreen: buttonRect, barFrame: panel.frame, barWindow: panel)
+        catalog.startMenuOpen = true
     }
 
     func refreshCatalog() {
@@ -926,14 +1070,10 @@ final class TabBarController: TabBarHost {
 
     // MARK: - Layout
 
-    private static func targetFrame(for screen: NSScreen, width: CGFloat, height: CGFloat, topInset: CGFloat) -> NSRect {
-        let visible = screen.visibleFrame
-        let maxWidth = visible.width - 24
-        let w = max(220, min(width, maxWidth))
-        let x = visible.midX - w / 2
-        // visibleFrame 已排除菜单栏，maxY 即菜单栏正下方
-        let y = visible.maxY - topInset - height
-        return NSRect(x: x, y: y, width: w, height: height)
+    private static func targetFrame(for screen: NSScreen, edge: DockEdge,
+                                    width: CGFloat, height: CGFloat, inset: CGFloat) -> NSRect {
+        DockGeometry.barFrame(edge: edge, visible: screen.visibleFrame,
+                              width: width, height: height, inset: inset)
     }
 
     /// ⌘Tab 呼出时面板钉在鼠标处：水平居中于指针，垂直方向默认放在指针上方
@@ -973,12 +1113,13 @@ final class TabBarController: TabBarHost {
                                           height: barHeight, mouse: pinnedAnchor)
             : TabBarController.targetFrame(
                 for: screen,
+                edge: prefs.dockEdge,
                 width: catalog.preferredWidth,
                 height: barHeight,
-                topInset: topInset
+                inset: topInset
             )
 
-        if abs(target.width - currentWidth) > 0.5 {
+        if abs(target.width - currentWidth) > 0.5 || abs(target.height - panel.frame.height) > 0.5 {
             currentWidth = target.width
             panel.setFrame(target, display: true, animate: false)
             hostingView?.frame = NSRect(origin: .zero, size: target.size)

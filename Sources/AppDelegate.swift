@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -7,10 +8,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let catalog = AppCatalog()
     private var controller: TabBarController?
     private var statusItem: StatusItemController?
+    private var cancellables = Set<AnyCancellable>()
+    /// 用户在确认框里点了取消、把开关弹回去时置位，免得弹回本身又触发一次确认
+    private var revertingDockToggle = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 不占 Dock、不进 Cmd+Tab，纯悬浮条 + 菜单栏图标
         NSApp.setActivationPolicy(.accessory)
+
+        // 开始菜单的「所有应用」索引：启动就在后台扫一遍，第一次打开菜单时已经就绪
+        AppLibrary.shared.refreshIfStale(maxAge: 0)
 
         catalog.start()
         let controller = TabBarController(catalog: catalog)
@@ -19,6 +26,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 菜单栏图标。由 Preferences.showStatusItem 控制显隐。
         statusItem = StatusItemController(prefs: .shared, controller: controller)
+
+        // 「隐藏系统 Dock」开关：改动时确认 → 写 com.apple.dock → 重启 Dock。
+        // 启动时不动（dropFirst）：开着的就一直开着，不用每次启动都重启 Dock。
+        Preferences.shared.$hideSystemDock
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] hide in
+                guard let self else { return }
+                if self.revertingDockToggle { self.revertingDockToggle = false; return }
+                if SystemDock.confirm(hide: hide) {
+                    SystemDock.apply(hide: hide)
+                } else {
+                    self.revertingDockToggle = true
+                    Preferences.shared.hideSystemDock = !hide
+                }
+            }
+            .store(in: &cancellables)
+
+        // 调试用：`--start-menu` 启动后直接弹开始菜单
+        if CommandLine.arguments.contains("--start-menu") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                controller.toggleStartMenu()
+            }
+        }
+
+        // 调试用：`--test-pins` 打印固定 / 运行分组与两种停靠边的几何
+        if CommandLine.arguments.contains("--test-pins") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                controller.diagnosePins()
+            }
+        }
 
         // 调试用：`open TopTab.app --args --settings` 直接拉起设置窗口
         if CommandLine.arguments.contains("--settings") {

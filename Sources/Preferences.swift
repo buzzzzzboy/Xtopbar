@@ -79,6 +79,46 @@ enum HotZoneScreen: String, CaseIterable, Identifiable {
     }
 }
 
+/// 悬浮条停靠在屏幕哪条边。
+///
+/// 底部 = macOS Dock 的替代品（鼠标顶到屏幕底边唤出，或常驻）；
+/// 顶部 = 早先的顶部切换条（鼠标顶到菜单栏中央唤出）。
+enum DockEdge: String, CaseIterable, Identifiable {
+    case bottom   // 默认：Dock 风格
+    case top
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bottom: return "底部（Dock）"
+        case .top:    return "顶部"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .bottom:
+            return "停在屏幕底部，鼠标顶到底边唤出 —— 可以当 Dock 用。窗口预览和开始菜单向上弹出。"
+        case .top:
+            return "停在菜单栏下方，鼠标顶到屏幕顶部中央唤出。窗口预览和开始菜单向下弹出。"
+        }
+    }
+}
+
+/// 一个被固定的 App（任务栏 / 开始菜单各一份列表）。
+///
+/// 存路径是为了 App 没在运行时也能画图标、能启动；
+/// 存名字是为了 App 被删掉之后设置里还能认出它是谁。
+struct PinnedApp: Codable, Equatable, Identifiable {
+    let bundleID: String
+    let path: String
+    let name: String
+
+    var id: String { bundleID }
+    var url: URL { URL(fileURLWithPath: path) }
+}
+
 /// 全局偏好：集中管理 UserDefaults 读写，视图与控制器都订阅它。
 ///
 /// 旧实现把 UserDefaults key 散落在 TabBarController 的 getter/setter 里，
@@ -105,6 +145,14 @@ final class Preferences: ObservableObject {
         static let uiScale       = "uiScale"
         static let autoCheckUpdates = "autoCheckUpdates"
         static let ignoredVersion   = "ignoredVersion"
+        static let dockEdge      = "dockEdge"
+        static let dockPins      = "dockPins"
+        static let startPins     = "startPins"
+        static let recentApps    = "recentApps"
+        static let iconOnly      = "iconOnly"
+        static let hideSystemDock = "hideSystemDock"
+        static let savedDockAutohide = "savedSystemDockAutohide"
+        static let savedDockDelay    = "savedSystemDockDelay"
     }
 
     private let d = UserDefaults.standard
@@ -203,6 +251,71 @@ final class Preferences: ObservableObject {
         didSet { d.set(ignoredVersion, forKey: Key.ignoredVersion) }
     }
 
+    /// 悬浮条停靠边。默认底部：当 Dock 用。
+    @Published var dockEdge: DockEdge = .bottom {
+        didSet { d.set(dockEdge.rawValue, forKey: Key.dockEdge) }
+    }
+
+    /// 固定到任务栏的 App（顺序即显示顺序）。没在运行也常驻在条上，点一下启动。
+    @Published var dockPins: [PinnedApp] = [] {
+        didSet { Self.save(dockPins, key: Key.dockPins, to: d) }
+    }
+
+    /// 固定到开始菜单的 App（顺序即网格顺序）。和任务栏各管各的，同 Windows。
+    @Published var startPins: [PinnedApp] = [] {
+        didSet { Self.save(startPins, key: Key.startPins, to: d) }
+    }
+
+    /// 最近使用的 App（bundle id，最新在前，最多 8 个）：开始菜单「最近使用」
+    @Published var recentApps: [String] = [] {
+        didSet { d.set(recentApps, forKey: Key.recentApps) }
+    }
+
+    /// 只显示图标（Dock 风格大图标，名字放到悬停提示里）。关掉 = 图标 + 名称的标签。
+    @Published var iconOnly: Bool = true {
+        didSet { d.set(iconOnly, forKey: Key.iconOnly) }
+    }
+
+    /// 隐藏系统 Dock（把系统 Dock 设成自动隐藏 + 超长延迟，关掉时还原）
+    @Published var hideSystemDock: Bool = false {
+        didSet { d.set(hideSystemDock, forKey: Key.hideSystemDock) }
+    }
+
+    /// 开启「隐藏系统 Dock」之前系统 Dock 的原值，关掉时照原样写回。
+    /// nil = 那个 key 原本就没写过（还原时删掉而不是写一个值进去）。
+    var savedDockAutohide: Bool? {
+        get { d.object(forKey: Key.savedDockAutohide) as? Bool }
+        set { d.set(newValue, forKey: Key.savedDockAutohide) }
+    }
+    var savedDockDelay: Double? {
+        get { d.object(forKey: Key.savedDockDelay) as? Double }
+        set { d.set(newValue, forKey: Key.savedDockDelay) }
+    }
+    /// 原值有没有存过（区分"存过、原本就没写"和"还没存"）
+    var hasSavedSystemDock: Bool {
+        get { d.bool(forKey: "savedSystemDockValid") }
+        set { d.set(newValue, forKey: "savedSystemDockValid") }
+    }
+
+    /// 最近使用记一笔（去重、置顶、截断）
+    func noteRecent(_ bundleID: String) {
+        guard !bundleID.isEmpty, recentApps.first != bundleID else { return }
+        var next = recentApps
+        next.removeAll { $0 == bundleID }
+        next.insert(bundleID, at: 0)
+        if next.count > 8 { next.removeLast(next.count - 8) }
+        recentApps = next
+    }
+
+    private static func save(_ pins: [PinnedApp], key: String, to d: UserDefaults) {
+        if let data = try? JSONEncoder().encode(pins) { d.set(data, forKey: key) }
+    }
+
+    private static func load(_ key: String, from d: UserDefaults) -> [PinnedApp]? {
+        guard let data = d.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode([PinnedApp].self, from: data)
+    }
+
     private init() {
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
@@ -219,6 +332,12 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
         if d.object(forKey: Key.autoCheckUpdates) != nil { autoCheckUpdates = d.bool(forKey: Key.autoCheckUpdates) }
         ignoredVersion = d.string(forKey: Key.ignoredVersion) ?? ""
+        if let raw = d.string(forKey: Key.dockEdge), let e = DockEdge(rawValue: raw) { dockEdge = e }
+        if let pins = Self.load(Key.dockPins, from: d) { dockPins = pins }
+        if let pins = Self.load(Key.startPins, from: d) { startPins = pins }
+        if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
+        if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
+        if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }
@@ -249,6 +368,9 @@ enum TTLayout {
 
     /// 缩放一个长度
     @MainActor static func s(_ v: CGFloat) -> CGFloat { v * scale }
+
+    /// 悬浮条高度：Dock 风格（只显示图标）用大图标，标签风格保持原来的 42pt
+    @MainActor static var barHeight: CGFloat { s(Preferences.shared.iconOnly ? 58 : 42) }
 
     /// 缩放一个字号（取半 pt 对齐，避免奇奇怪怪的亚像素位置）
     @MainActor static func font(_ v: CGFloat) -> CGFloat { (v * scale * 2).rounded() / 2 }

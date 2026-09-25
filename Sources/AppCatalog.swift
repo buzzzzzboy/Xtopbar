@@ -2,16 +2,22 @@ import AppKit
 import ApplicationServices
 import Combine
 
-/// 一个可点击的标签 = 一个正在运行的 App
+/// 一个可点击的标签 = 一个正在运行的 App，或一个固定到任务栏的 App（可能没在运行）
 struct AppEntry: Identifiable, Equatable {
     let id: String
+    /// 没在运行的固定项为 0
     let pid: pid_t
     let name: String
     let icon: NSImage
     let category: AppCategory
+    /// .app 路径：没在运行时靠它启动 / 固定
+    var bundleURL: URL? = nil
+    var isRunning: Bool = true
+    var isPinned: Bool = false
 
     static func == (lhs: AppEntry, rhs: AppEntry) -> Bool {
         lhs.id == rhs.id && lhs.pid == rhs.pid && lhs.category == rhs.category
+            && lhs.isRunning == rhs.isRunning && lhs.isPinned == rhs.isPinned
     }
 }
 
@@ -36,6 +42,9 @@ final class AppCatalog: ObservableObject {
     /// 常驻的高亮看起来像「已被选中」，切换 App 之后它还留在旧标签上，很容易
     /// 误读成点错了。所以让高亮始终跟随交互：指针离开条面就撤掉，进来再亮起。
     @Published var pointerOverBar = false
+
+    /// 开始菜单开着（开始按钮画按下态）
+    @Published var startMenuOpen = false
 
     /// 布局变化回调（由面板控制器消费，用于重新居中 / 调宽）
     var onLayoutNeeded: (@MainActor () -> Void)?
@@ -107,14 +116,63 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - Collection
 
-    private func collect() -> [AppEntry] {
-        let hidden = Preferences.shared.hiddenApps
+    /// 开始按钮在命中区域表里的保留 id（不会和 bundle id 撞）
+    nonisolated static let startButtonID = "__start__"
+
+    /// 采集：固定项（按固定顺序，合并运行实例）+ 其余运行中的 App。
+    ///
+    /// 固定项不受「隐藏此 App」影响 —— 固定本身就是"我要它在条上"的明确表态。
+    private func collect() -> (pinned: [AppEntry], running: [AppEntry]) {
+        let prefs = Preferences.shared
+        let running = collectRunning()
+        var byID: [String: AppEntry] = [:]
+        for e in running where byID[e.id] == nil { byID[e.id] = e }
+
+        var pinnedIDs = Set<String>()
+        var pinned: [AppEntry] = []
+        for pin in prefs.dockPins where !pinnedIDs.contains(pin.bundleID) {
+            pinnedIDs.insert(pin.bundleID)
+            if let live = byID[pin.bundleID] {
+                pinned.append(AppEntry(id: live.id, pid: live.pid, name: live.name, icon: live.icon,
+                                       category: .pinned,
+                                       bundleURL: live.bundleURL ?? resolvedURL(for: pin),
+                                       isRunning: true, isPinned: true))
+            } else {
+                let url = resolvedURL(for: pin)
+                pinned.append(AppEntry(id: pin.bundleID, pid: 0, name: pin.name,
+                                       icon: icon(forPin: pin, url: url),
+                                       category: .pinned, bundleURL: url,
+                                       isRunning: false, isPinned: true))
+            }
+        }
+
+        let hidden = prefs.hiddenApps
+        let others = running.filter { e in
+            !pinnedIDs.contains(e.id) && hidden[e.id] == nil
+        }
+        return (pinned, others)
+    }
+
+    /// 固定项的 .app 位置：记下的路径还在就用它，App 被挪走了就按 bundle id 问 LaunchServices
+    private func resolvedURL(for pin: PinnedApp) -> URL? {
+        if FileManager.default.fileExists(atPath: pin.path) { return pin.url }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: pin.bundleID)
+    }
+
+    private func icon(forPin pin: PinnedApp, url: URL?) -> NSImage {
+        if let cached = iconCache[pin.bundleID] { return cached }
+        let image = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+            ?? NSImage(named: NSImage.applicationIconName) ?? NSImage()
+        image.size = NSSize(width: 32, height: 32)
+        iconCache[pin.bundleID] = image
+        return image
+    }
+
+    private func collectRunning() -> [AppEntry] {
         let apps = NSWorkspace.shared.runningApplications.filter { app in
             guard app.activationPolicy == .regular else { return false }
             guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
             guard !app.isTerminated else { return false }
-            // 用户手动隐藏的 App 不出现在标签里（不退出、不动窗口，只是不显示）
-            if let bid = app.bundleIdentifier, hidden[bid] != nil { return false }
             return true
         }
 
@@ -135,7 +193,8 @@ final class AppCatalog: ObservableObject {
                 pid: app.processIdentifier,
                 name: name,
                 icon: icon,
-                category: AppCategory.classify(name: name, bundleID: bid)
+                category: AppCategory.classify(name: name, bundleID: bid),
+                bundleURL: app.bundleURL
             ))
         }
         return entries
@@ -146,13 +205,16 @@ final class AppCatalog: ObservableObject {
         entries.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    private func group(_ entries: [AppEntry]) -> [AppGroup] {
+    /// 固定组（保持用户排的顺序）打头，其余运行中的 App 按分类分组、组内按名称
+    private func group(pinned: [AppEntry], running entries: [AppEntry]) -> [AppGroup] {
         var buckets: [AppCategory: [AppEntry]] = [:]
         for e in entries { buckets[e.category, default: []].append(e) }
 
-        return buckets
+        let rest = buckets
             .map { AppGroup(id: $0.key.rawValue, category: $0.key, entries: sorted($0.value)) }
             .sorted { $0.category.rank < $1.category.rank }
+        guard !pinned.isEmpty else { return rest }
+        return [AppGroup(id: AppCategory.pinned.rawValue, category: .pinned, entries: pinned)] + rest
     }
 
     // MARK: - Refresh
@@ -161,8 +223,8 @@ final class AppCatalog: ObservableObject {
         let frontmost = NSWorkspace.shared.frontmostApplication
         let frontPID = frontmost?.processIdentifier ?? -1
 
-        let entries = collect()
-        let newGroups = group(entries)
+        let collected = collect()
+        let newGroups = group(pinned: collected.pinned, running: collected.running)
 
         let signature = newGroups.map { g in
             "\(g.id):" + g.entries.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")
@@ -185,6 +247,11 @@ final class AppCatalog: ObservableObject {
 
     /// 窗口层命中测试入口：point 使用「原点在左上」的坐标系
     func handleTap(at point: NSPoint) -> Bool {
+        if let rect = tabFrames[Self.startButtonID], rect.contains(point) {
+            if keyboardSession { endKeyboardSession() }
+            host?.toggleStartMenu()
+            return true
+        }
         var hit: AppEntry?
         for group in groups {
             for entry in group.entries {
@@ -208,7 +275,24 @@ final class AppCatalog: ObservableObject {
     }
 
     func activate(_ entry: AppEntry) {
+        guard entry.isRunning, entry.pid > 0 else {
+            // 固定了但没在运行：点一下 = 启动（同点 Dock 上没有小圆点的图标）
+            if let url = entry.bundleURL { launch(url: url, bundleID: entry.id) }
+            return
+        }
         activatePID(entry.pid)
+    }
+
+    /// 启动 / 激活一个 .app（开始菜单和没在运行的固定项共用）
+    func launch(url: URL, bundleID: String?) {
+        if let bundleID { Preferences.shared.noteRecent(bundleID) }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        TTLog("launch \(url.path)")
+        // 启动完成后 didLaunchApplication 通知会触发 refresh，小圆点自己会亮
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+            if let error { TTLog("launch error=\(error)") }
+        }
     }
 
     /// 按 pid 激活（点标签与 ⌘Tab 快切共用这条路径）。
@@ -250,6 +334,10 @@ final class AppCatalog: ObservableObject {
 
     func noteActive(_ pid: pid_t) {
         guard pid > 0, mru.first != pid else { return }
+        if let bid = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+           bid != Bundle.main.bundleIdentifier {
+            Preferences.shared.noteRecent(bid)
+        }
         var next = mru
         next.removeAll { $0 == pid }
         next.insert(pid, at: 0)
@@ -283,7 +371,8 @@ final class AppCatalog: ObservableObject {
     @discardableResult
     func startKeyboardSession() -> Bool {
         mru.removeAll { NSRunningApplication(processIdentifier: $0)?.isTerminated ?? true }
-        let visible = groups.flatMap(\.entries)
+        // 没在运行的固定项切不过去，不进 ⌘Tab 循环
+        let visible = groups.flatMap(\.entries).filter { $0.pid > 0 }
         guard visible.count >= 2 else {
             TTLog("kbdSession: 可见 App 不足(\(visible.count))")
             return false
@@ -346,7 +435,7 @@ final class AppCatalog: ObservableObject {
 
     /// 退出 App（右键菜单）。先礼貌 terminate，5 秒后还在就强杀。
     func terminate(_ entry: AppEntry) {
-        guard let app = NSRunningApplication(processIdentifier: entry.pid) else { return }
+        guard entry.pid > 0, let app = NSRunningApplication(processIdentifier: entry.pid) else { return }
         TTLog("terminate \(entry.name) pid=\(entry.pid)")
         app.terminate()
         let pid = entry.pid
@@ -373,6 +462,77 @@ final class AppCatalog: ObservableObject {
         TTLog("hide \(entry.name) (\(bid))")
     }
 
+    // MARK: - 固定（任务栏 / 开始菜单）
+
+    /// 能不能固定：得有稳定的 bundle id 和 .app 路径（同 hide 的判断）
+    private func pinnedApp(for entry: AppEntry) -> PinnedApp? {
+        let bid = entry.id
+        guard !bid.contains("/"), !bid.hasPrefix("pid-"),
+              let url = entry.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)
+        else {
+            TTLog("pin skipped: no bundle id / url for \(entry.name)")
+            return nil
+        }
+        return PinnedApp(bundleID: bid, path: url.path, name: entry.name)
+    }
+
+    func isDockPinned(_ id: String) -> Bool {
+        Preferences.shared.dockPins.contains { $0.bundleID == id }
+    }
+
+    func isStartPinned(_ id: String) -> Bool {
+        Preferences.shared.startPins.contains { $0.bundleID == id }
+    }
+
+    func pinToDock(_ entry: AppEntry) {
+        guard let pin = pinnedApp(for: entry) else { return }
+        pinToDock(pin)
+    }
+
+    func pinToDock(_ pin: PinnedApp) {
+        let prefs = Preferences.shared
+        guard !isDockPinned(pin.bundleID) else { return }
+        // 固定 = 明确要它在条上，顺手从「已隐藏」里放出来
+        if prefs.hiddenApps[pin.bundleID] != nil {
+            var hidden = prefs.hiddenApps
+            hidden.removeValue(forKey: pin.bundleID)
+            prefs.hiddenApps = hidden
+        }
+        prefs.dockPins.append(pin)
+        TTLog("pinToDock \(pin.name)")
+        refresh()
+    }
+
+    func unpinFromDock(_ id: String) {
+        Preferences.shared.dockPins.removeAll { $0.bundleID == id }
+        refresh()
+    }
+
+    /// 固定项左右挪一格（右键「向左移 / 向右移」、设置里的上下箭头）
+    func moveDockPin(_ id: String, by offset: Int) {
+        var pins = Preferences.shared.dockPins
+        guard let i = pins.firstIndex(where: { $0.bundleID == id }) else { return }
+        let j = i + offset
+        guard pins.indices.contains(j) else { return }
+        pins.swapAt(i, j)
+        Preferences.shared.dockPins = pins
+        refresh()
+    }
+
+    func pinToStart(_ entry: AppEntry) {
+        guard let pin = pinnedApp(for: entry) else { return }
+        pinToStart(pin)
+    }
+
+    func pinToStart(_ pin: PinnedApp) {
+        guard !isStartPinned(pin.bundleID) else { return }
+        Preferences.shared.startPins.append(pin)
+    }
+
+    func unpinFromStart(_ id: String) {
+        Preferences.shared.startPins.removeAll { $0.bundleID == id }
+    }
+
     // MARK: - Sizing
 
     /// 面板理想宽度（首帧兜底）：内容实测 + 内边距，上限交给控制器按屏幕裁。
@@ -380,15 +540,21 @@ final class AppCatalog: ObservableObject {
     var preferredWidth: CGFloat {
         guard contentWidth <= 1 else { return contentWidth }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        var total: CGFloat = 16
+        let iconOnly = Preferences.shared.iconOnly
+        // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线
+        var total: CGFloat = 24 + (iconOnly ? 54 : 44) + 13
         for (index, group) in groups.enumerated() {
-            if index > 0 { total += 12 }
+            if index > 0 { total += 13 }
             for entry in group.entries {
-                let textWidth = min((entry.name as NSString).size(withAttributes: [.font: font]).width, 108)
-                total += 18 + 6 + ceil(textWidth) + 18 + 2
+                if iconOnly {
+                    total += 36 + 12 + 2
+                } else {
+                    let textWidth = min((entry.name as NSString).size(withAttributes: [.font: font]).width, 108)
+                    total += 18 + 6 + ceil(textWidth) + 18 + 2 + 13
+                }
             }
         }
-        return total
+        return total * TTLayout.scale
     }
 }
 

@@ -54,6 +54,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             generalSection
+            dockSection
             barSection
             permissionSection
             aboutSection
@@ -79,6 +80,44 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Dock
+
+    private var dockSection: some View {
+        Section("Dock 与开始菜单") {
+            Picker("Dock 位置", selection: $prefs.dockEdge) {
+                ForEach(DockEdge.allCases) { edge in
+                    Text(edge.title).tag(edge)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(prefs.dockEdge.subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Toggle("只显示图标（Dock 风格）", isOn: $prefs.iconOnly)
+                .toggleStyle(.switch)
+
+            Text("开：大图标 + 运行指示点，名字悬停显示。关：图标 + 名称的标签。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Toggle("隐藏系统 Dock", isOn: $prefs.hideSystemDock)
+                .toggleStyle(.switch)
+
+            Text("把系统 Dock 设为自动隐藏并把唤出延迟调到极长，让 TopTab 接替它。会重启一次 Dock；关掉即恢复原来的设置。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            PinnedAppsRow(title: "固定到任务栏", pins: $prefs.dockPins, reorderable: true)
+            PinnedAppsRow(title: "固定到开始菜单", pins: $prefs.startPins, reorderable: true)
+
+            Text("在条上或开始菜单里右键任意 App →「固定到任务栏 / 开始菜单」。固定到任务栏的 App 没在运行也会留在条上，点一下即打开。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: 悬浮条
 
     private var barSection: some View {
@@ -95,18 +134,19 @@ struct SettingsView: View {
                     .frame(width: 48, alignment: .trailing)
             }
 
-            Text("鼠标顶到屏幕顶部中央多宽的范围会唤出悬浮条（居中对齐）。默认 120 pt ≈ 4 个状态栏图标；外接屏上误触频繁可调小，难唤出可调大。")
+            Text("停在顶部时：鼠标顶到屏幕顶部中央多宽的范围会唤出悬浮条（居中对齐），默认 120 pt ≈ 4 个状态栏图标；外接屏上误触频繁可调小，难唤出可调大。停在底部时：沿整条悬浮条的宽度顶底边都能唤出，这里的值只是下限。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Picker("顶部唤出位置", selection: $prefs.hotZoneScreen) {
+            Picker("唤出所在屏幕", selection: $prefs.hotZoneScreen) {
                 ForEach(HotZoneScreen.allCases) { screen in
                     Text(screen.title).tag(screen)
                 }
             }
             .pickerStyle(.radioGroup)
 
-            Text(prefs.hotZoneScreen.subtitle + " ⌘Tab 呼出不受这里影响，始终在鼠标位置弹出。")
+            Text(prefs.hotZoneScreen.subtitle.replacingOccurrences(of: "顶部", with: "边缘")
+                 + " ⌘Tab 呼出不受这里影响，始终在鼠标位置弹出。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -222,14 +262,14 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("TopTab")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("顶部 App 切换条 · v\(appVersion)")
+                    Text("Dock / App 切换条 · v\(appVersion)")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
             }
 
-            Text("鼠标顶到屏幕顶部中央唤出，点击标签切换 App，悬停标签看窗口预览。")
+            Text("鼠标顶到屏幕底边（或顶部中央）唤出，点击图标切换 / 打开 App，悬停看窗口预览，点最左边的开始按钮打开开始菜单。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -329,6 +369,53 @@ private struct HiddenAppsRow: View {
             }
             .padding(.vertical, 2)
         }
+    }
+}
+
+/// 固定的 App 列表（任务栏 / 开始菜单各一份）：移除、上下调整顺序。
+/// 改的是 Preferences 里的数组 → 控制器订阅里立刻重采，条上即时反映。
+private struct PinnedAppsRow: View {
+    let title: String
+    @Binding var pins: [PinnedApp]
+    var reorderable: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(title)（\(pins.count)）")
+                .font(.system(size: 12, weight: .medium))
+            if pins.isEmpty {
+                Text("还没有。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(pins.enumerated()), id: \.element.id) { index, pin in
+                HStack(spacing: 8) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: pin.path))
+                        .resizable()
+                        .frame(width: 16, height: 16)
+                    Text(pin.name)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if reorderable {
+                        Button { move(index, by: -1) } label: { Image(systemName: "chevron.up") }
+                            .disabled(index == 0)
+                        Button { move(index, by: 1) } label: { Image(systemName: "chevron.down") }
+                            .disabled(index == pins.count - 1)
+                    }
+                    Button("移除") { pins.remove(at: index) }
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func move(_ index: Int, by offset: Int) {
+        let j = index + offset
+        guard pins.indices.contains(index), pins.indices.contains(j) else { return }
+        pins.swapAt(index, j)
     }
 }
 

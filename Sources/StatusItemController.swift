@@ -23,7 +23,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let image = TopTabIcon.statusBar()
             image.isTemplate = true
             button.image = image
-            button.toolTip = "TopTab — 顶部 App 切换条"
+            button.toolTip = "TopTab — Dock / App 切换条"
             TTLog("statusItem button ok image=\(image.size) visible=\(statusItem.isVisible)")
         } else {
             TTLog("statusItem button 为 nil")
@@ -59,6 +59,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             title: prefs.barEnabled ? "隐藏悬浮条" : "显示悬浮条",
             action: #selector(toggleBar))
 
+        add(to: menu, title: "开始菜单", action: #selector(openStartMenu))
         add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
 
         // 有新版就把标题换成醒目的一行，点了直接弹更新框
@@ -130,6 +131,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleBar() {
         prefs.barEnabled.toggle()
         controller?.applyBarEnabled()
+    }
+
+    @objc private func openStartMenu() {
+        // 状态栏菜单还在收尾（模态跟踪刚结束），推到下一拍再弹，免得菜单一开就被当成"点外面"关掉
+        DispatchQueue.main.async { [weak self] in self?.controller?.toggleStartMenu() }
     }
 
     @objc private func openSettings() {
