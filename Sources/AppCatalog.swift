@@ -597,6 +597,66 @@ final class AppCatalog: ObservableObject {
         Preferences.shared.startPins.removeAll { $0.bundleID == id }
     }
 
+    /// 开始菜单里拖动排序：把 `id` 挪到 `targetID` 所在的位置（往后拖落在它后面，往前拖落在它前面）
+    func moveStartPin(_ id: String, to targetID: String) {
+        var pins = Preferences.shared.startPins
+        guard id != targetID,
+              let i = pins.firstIndex(where: { $0.bundleID == id }),
+              let j = pins.firstIndex(where: { $0.bundleID == targetID }) else { return }
+        pins.insert(pins.remove(at: i), at: j)
+        Preferences.shared.startPins = pins
+    }
+
+    // MARK: - 开始菜单文件夹
+
+    /// 新建文件夹（可顺手放进一个 App），返回它的 id。名字重了就加序号：新建文件夹 2、3…
+    @discardableResult
+    func createStartFolder(with pin: PinnedApp? = nil) -> UUID {
+        let names = Set(Preferences.shared.startFolders.map(\.name))
+        var name = "新建文件夹"
+        var n = 2
+        while names.contains(name) { name = "新建文件夹 \(n)"; n += 1 }
+        let folder = StartFolder(name: name, apps: pin.map { [$0] } ?? [])
+        Preferences.shared.startFolders.append(folder)
+        return folder.id
+    }
+
+    func deleteStartFolder(_ folderID: UUID) {
+        Preferences.shared.startFolders.removeAll { $0.id == folderID }
+    }
+
+    func renameStartFolder(_ folderID: UUID, to name: String) {
+        guard let i = Preferences.shared.startFolders.firstIndex(where: { $0.id == folderID }) else { return }
+        Preferences.shared.startFolders[i].name = name
+    }
+
+    func folderContains(_ folderID: UUID, _ id: String) -> Bool {
+        Preferences.shared.startFolders.first { $0.id == folderID }?.apps.contains { $0.bundleID == id } ?? false
+    }
+
+    func addToStartFolder(_ folderID: UUID, _ pin: PinnedApp) {
+        guard let i = Preferences.shared.startFolders.firstIndex(where: { $0.id == folderID }),
+              !Preferences.shared.startFolders[i].apps.contains(where: { $0.bundleID == pin.bundleID })
+        else { return }
+        Preferences.shared.startFolders[i].apps.append(pin)
+    }
+
+    func removeFromStartFolder(_ folderID: UUID, _ id: String) {
+        guard let i = Preferences.shared.startFolders.firstIndex(where: { $0.id == folderID }) else { return }
+        Preferences.shared.startFolders[i].apps.removeAll { $0.bundleID == id }
+    }
+
+    /// 文件夹里拖动排序，规则同 `moveStartPin`
+    func moveInStartFolder(_ folderID: UUID, _ id: String, to targetID: String) {
+        guard let f = Preferences.shared.startFolders.firstIndex(where: { $0.id == folderID }) else { return }
+        var apps = Preferences.shared.startFolders[f].apps
+        guard id != targetID,
+              let i = apps.firstIndex(where: { $0.bundleID == id }),
+              let j = apps.firstIndex(where: { $0.bundleID == targetID }) else { return }
+        apps.insert(apps.remove(at: i), at: j)
+        Preferences.shared.startFolders[f].apps = apps
+    }
+
     // MARK: - Sizing
 
     /// 面板理想宽度（首帧兜底）：内容实测 + 内边距，上限交给控制器按屏幕裁。

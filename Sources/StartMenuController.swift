@@ -11,6 +11,8 @@ final class StartMenuModel: ObservableObject {
     /// 搜索结果里键盘选中的下标（↑↓ 移动，回车打开）
     @Published var selection = 0
     @Published var showAll = false
+    /// 正在看的文件夹（nil = 没打开文件夹）
+    @Published var openFolder: UUID?
     /// 每次打开 +1，视图据此把焦点重新放回搜索框
     @Published var focusToken = 0
 
@@ -20,6 +22,7 @@ final class StartMenuModel: ObservableObject {
         query = ""
         selection = 0
         showAll = false
+        openFolder = nil
         focusToken &+= 1
     }
 }
@@ -187,6 +190,8 @@ final class StartMenuController {
                 model.query = ""
             } else if model.showAll {
                 model.showAll = false
+            } else if model.openFolder != nil {
+                model.openFolder = nil
             } else {
                 close()
             }

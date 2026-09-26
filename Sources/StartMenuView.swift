@@ -18,6 +18,21 @@ struct StartMenuView: View {
     let onSettings: () -> Void
 
     @FocusState var searchFocused: Bool
+    @FocusState private var folderNameFocused: Bool
+
+    /// 已固定网格正在拖动的项（nil = 没在拖）
+    @State private var pinDrag: PinDrag?
+    /// 网格每个格子的位置（按下标，坐标系 `pinSpace`）。按下标而不是按 App 记：
+    /// 重排后格子本身不动、只换了内容，布局还没刷新的那一拍里拿到的旧值也不会错
+    @State private var pinSlots: [Int: CGRect] = [:]
+    private static let pinSpace = "startPins"
+
+    private struct PinDrag {
+        let id: String
+        /// 按下点相对格子左上角的偏移：浮起的图标按它跟手，不会一拖就跳到指针中心
+        let grab: CGSize
+        var location: CGPoint
+    }
 
     private var pinColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: TTLayout.s(4)), count: 6)
@@ -38,6 +53,9 @@ struct StartMenuView: View {
                     searchResults
                 } else if model.showAll {
                     allApps
+                } else if let id = model.openFolder,
+                          let folder = prefs.startFolders.first(where: { $0.id == id }) {
+                    folderView(folder)
                 } else {
                     home
                 }
@@ -55,6 +73,8 @@ struct StartMenuView: View {
         )
         .onAppear { searchFocused = true }
         .onChange(of: model.focusToken) { _, _ in
+            // 拖到一半菜单被关掉时手势不会走 onEnded，重新打开时清掉
+            pinDrag = nil
             // 下一拍再聚焦：面板刚 makeKey，同一拍里设焦点有时不生效
             DispatchQueue.main.async { searchFocused = true }
         }
@@ -112,13 +132,12 @@ struct StartMenuView: View {
                         .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
                         .multilineTextAlignment(.center)
                 } else {
-                    LazyVGrid(columns: pinColumns, spacing: TTLayout.s(6)) {
-                        ForEach(pinnedApps) { app in
-                            StartTile(app: app, icon: library.icon(for: app.url)) { onLaunch(app) }
-                                .contextMenu { itemMenu(app) }
-                        }
-                    }
+                    reorderGrid(pinnedApps, current: { pinnedApps },
+                                move: catalog.moveStartPin) { itemMenu($0) }
                 }
+
+                folderSection
+                    .padding(.top, TTLayout.s(8))
 
                 if !recentApps.isEmpty {
                     sectionHeader("最近使用") { EmptyView() }
@@ -135,6 +154,186 @@ struct StartMenuView: View {
             .padding(.horizontal, TTLayout.s(24))
             .padding(.bottom, TTLayout.s(12))
         }
+    }
+
+    // MARK: - 可拖动排序的图标网格（已固定 / 文件夹里）
+
+    /// 按住图标拖到别的格子上即可换位置，其它图标实时让位（同 Windows 11）。
+    /// 用自己的 DragGesture 而不是系统拖放：图标不会被拖出菜单丢到访达里，
+    /// 松手 / 取消也一定能复位。
+    /// - Parameters:
+    ///   - current: 拖动中现取最新顺序（每挪一格顺序就变了）
+    ///   - move: 把第一个 bundle id 挪到第二个所在的位置
+    private func reorderGrid<Menu: View>(_ apps: [LibraryApp],
+                                        current: @escaping () -> [LibraryApp],
+                                        move: @escaping (String, String) -> Void,
+                                        @ViewBuilder menu: @escaping (LibraryApp) -> Menu) -> some View {
+        LazyVGrid(columns: pinColumns, spacing: TTLayout.s(6)) {
+            ForEach(Array(apps.enumerated()), id: \.element.id) { index, app in
+                StartTile(app: app, icon: library.icon(for: app.url)) { onLaunch(app) }
+                    .opacity(pinDrag?.id == app.id ? 0.3 : 1)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: PinSlotFramesKey.self,
+                                                   value: [index: geo.frame(in: .named(Self.pinSpace))])
+                        }
+                    )
+                    .highPriorityGesture(pinDragGesture(app, current: current, move: move))
+                    .contextMenu { menu(app) }
+            }
+        }
+        .coordinateSpace(name: Self.pinSpace)
+        .onPreferenceChange(PinSlotFramesKey.self) { pinSlots = $0 }
+        .overlay(alignment: .topLeading) {
+            if let drag = pinDrag,
+               let app = apps.first(where: { $0.id == drag.id }),
+               let slot = pinSlots.values.first {
+                StartTile(app: app, icon: library.icon(for: app.url), lifted: true) {}
+                    .frame(width: slot.width, height: slot.height)
+                    .offset(x: drag.location.x - drag.grab.width,
+                            y: drag.location.y - drag.grab.height)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func pinDragGesture(_ app: LibraryApp,
+                                current: @escaping () -> [LibraryApp],
+                                move: @escaping (String, String) -> Void) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.pinSpace))
+            .onChanged { value in
+                let apps = current()
+                if pinDrag == nil {
+                    let origin = apps.firstIndex { $0.id == app.id }.flatMap { pinSlots[$0]?.origin } ?? .zero
+                    pinDrag = PinDrag(id: app.id,
+                                      grab: CGSize(width: value.startLocation.x - origin.x,
+                                                   height: value.startLocation.y - origin.y),
+                                      location: value.location)
+                } else {
+                    pinDrag?.location = value.location
+                }
+                // 指针停在哪一格就把拖动项挪过去
+                guard let target = pinSlots.first(where: { $0.value.contains(value.location) })?.key,
+                      apps.indices.contains(target), apps[target].id != app.id else { return }
+                withAnimation(prefs.animationsEnabled ? .easeInOut(duration: 0.18) : nil) {
+                    move(app.bundleID, apps[target].bundleID)
+                }
+            }
+            .onEnded { _ in
+                withAnimation(prefs.animationsEnabled ? .easeOut(duration: 0.12) : nil) { pinDrag = nil }
+            }
+    }
+
+    // MARK: - 文件夹
+
+    /// 首页「已固定」下面的文件夹区：点文件夹在菜单里打开它
+    private var folderSection: some View {
+        VStack(alignment: .leading, spacing: TTLayout.s(10)) {
+            sectionHeader("文件夹") {
+                Button { openFolder(catalog.createStartFolder(), rename: true) } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "plus")
+                        Text("新建文件夹")
+                    }
+                    .font(.system(size: TTLayout.font(11), weight: .medium))
+                }
+                .buttonStyle(PillButtonStyle())
+            }
+
+            if prefs.startFolders.isEmpty {
+                Text("把几个应用收进一个文件夹：点「新建文件夹」，或者右键任意应用 →「添加到文件夹」。")
+                    .font(.system(size: TTLayout.font(11)))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: TTLayout.s(44))
+                    .multilineTextAlignment(.center)
+            } else {
+                LazyVGrid(columns: pinColumns, spacing: TTLayout.s(6)) {
+                    ForEach(prefs.startFolders) { folder in
+                        FolderTile(name: folder.name.isEmpty ? "未命名" : folder.name,
+                                   icons: resolved(folder.apps).prefix(4).map { library.icon(for: $0.url) }) {
+                            openFolder(folder.id)
+                        }
+                        .contextMenu {
+                            Button("打开") { openFolder(folder.id) }
+                            Button("重命名") { openFolder(folder.id, rename: true) }
+                            Divider()
+                            Button("删除文件夹") { catalog.deleteStartFolder(folder.id) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 打开的文件夹：可改名、拖动排序、右键移出
+    @ViewBuilder
+    private func folderView(_ folder: StartFolder) -> some View {
+        let apps = resolved(folder.apps)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: TTLayout.s(8)) {
+                Button { model.openFolder = nil } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "chevron.left")
+                        Text("返回")
+                    }
+                    .font(.system(size: TTLayout.font(11), weight: .medium))
+                }
+                .buttonStyle(PillButtonStyle())
+
+                TextField("文件夹名称", text: Binding(
+                    get: { folder.name },
+                    set: { catalog.renameStartFolder(folder.id, to: $0) }
+                ))
+                .textFieldStyle(.plain)
+                .font(.system(size: TTLayout.font(13), weight: .semibold))
+                .focused($folderNameFocused)
+                .padding(.horizontal, TTLayout.s(8))
+                .padding(.vertical, TTLayout.s(4))
+                .background(
+                    RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous)
+                        .fill(Color.primary.opacity(folderNameFocused ? 0.08 : 0))
+                )
+
+                Button {
+                    model.openFolder = nil
+                    catalog.deleteStartFolder(folder.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: TTLayout.font(11), weight: .medium))
+                }
+                .buttonStyle(PillButtonStyle())
+                .help("删除文件夹（里面的应用不受影响）")
+            }
+            .padding(.horizontal, TTLayout.s(24))
+            .padding(.bottom, TTLayout.s(10))
+
+            ScrollView(.vertical, showsIndicators: false) {
+                if apps.isEmpty {
+                    Text("文件夹是空的。右键任意应用 →「添加到文件夹」→「\(folder.name)」。")
+                        .font(.system(size: TTLayout.font(11)))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
+                        .multilineTextAlignment(.center)
+                } else {
+                    reorderGrid(apps,
+                                current: { resolved(prefs.startFolders.first { $0.id == folder.id }?.apps ?? []) },
+                                move: { catalog.moveInStartFolder(folder.id, $0, to: $1) }) { app in
+                        itemMenu(app)
+                        Divider()
+                        Button("从「\(folder.name)」中移除") { catalog.removeFromStartFolder(folder.id, app.bundleID) }
+                    }
+                }
+            }
+            .padding(.horizontal, TTLayout.s(24))
+            .padding(.bottom, TTLayout.s(12))
+        }
+    }
+
+    private func openFolder(_ id: UUID, rename: Bool = false) {
+        pinDrag = nil
+        model.openFolder = id
+        // 新建 / 重命名：直接进名字输入框（下一拍，等文件夹页出来）
+        if rename { DispatchQueue.main.async { folderNameFocused = true } }
     }
 
     // MARK: - 所有应用（A–Z / 最近加入 / 最近更新）
@@ -275,10 +474,13 @@ struct StartMenuView: View {
 
     // MARK: - 数据
 
-    /// 固定到开始菜单的项。App 被删掉（路径不在、也按 bundle id 找不到）的就不显示了，
+    /// 固定到开始菜单的项
+    private var pinnedApps: [LibraryApp] { resolved(prefs.startPins) }
+
+    /// 固定项 → App。App 被删掉（路径不在、也按 bundle id 找不到）的就不显示了，
     /// 但仍留在偏好里 —— 装回来会自己出现，设置里也能手动移除。
-    private var pinnedApps: [LibraryApp] {
-        prefs.startPins.compactMap { pin -> LibraryApp? in
+    private func resolved(_ pins: [PinnedApp]) -> [LibraryApp] {
+        pins.compactMap { pin -> LibraryApp? in
             if let app = library.app(bundleID: pin.bundleID) { return app }
             if FileManager.default.fileExists(atPath: pin.path) {
                 return LibraryApp(bundleID: pin.bundleID, url: pin.url,
@@ -337,6 +539,24 @@ struct StartMenuView: View {
             Button("从任务栏取消固定") { catalog.unpinFromDock(app.bundleID) }
         } else {
             Button("固定到任务栏") { catalog.pinToDock(app.pinned) }
+        }
+        Menu("添加到文件夹") {
+            ForEach(prefs.startFolders) { folder in
+                Toggle(folder.name, isOn: Binding(
+                    get: { catalog.folderContains(folder.id, app.bundleID) },
+                    set: { on in
+                        if on { catalog.addToStartFolder(folder.id, app.pinned) }
+                        else { catalog.removeFromStartFolder(folder.id, app.bundleID) }
+                    }
+                ))
+            }
+            if !prefs.startFolders.isEmpty { Divider() }
+            Button("新建文件夹") {
+                let id = catalog.createStartFolder(with: app.pinned)
+                // 在「所有应用」/ 搜索里就原地建好，方便接着往里加；首页才直接进去改名
+                if model.showAll || !model.query.isEmpty { return }
+                openFolder(id, rename: true)
+            }
         }
         Divider()
         Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([app.url]) }
@@ -416,10 +636,51 @@ enum StartMenuIndex {
     }
 }
 
-/// 已固定网格里的一格：大图标 + 两行名字
+/// 已固定网格里的一格：大图标 + 两行名字。
+/// 不用 Button：外面挂了拖动排序手势，Button 会在拖完松手时也触发打开；
+/// 点按手势在拖动识别后就失效了，不会误开。
 private struct StartTile: View {
     let app: LibraryApp
     let icon: NSImage
+    /// 拖动时跟着指针走的那份：放大一点、带阴影
+    var lifted: Bool = false
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(spacing: TTLayout.s(6)) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: TTLayout.s(40), height: TTLayout.s(40))
+            Text(app.name)
+                .font(.system(size: TTLayout.font(11)))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(height: TTLayout.s(28), alignment: .top)
+        }
+        .padding(.vertical, TTLayout.s(8))
+        .padding(.horizontal, TTLayout.s(2))
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
+                .fill(Color.primary.opacity(lifted ? 0.12 : hovering ? 0.10 : 0))
+        )
+        .scaleEffect(lifted ? 1.06 : 1)
+        .shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: 8, y: 3)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .onHover { hovering = $0 }
+        .help(app.name)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// 首页的一个文件夹：2×2 小图标拼成的方块 + 名字，尺寸和 StartTile 对齐
+private struct FolderTile: View {
+    let name: String
+    let icons: [NSImage]
     let action: () -> Void
 
     @State private var hovering = false
@@ -427,11 +688,21 @@ private struct StartTile: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: TTLayout.s(6)) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: TTLayout.s(40), height: TTLayout.s(40))
-                Text(app.name)
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(TTLayout.s(16)), spacing: TTLayout.s(3)), count: 2),
+                          spacing: TTLayout.s(3)) {
+                    ForEach(icons.indices, id: \.self) { i in
+                        Image(nsImage: icons[i])
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: TTLayout.s(16), height: TTLayout.s(16))
+                    }
+                }
+                .frame(width: TTLayout.s(40), height: TTLayout.s(40))
+                .background(
+                    RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                        .fill(Color.primary.opacity(0.09))
+                )
+                Text(name)
                     .font(.system(size: TTLayout.font(11)))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -448,7 +719,7 @@ private struct StartTile: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(app.name)
+        .help(name)
     }
 }
 
@@ -492,6 +763,14 @@ private struct StartRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+}
+
+/// 已固定网格各格子的位置上报（按下标）
+private struct PinSlotFramesKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
