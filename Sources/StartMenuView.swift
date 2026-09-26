@@ -66,7 +66,7 @@ struct StartMenuView: View {
         HStack(spacing: TTLayout.s(8)) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("搜索应用", text: $model.query)
+            TextField("搜尋應用", text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: TTLayout.font(14)))
                 .focused($searchFocused)
@@ -97,7 +97,7 @@ struct StartMenuView: View {
                 sectionHeader("已固定") {
                     Button { model.showAll = true } label: {
                         HStack(spacing: 2) {
-                            Text("所有应用")
+                            Text("所有應用")
                             Image(systemName: "chevron.right")
                         }
                         .font(.system(size: TTLayout.font(11), weight: .medium))
@@ -106,7 +106,7 @@ struct StartMenuView: View {
                 }
 
                 if pinnedApps.isEmpty {
-                    Text("还没有固定的应用。右键任意应用 →「固定到开始菜单」，或者在「所有应用」里固定。")
+                    Text("還沒有固定的應用。右鍵任意應用 →「固定到開始選單」，或者在「所有應用」裡固定。")
                         .font(.system(size: TTLayout.font(11)))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
@@ -141,7 +141,7 @@ struct StartMenuView: View {
 
     private var allApps: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("所有应用") {
+            sectionHeader("所有應用") {
                 Button { model.showAll = false } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "chevron.left")
@@ -222,7 +222,7 @@ struct StartMenuView: View {
         let results = model.results
         return Group {
             if results.isEmpty {
-                Text(library.apps.isEmpty ? "正在建立应用索引…" : "没有找到「\(model.query)」")
+                Text(library.apps.isEmpty ? "正在建立應用索引…" : "沒有找到「\(model.query)」")
                     .font(.system(size: TTLayout.font(12)))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: TTLayout.s(120))
@@ -266,7 +266,7 @@ struct StartMenuView: View {
                     .font(.system(size: TTLayout.font(14)))
             }
             .buttonStyle(PillButtonStyle())
-            .help("Xtopbar 设置")
+            .help("Xtopbar 設定")
         }
         .padding(.horizontal, TTLayout.s(24))
         .padding(.vertical, TTLayout.s(12))
@@ -309,7 +309,7 @@ struct StartMenuView: View {
 
     private func runningSubtitle(_ app: LibraryApp) -> String? {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
-        return running.isEmpty ? nil : "正在运行"
+        return running.isEmpty ? nil : "正在執行"
     }
 
     // MARK: - 小部件
@@ -326,20 +326,20 @@ struct StartMenuView: View {
 
     @ViewBuilder
     private func itemMenu(_ app: LibraryApp) -> some View {
-        Button("打开") { onLaunch(app) }
+        Button("開啟") { onLaunch(app) }
         Divider()
         if prefs.startPins.contains(where: { $0.bundleID == app.bundleID }) {
-            Button("从开始菜单取消固定") { catalog.unpinFromStart(app.bundleID) }
+            Button("從開始選單取消固定") { catalog.unpinFromStart(app.bundleID) }
         } else {
-            Button("固定到开始菜单") { catalog.pinToStart(app.pinned) }
+            Button("固定到開始選單") { catalog.pinToStart(app.pinned) }
         }
         if prefs.dockPins.contains(where: { $0.bundleID == app.bundleID }) {
-            Button("从任务栏取消固定") { catalog.unpinFromDock(app.bundleID) }
+            Button("從工作列取消固定") { catalog.unpinFromDock(app.bundleID) }
         } else {
-            Button("固定到任务栏") { catalog.pinToDock(app.pinned) }
+            Button("固定到工作列") { catalog.pinToDock(app.pinned) }
         }
         Divider()
-        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([app.url]) }
+        Button("在 Finder 中顯示") { NSWorkspace.shared.activateFileViewerSelecting([app.url]) }
     }
 }
 

@@ -63,7 +63,7 @@ final class BackdropView: NSView {
             case .solid:   installSolid()
             }
             installed = wanted
-            TTLog("backdrop → \(wanted.rawValue) (请求 \(style.rawValue))")
+            TTLog("backdrop → \(wanted.rawValue) (請求 \(style.rawValue))")
         }
 
         if #available(macOS 26.0, *) {

@@ -68,7 +68,7 @@ GITHUB_TOKEN=xxx ./scripts/make-release.sh 1.3.0 "說明"
 `build.sh` 用的是固定身份 `Xtopbar Self-Signed`（存在獨立 keychain
 `~/Library/Keychains/xtopbar-signing.keychain-db`）。
 
-macOS 的 TCC（螢幕錄製 / 輔助功能授權）認的是簽名裡的 **designated requirement**，
+macOS 的 TCC（螢幕錄製 / 輔助使用授權）認的是簽名裡的 **designated requirement**，
 它包含憑證指紋。所以：
 
 - **憑證不變** → 更新後使用者權限照舊，什麼都不用重做

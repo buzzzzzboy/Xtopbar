@@ -52,7 +52,7 @@ struct StartButton: View {
             .onHover { hovering = $0 }
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: hovering)
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: isOpen)
-            .help("开始")
+            .help("開始")
             .padding(.horizontal, TTLayout.s(3))
             .background(
                 GeometryReader { geo in
@@ -119,7 +119,7 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
-        .help(entry.isRunning ? entry.name : "\(entry.name)（未运行，点击打开）")
+        .help(entry.isRunning ? entry.name : "\(entry.name)（未執行，點選開啟）")
         // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
         .contextMenu { tabMenu }
@@ -187,26 +187,26 @@ struct AppTab: View {
     private var tabMenu: some View {
         if entry.isRunning {
             if !entry.isPinned {
-                Button("隐藏此 App") { catalog?.hide(entry) }
+                Button("隱藏此 App") { catalog?.hide(entry) }
             }
-            Button("退出 App", role: .destructive) { catalog?.terminate(entry) }
+            Button("結束 App", role: .destructive) { catalog?.terminate(entry) }
         } else {
-            Button("打开") { catalog?.activate(entry) }
+            Button("開啟") { catalog?.activate(entry) }
         }
         Divider()
         Menu("固定") {
             if entry.isPinned {
-                Button("从任务栏取消固定") { catalog?.unpinFromDock(entry.id) }
+                Button("從工作列取消固定") { catalog?.unpinFromDock(entry.id) }
                 Button("向左移") { catalog?.moveDockPin(entry.id, by: -1) }
                 Button("向右移") { catalog?.moveDockPin(entry.id, by: 1) }
             } else {
-                Button("固定到任务栏") { catalog?.pinToDock(entry) }
+                Button("固定到工作列") { catalog?.pinToDock(entry) }
             }
             if startMenuEnabled {
                 if startPinned {
-                    Button("从开始菜单取消固定") { catalog?.unpinFromStart(entry.id) }
+                    Button("從開始選單取消固定") { catalog?.unpinFromStart(entry.id) }
                 } else {
-                    Button("固定到开始菜单") { catalog?.pinToStart(entry) }
+                    Button("固定到開始選單") { catalog?.pinToStart(entry) }
                 }
             }
         }
@@ -355,9 +355,9 @@ struct TabBarView: View {
     private var menu: some View {
         Text(catalog.host?.permissionSummary() ?? "")
 
-        Button("设置…") { catalog.host?.openSettings() }
+        Button("設定…") { catalog.host?.openSettings() }
         if prefs.showStartButton {
-            Button("打开开始菜单") { catalog.host?.toggleStartMenu() }
+            Button("開啟開始選單") { catalog.host?.toggleStartMenu() }
         }
 
         Divider()
@@ -367,28 +367,28 @@ struct TabBarView: View {
                 Text(edge.title).tag(edge)
             }
         }
-        Toggle("只显示图标", isOn: $prefs.iconOnly)
-        Toggle("只显示有窗口的 App", isOn: $prefs.onlyWindowedApps)
-        Toggle("不挡窗口", isOn: $prefs.avoidWindows)
+        Toggle("只顯示圖示", isOn: $prefs.iconOnly)
+        Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
+        Toggle("不擋視窗", isOn: $prefs.avoidWindows)
 
-        Menu("自动隐藏") {
+        Menu("自動隱藏") {
             ForEach(Preferences.delayOptions, id: \.value) { item in
                 Button(item.label) { prefs.hideDelay = item.value }
             }
         }
 
-        Toggle("窗口预览", isOn: $prefs.previewEnabled)
-        Toggle("只显示已打开的窗口", isOn: $prefs.hideMinimizedWindows)
+        Toggle("視窗預覽", isOn: $prefs.previewEnabled)
+        Toggle("只顯示已開啟的視窗", isOn: $prefs.hideMinimizedWindows)
 
         Divider()
 
-        Menu("权限") {
-            Button("请求屏幕录制权限") { catalog.host?.requestScreenCapturePermission() }
-            Button("请求辅助功能权限") { catalog.host?.requestAccessibilityPermission() }
+        Menu("權限") {
+            Button("請求螢幕錄製權限") { catalog.host?.requestScreenCapturePermission() }
+            Button("請求輔助使用權限") { catalog.host?.requestAccessibilityPermission() }
         }
 
         Divider()
-        Button("刷新列表") { catalog.refresh() }
-        Button("退出 Xtopbar") { NSApp.terminate(nil) }
+        Button("重新整理列表") { catalog.refresh() }
+        Button("結束 Xtopbar") { NSApp.terminate(nil) }
     }
 }

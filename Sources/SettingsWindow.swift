@@ -36,7 +36,7 @@ final class SettingsWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Xtopbar 设置"
+        window.title = "Xtopbar 設定"
         window.contentView = hosting
         window.isReleasedWhenClosed = false
         window.titlebarSeparatorStyle = .automatic
@@ -68,13 +68,13 @@ struct SettingsView: View {
     // MARK: 通用
 
     private var generalSection: some View {
-        Section("通用") {
+        Section("一般") {
             LaunchAtLoginRow()
 
-            Toggle("在菜单栏显示图标", isOn: $prefs.showStatusItem)
+            Toggle("在選單列顯示圖示", isOn: $prefs.showStatusItem)
                 .toggleStyle(.switch)
 
-            Text("关掉后菜单栏图标消失。仍然可以右键悬浮条 →「设置…」回到这里。")
+            Text("關掉後選單列圖示消失。仍然可以右鍵懸浮條 →「設定…」回到這裡。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -83,7 +83,7 @@ struct SettingsView: View {
     // MARK: Dock
 
     private var dockSection: some View {
-        Section("Dock 与开始菜单") {
+        Section("Dock 與開始選單") {
             Picker("Dock 位置", selection: $prefs.dockEdge) {
                 ForEach(DockEdge.allCases) { edge in
                     Text(edge.title).tag(edge)
@@ -95,52 +95,52 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("显示开始按钮", isOn: $prefs.showStartButton)
+            Toggle("顯示開始按鈕", isOn: $prefs.showStartButton)
                 .toggleStyle(.switch)
 
-            Text("条最左边加一个 Windows 风格的开始按钮：搜索、已固定、最近使用、所有应用。")
+            Text("條最左邊加一個 Windows 風格的開始按鈕：搜尋、已固定、最近使用、所有應用。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("只显示图标（Dock 风格）", isOn: $prefs.iconOnly)
+            Toggle("只顯示圖示（Dock 風格）", isOn: $prefs.iconOnly)
                 .toggleStyle(.switch)
 
-            Text("开：大图标 + 运行指示点，名字悬停显示。关：图标 + 名称的标签。")
+            Text("開：大圖示 + 執行指示點，名字懸停顯示。關：圖示 + 名稱的標籤。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("只显示有窗口的 App", isOn: $prefs.onlyWindowedApps)
+            Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
                 .toggleStyle(.switch)
 
-            Text("运行中但一个窗口都没有的 App（比如关完窗口还挂着的 Safari、访达）不显示；最小化的窗口也算有窗口。固定到任务栏的 App 始终显示。需要「辅助功能」权限。")
+            Text("執行中但一個視窗都沒有的 App（比如關完視窗還掛著的 Safari、Finder）不顯示；最小化的視窗也算有視窗。固定到工作列的 App 始終顯示。需要「輔助使用」權限。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("隐藏系统 Dock", isOn: $prefs.hideSystemDock)
+            Toggle("隱藏系統 Dock", isOn: $prefs.hideSystemDock)
                 .toggleStyle(.switch)
 
-            Text("把系统 Dock 设为自动隐藏并把唤出延迟调到极长，让 Xtopbar 接替它。会重启一次 Dock；关掉即恢复原来的设置。")
+            Text("把系統 Dock 設為自動隱藏並把喚出延遲調到極長，讓 Xtopbar 接替它。會重啟一次 Dock；關掉即恢復原來的設定。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("不挡窗口（常驻，窗口自动让位）", isOn: $prefs.avoidWindows)
+            Toggle("不擋視窗（常駐，視窗自動讓位）", isOn: $prefs.avoidWindows)
                 .toggleStyle(.switch)
 
-            Text("像 Windows 任务栏：条一直显示，压到条上的窗口会被自动挪开或缩短，不会再盖住窗口底部（停在顶部时是顶部）。有 App 全屏时条自动隐藏，鼠标顶到屏幕边缘仍可临时唤出。需要「辅助功能」权限。")
+            Text("像 Windows 工作列：條一直顯示，壓到條上的視窗會被自動挪開或縮短，不會再蓋住視窗底部（停在頂部時是頂部）。有 App 全螢幕時條自動隱藏，滑鼠頂到螢幕邊緣仍可臨時喚出。需要「輔助使用」權限。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("点击前台 App 最小化窗口", isOn: $prefs.clickToMinimize)
+            Toggle("點選前景 App 最小化視窗", isOn: $prefs.clickToMinimize)
                 .toggleStyle(.switch)
 
-            Text("点正在前台的 App 图标：把它的窗口全部最小化；再点一次恢复。窗口预览里也能直接点回被最小化的窗口。需要「辅助功能」权限。")
+            Text("點正在前景的 App 圖示：把它的視窗全部最小化；再點一次恢復。視窗預覽裡也能直接點回被最小化的視窗。需要「輔助使用」權限。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            PinnedAppsRow(title: "固定到任务栏", pins: $prefs.dockPins, reorderable: true)
-            PinnedAppsRow(title: "固定到开始菜单", pins: $prefs.startPins, reorderable: true)
+            PinnedAppsRow(title: "固定到工作列", pins: $prefs.dockPins, reorderable: true)
+            PinnedAppsRow(title: "固定到開始選單", pins: $prefs.startPins, reorderable: true)
 
-            Text("在条上或开始菜单里右键任意 App →「固定到任务栏 / 开始菜单」。固定到任务栏的 App 没在运行也会留在条上，点一下即打开。")
+            Text("在條上或開始選單裡右鍵任意 App →「固定到工作列 / 開始選單」。固定到工作列的 App 沒在執行也會留在條上，點一下即開啟。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -149,12 +149,12 @@ struct SettingsView: View {
     // MARK: 悬浮条
 
     private var barSection: some View {
-        Section("悬浮条") {
-            Toggle("启用悬浮条", isOn: $prefs.barEnabled)
+        Section("懸浮條") {
+            Toggle("啟用懸浮條", isOn: $prefs.barEnabled)
                 .toggleStyle(.switch)
 
             HStack {
-                Text("唤醒热区宽度")
+                Text("喚醒熱區寬度")
                 Slider(value: $prefs.hotZoneWidth, in: 60...400, step: 10)
                 Text("\(Int(prefs.hotZoneWidth)) pt")
                     .monospacedDigit()
@@ -162,44 +162,44 @@ struct SettingsView: View {
                     .frame(width: 48, alignment: .trailing)
             }
 
-            Text("停在顶部时：鼠标顶到屏幕顶部中央多宽的范围会唤出悬浮条（居中对齐），默认 120 pt ≈ 4 个状态栏图标；外接屏上误触频繁可调小，难唤出可调大。停在底部时：沿整条悬浮条的宽度顶底边都能唤出，这里的值只是下限。")
+            Text("停在頂部時：滑鼠頂到螢幕頂部中央多寬的範圍會喚出懸浮條（居中對齊），預設 120 pt ≈ 4 個狀態列圖示；外接螢幕上誤觸頻繁可調小，難喚出可調大。停在底部時：沿整條懸浮條的寬度頂底邊都能喚出，這裡的值只是下限。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Picker("唤出所在屏幕", selection: $prefs.hotZoneScreen) {
+            Picker("喚出所在螢幕", selection: $prefs.hotZoneScreen) {
                 ForEach(HotZoneScreen.allCases) { screen in
                     Text(screen.title).tag(screen)
                 }
             }
             .pickerStyle(.radioGroup)
 
-            Text(prefs.hotZoneScreen.subtitle.replacingOccurrences(of: "顶部", with: "边缘")
-                 + " ⌘Tab 呼出不受这里影响，始终在鼠标位置弹出。")
+            Text(prefs.hotZoneScreen.subtitle.replacingOccurrences(of: "頂部", with: "邊緣")
+                 + " ⌘Tab 叫出不受這裡影響，始終在滑鼠位置彈出。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("窗口预览", isOn: $prefs.previewEnabled)
+            Toggle("視窗預覽", isOn: $prefs.previewEnabled)
                 .toggleStyle(.switch)
 
-            Toggle("只显示已打开的窗口", isOn: $prefs.hideMinimizedWindows)
+            Toggle("只顯示已開啟的視窗", isOn: $prefs.hideMinimizedWindows)
                 .toggleStyle(.switch)
 
-            Picker("自动隐藏", selection: $prefs.hideDelay) {
+            Picker("自動隱藏", selection: $prefs.hideDelay) {
                 ForEach(Preferences.delayOptions, id: \.value) { option in
                     Text(option.label).tag(option.value)
                 }
             }
 
-            Toggle("⌘Tab 呼出（快速切换 + 鼠标挑选）", isOn: $prefs.cmdTabEnabled)
+            Toggle("⌘Tab 叫出（快速切換 + 滑鼠挑選）", isOn: $prefs.cmdTabEnabled)
                 .toggleStyle(.switch)
 
-            Text("开启后接管系统 ⌘Tab（需要辅助功能权限）：按下立即在鼠标位置弹出悬浮条并预选上一个 App —— 快按快放即切回上一个（Windows Alt+Tab）；继续按 Tab 沿最近使用顺序循环，或用鼠标点选；松开 ⌘ 确认，Esc 取消。")
+            Text("開啟後接管系統 ⌘Tab（需要輔助使用權限）：按下立即在滑鼠位置彈出懸浮條並預選上一個 App —— 快按快放即切回上一個（Windows Alt+Tab）；繼續按 Tab 沿最近使用順序循環，或用滑鼠點選；鬆開 ⌘ 確認，Esc 取消。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
             HiddenAppsRow(prefs: prefs)
 
-            Picker("背景材质", selection: $prefs.glassStyle) {
+            Picker("背景材質", selection: $prefs.glassStyle) {
                 ForEach(GlassStyle.allCases.filter { $0 != .liquid || GlassStyle.liquidAvailable }) { style in
                     Label(style.title, systemImage: style.symbol).tag(style)
                 }
@@ -211,7 +211,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
 
             HStack {
-                Text("界面缩放")
+                Text("介面縮放")
                 Slider(value: $prefs.uiScale, in: 0.8...1.3, step: 0.05)
                 Text(String(format: "%.0f%%", prefs.uiScale * 100))
                     .monospacedDigit()
@@ -219,12 +219,12 @@ struct SettingsView: View {
                     .frame(width: 44, alignment: .trailing)
             }
 
-            Text("悬浮条与窗口预览的整体大小（80%–130%）。拖动即时生效。")
+            Text("懸浮條與視窗預覽的整體大小（80%–130%）。拖曳即時生效。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
             HStack {
-                Text("待机不透明度")
+                Text("待機不透明度")
                 Slider(value: $prefs.idleOpacity, in: 0.4...1.0)
                 Text(String(format: "%.0f%%", prefs.idleOpacity * 100))
                     .monospacedDigit()
@@ -232,7 +232,7 @@ struct SettingsView: View {
                     .frame(width: 44, alignment: .trailing)
             }
 
-            Toggle("进出场动画", isOn: $prefs.animationsEnabled)
+            Toggle("進出場動畫", isOn: $prefs.animationsEnabled)
                 .toggleStyle(.switch)
         }
     }
@@ -240,10 +240,10 @@ struct SettingsView: View {
     // MARK: 权限
 
     private var permissionSection: some View {
-        Section("权限") {
+        Section("權限") {
             PermissionRow(
-                title: "屏幕录制",
-                detail: "抓取窗口缩略图。没授权时预览只显示 App 图标。",
+                title: "螢幕錄製",
+                detail: "抓取視窗縮圖。沒授權時預覽只顯示 App 圖示。",
                 granted: ScreenCaptureEngine.hasPermission,
                 action: {
                     CGRequestScreenCaptureAccess()
@@ -253,8 +253,8 @@ struct SettingsView: View {
             )
 
             PermissionRow(
-                title: "辅助功能",
-                detail: "枚举每个 App 的真实窗口、点击缩略图精确切到那一个窗口。",
+                title: "輔助使用",
+                detail: "列舉每個 App 的真實視窗、點選縮圖精確切到那一個視窗。",
                 granted: WindowBridge.isTrusted,
                 action: {
                     WindowBridge.requestAccessibilityPermission()
@@ -264,7 +264,7 @@ struct SettingsView: View {
                 }
             )
 
-            Text("改动系统权限后需要重启 Xtopbar 才会生效。")
+            Text("改動系統權限後需要重啟 Xtopbar 才會生效。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -282,7 +282,7 @@ struct SettingsView: View {
     // MARK: 关于
 
     private var aboutSection: some View {
-        Section("关于") {
+        Section("關於") {
             HStack(spacing: 12) {
                 Image(nsImage: NSApp.applicationIconImage ?? NSImage())
                     .resizable()
@@ -290,14 +290,14 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Xtopbar")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Dock / App 切换条 · v\(appVersion)")
+                    Text("Dock / App 切換條 · v\(appVersion)")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
             }
 
-            Text("鼠标顶到屏幕底边（或顶部中央）唤出，点击图标切换 / 打开 App，悬停看窗口预览，点最左边的开始按钮打开开始菜单。")
+            Text("滑鼠頂到螢幕底邊（或頂部中央）喚出，點選圖示切換 / 開啟 App，懸停看視窗預覽，點最左邊的開始按鈕開啟開始選單。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -313,7 +313,7 @@ struct SettingsView: View {
     private var updateRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Button("检查更新") { updater.checkInteractively() }
+                Button("檢查更新") { updater.checkInteractively() }
                     .disabled(updater.phase.isBusy)
 
                 if updater.phase.isBusy, case .working(let text) = updater.phase {
@@ -324,14 +324,14 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } else if updater.phase == .checking {
                     ProgressView().controlSize(.small)
-                    Text("正在检查…")
+                    Text("正在檢查…")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 8)
 
-                Button("打开发布页") { updater.openReleasePage() }
+                Button("開啟發布頁") { updater.openReleasePage() }
                     .buttonStyle(.link)
                     .font(.system(size: 11))
             }
@@ -342,11 +342,11 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             case .available(let release):
-                Text("发现新版本 v\(release.version)，当前 v\(appVersion)。")
+                Text("發現新版本 v\(release.version)，目前 v\(appVersion)。")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
             case .failed(let message):
-                Text("检查失败：\(message)")
+                Text("檢查失敗：\(message)")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -354,7 +354,7 @@ struct SettingsView: View {
                 EmptyView()
             }
 
-            Toggle("启动后自动检查更新", isOn: $prefs.autoCheckUpdates)
+            Toggle("啟動後自動檢查更新", isOn: $prefs.autoCheckUpdates)
                 .toggleStyle(.switch)
         }
     }
@@ -374,7 +374,7 @@ private struct HiddenAppsRow: View {
     var body: some View {
         if !prefs.hiddenApps.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("已隐藏的 App（\(prefs.hiddenApps.count)）")
+                Text("已隱藏的 App（\(prefs.hiddenApps.count)）")
                     .font(.system(size: 12, weight: .medium))
                 ForEach(prefs.hiddenApps.sorted { $0.value.localizedStandardCompare($1.value) == .orderedAscending }, id: \.key) { bid, name in
                     HStack(spacing: 8) {
@@ -383,7 +383,7 @@ private struct HiddenAppsRow: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer(minLength: 8)
-                        Button("显示") {
+                        Button("顯示") {
                             var hidden = prefs.hiddenApps
                             hidden.removeValue(forKey: bid)
                             prefs.hiddenApps = hidden
@@ -391,7 +391,7 @@ private struct HiddenAppsRow: View {
                         .controlSize(.small)
                     }
                 }
-                Text("隐藏的 App 不会出现在悬浮条标签里，但仍在正常运行。点「显示」立即释放。")
+                Text("隱藏的 App 不會出現在懸浮條標籤裡，但仍在正常執行。點「顯示」立即釋放。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -412,7 +412,7 @@ private struct PinnedAppsRow: View {
             Text("\(title)（\(pins.count)）")
                 .font(.system(size: 12, weight: .medium))
             if pins.isEmpty {
-                Text("还没有。")
+                Text("還沒有。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -455,7 +455,7 @@ private struct LaunchAtLoginRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Toggle("开机自动启动", isOn: $enabled)
+            Toggle("開機自動啟動", isOn: $enabled)
                 .toggleStyle(.switch)
                 .onChange(of: enabled) { _, newValue in
                     if let message = LaunchAtLogin.set(newValue) {
@@ -467,10 +467,10 @@ private struct LaunchAtLoginRow: View {
                 }
 
             if let error {
-                Text("注册失败：\(error)")
+                Text("註冊失敗：\(error)")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
-                Button("打开登录项设置") { LaunchAtLogin.openLoginItemsSettings() }
+                Button("開啟登入項目設定") { LaunchAtLogin.openLoginItemsSettings() }
                     .font(.system(size: 11))
                     .buttonStyle(.link)
             } else if LaunchAtLogin.isEnabled {
@@ -506,7 +506,7 @@ private struct PermissionRow: View {
             Spacer(minLength: 8)
 
             if !granted {
-                Button("授权") { action() }
+                Button("授權") { action() }
             }
         }
     }
