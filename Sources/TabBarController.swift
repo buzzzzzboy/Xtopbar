@@ -309,7 +309,10 @@ final class TabBarController: TabBarHost {
         menuObservers.append(nc.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.menuTracking = true }
+            MainActor.assumeIsolated {
+                self?.menuTracking = true
+                self?.catalog.menuTracking = true
+            }
         })
         menuObservers.append(nc.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil
@@ -317,6 +320,9 @@ final class TabBarController: TabBarHost {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.menuTracking = false
+                self.catalog.menuTracking = false
+                // 菜单开着期间暂停了重采，这里补一次（菜单项的动作也可能刚改了固定）
+                self.catalog.refresh()
                 // 从关菜单这一刻重新计时，别一关就瞬间消失
                 self.lastInteraction = Date()
             }
@@ -1043,8 +1049,11 @@ final class TabBarController: TabBarHost {
         // 用双向同步而不是"只撤不点"：唤出那一刻指针还停在菜单栏热点区，
         // 这时就该亮起当前前台 App，否则面板出来了却没有任何方位指示。
         // 窗口被 orderOut 后 SwiftUI 的 onHover 不再补发事件，也只能靠它兜底复位。
+        //
+        // 右键菜单开着时不动它：子菜单常伸出条外，指针移过去时 pointerNear 会翻成
+        // false，@Published 一变 SwiftUI 就重建整个菜单，子菜单当场收起、永远够不着。
         let pointerNear = hot.union(panelZone).contains(mouse)
-        if catalog.pointerOverBar != pointerNear {
+        if !menuTracking, catalog.pointerOverBar != pointerNear {
             catalog.pointerOverBar = pointerNear
         }
 
@@ -1080,14 +1089,19 @@ final class TabBarController: TabBarHost {
 
         // 预览的保持/收起：光标在主面板与预览面板之间穿行时（中间有 8pt 空隙）
         // 不能立刻收起，留 0.4s 宽限。
+        //
+        // 纯按指针位置判断，不依赖 onTabHoverEnd：以前进过预览会把 hoverEndTime 清掉，
+        // 之后从预览直接移走再也没人重新计时，预览就一直挂着，只能点一个窗口才关得掉。
+        // SwiftUI 的 onHover(false) 也可能漏发，所以"还停在标签上"额外要求指针真在面板里。
         if preview.isVisible {
             let inPreviewPanel = preview.frame.insetBy(dx: -8, dy: -16).contains(mouse)
-            if inPreviewPanel {
+            let onTab = hoveredEntry != nil && inPanel
+            if inPreviewPanel || onTab || menuTracking {
                 hoverEndTime = nil
-            } else if hoveredEntry == nil,
-                      let left = hoverEndTime,
-                      now.timeIntervalSince(left) > 0.4 {
-                hidePreview()
+            } else if let left = hoverEndTime {
+                if now.timeIntervalSince(left) > 0.4 { hidePreview() }
+            } else {
+                hoverEndTime = now
             }
         }
 

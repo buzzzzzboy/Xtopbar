@@ -14,6 +14,8 @@ struct AppEntry: Identifiable, Equatable {
     var bundleURL: URL? = nil
     var isRunning: Bool = true
     var isPinned: Bool = false
+    /// 启动时间：运行中的 App 按它排（先开的在左，新开的接在右边）
+    var launchDate: Date? = nil
 
     static func == (lhs: AppEntry, rhs: AppEntry) -> Bool {
         lhs.id == rhs.id && lhs.pid == rhs.pid && lhs.category == rhs.category
@@ -219,32 +221,48 @@ final class AppCatalog: ObservableObject {
                 name: name,
                 icon: icon,
                 category: AppCategory.classify(name: systemName, bundleID: bid),
-                bundleURL: app.bundleURL
+                bundleURL: app.bundleURL,
+                launchDate: app.launchDate
             ))
         }
         return entries
     }
 
-    /// 稳定排序：组内按名称，避免"点完就移位"导致误点
+    /// 按打开时间排：先开的在左，新开的接在最右边（同 Windows 任务栏）。
+    /// 顺序只在启动 / 退出时变，点标签切换不会挪位，不会误点。
+    /// 拿不到启动时间的（极少见）排最后，再按 pid 兜底保证稳定。
     private func sorted(_ entries: [AppEntry]) -> [AppEntry] {
-        entries.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        entries.sorted { a, b in
+            switch (a.launchDate, b.launchDate) {
+            case let (x?, y?) where x != y: return x < y
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return a.pid < b.pid
+            }
+        }
     }
 
-    /// 固定组（保持用户排的顺序）打头，其余运行中的 App 按分类分组、组内按名称
+    /// 固定组（保持用户排的顺序）打头，其余运行中的 App 一组、按打开时间排
     private func group(pinned: [AppEntry], running entries: [AppEntry]) -> [AppGroup] {
-        var buckets: [AppCategory: [AppEntry]] = [:]
-        for e in entries { buckets[e.category, default: []].append(e) }
-
-        let rest = buckets
-            .map { AppGroup(id: $0.key.rawValue, category: $0.key, entries: sorted($0.value)) }
-            .sorted { $0.category.rank < $1.category.rank }
-        guard !pinned.isEmpty else { return rest }
-        return [AppGroup(id: AppCategory.pinned.rawValue, category: .pinned, entries: pinned)] + rest
+        var result: [AppGroup] = []
+        if !pinned.isEmpty {
+            result.append(AppGroup(id: AppCategory.pinned.rawValue, category: .pinned, entries: pinned))
+        }
+        if !entries.isEmpty {
+            result.append(AppGroup(id: AppCategory.other.rawValue, category: .other, entries: sorted(entries)))
+        }
+        return result
     }
 
     // MARK: - Refresh
 
+    /// 右键菜单开着：暂停重采。菜单内容是 SwiftUI 按视图状态生成的，
+    /// groups / activePID 一变整个菜单就被重建，已展开的子菜单会当场收起。
+    /// 菜单关掉时控制器会把这个标志放下并补一次 refresh。
+    var menuTracking = false
+
     func refresh() {
+        guard !menuTracking else { return }
         let frontmost = NSWorkspace.shared.frontmostApplication
         let frontPID = frontmost?.processIdentifier ?? -1
 

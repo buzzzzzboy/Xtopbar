@@ -43,9 +43,7 @@ docs/RELEASING.md                  發布流程 / 線上更新怎麼用
 
 macOS **沒有**提供任何"App 分類"的公開 API —— 這個分組完全是為了排序穩定而自造的，不是系統語義。
 
-它的作用僅限於**決定組順序**（`AppCategory.rank`），對介面已經沒有視覺影響：早先按"分類邊界畫深線、組內畫淡線"來暗示分組，但實測大多數 App 落到「其他」，後半條幾乎沒有線，看起來像壞了，所以**分隔線已統一成一種深線**。
-
-想調整分組順序就改 `rules` 陣列和 `rank`。
+**目前條上已不按分類排序**：執行中的 App 統一一組、按開啟時間（`NSRunningApplication.launchDate`）從左到右排，新開的接在最右邊。分類仍會算出來寫進 `AppEntry.category`，但不影響順序和介面。早先按"分類邊界畫深線、組內畫淡線"來暗示分組，實測大多數 App 落到「其他」，後半條幾乎沒有線，看起來像壞了，所以**分隔線已統一成一種深線**。
 
 ## 權限為什麼這麼關鍵
 
@@ -213,7 +211,7 @@ Google Chrome          2              7
 - 抓圖用 `SCScreenshotManager.captureImage`，直接按目標尺寸渲染，省掉"全解析度抓取 + 自己縮放"
 - 點選縮圖優先用列舉階段記下的 AX 下標定位；下標失效（期間開了/關了視窗）就用標題 + 幾何重新配對
 - 提窗順序：`minimize=false` → `AXMain=true` → `AXFocused=true` → `AXRaise` → **最後**才把 App 設為 frontmost。反過來的話 Chromium / Electron 系會把 App 拉到前景但保留它自己認定的 main window
-- 游標從標籤滑向預覽面板的途中會經過 8pt 空隙，所以離開標籤後留 **0.4s 寬限**再收起預覽，否則會閃斷
+- 游標從標籤滑向預覽面板的途中會經過 8pt 空隙，所以離開標籤後留 **0.4s 寬限**再收起預覽，否則會閃斷。收起純按指標位置判斷（既不在預覽上、也不在面板裡的標籤上，就開始計時），不依賴 `onTabHoverEnd` —— 以前進過預覽再移走不會重新計時，預覽會一直掛著、只能點視窗才關得掉
 - 空態（該 App 沒有視窗）刻意做成**和單視窗預覽等寬**：早先為放下提示文字把它撐到兩張卡寬，懸停時尺寸來回跳很突兀
 
 **6b. 卡片互動（懸停 / 按下 / 關閉視窗）**
@@ -276,7 +274,9 @@ Google Chrome          2              7
 
 `AppEntry` 多了 `bundleURL` / `isRunning` / `isPinned`。沒在執行的固定項 `pid = 0`：
 
-- 分組 = 「已固定」組（`AppCategory.pinned`，rank −1，按使用者排的順序，**不按名稱排**）+ 其餘執行中的 App 按分類分組。固定項按 bundle id 合併執行實例
+- 分組 = 「已固定」組（`AppCategory.pinned`，rank −1，按使用者排的順序，**不按名稱排**）+ 其餘執行中的 App 一組、按開啟時間排。固定項按 bundle id 合併執行實例
+- 標籤模式下固定項不畫執行小圓點（只有 Dock 風格才畫，同 macOS Dock）
+- 右鍵選單開著時（`NSMenu.didBeginTracking` → `menuTracking`）凍結 `pointerOverBar` 和 `refresh()`：選單是 SwiftUI `contextMenu` 按視圖狀態生成的，任何 @Published 變化都會重建整個選單，已展開的「固定」子選單會當場收起 —— 子選單常伸出條外，指標一移過去 `pointerOverBar` 就翻轉，於是永遠夠不著。關選單時補一次 refresh
 - 固定項不受「隱藏此 App」影響；固定時順手把它從隱藏列表裡放出來
 - 所有"只對執行中 App 有意義"的地方都要按 `pid > 0` 過濾：⌘Tab 迴圈序列、預熱、預覽、退出。`activePID` / `keyboardHighlightPID` 永遠不會是 0，所以反白也不會落到沒執行的圖示上
 - 點沒執行的固定項 → `launch(url:)`（`NSWorkspace.openApplication`），啟動完成後 `didLaunchApplication` 通知觸發 refresh，小圓點自己亮

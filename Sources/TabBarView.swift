@@ -150,7 +150,8 @@ struct AppTab: View {
         .padding(.bottom, TTLayout.s(2))
     }
 
-    /// 标签风格：图标 + 名称。固定组里没在运行的名字压淡，在运行的底部带小圆点。
+    /// 标签风格：图标 + 名称。没在运行的固定项名字压淡；不画运行小圆点
+    /// （标签模式靠名字深浅就能分辨，小圆点反而像多余的装饰）。
     private var labelCell: some View {
         HStack(spacing: TTLayout.s(6)) {
             Image(nsImage: entry.icon)
@@ -173,9 +174,6 @@ struct AppTab: View {
         }
         .padding(.horizontal, TTLayout.s(9))
         .padding(.vertical, TTLayout.s(6))
-        .overlay(alignment: .bottom) {
-            if entry.isPinned { runningDot(visible: entry.isRunning).offset(y: TTLayout.s(-1)) }
-        }
     }
 
     private func runningDot(visible: Bool) -> some View {
