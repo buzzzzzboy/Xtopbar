@@ -48,6 +48,8 @@ final class StartMenuController {
     private var animationToken = 0
     /// 这次是往上弹（条在下）还是往下弹；收起时按它缩回条那一侧
     private var opensUpward = true
+    /// 动画期间每帧重算窗口阴影（系统阴影按窗口当前内容算，不会自己跟着 layer 动画走）
+    private var shadowTimer: Timer?
     private var monitors: [Any] = []
     private var resignObserver: NSObjectProtocol?
     private weak var barWindow: NSWindow?
@@ -125,9 +127,8 @@ final class StartMenuController {
         let midway = host.layer?.animation(forKey: Self.slideKey) != nil ? host.layer?.presentation() : nil
         host.layer?.removeAnimation(forKey: Self.slideKey)
         if let slide = slideDistance, let layer = host.layer {
-            // 阴影按窗口内容算，滑动中途会对不上，动画期间先关掉
-            panel.hasShadow = false
             panel.makeKeyAndOrderFront(nil)
+            trackShadow()
             let token = animationToken
             // 从条那一侧滑进来：条在下 → 内容先压在下面（y 往下），往上升；条在上反过来。
             // 直接给 layer 加显式动画：NSView.animator() 取的起点是还没提交的旧位置，开场会不动
@@ -135,8 +136,7 @@ final class StartMenuController {
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.animationToken == token else { return }
-                    self.panel.hasShadow = true
-                    self.panel.invalidateShadow()
+                    self.stopTrackingShadow()
                 }
             }
             // Windows 11 的减速曲线：起步快、收尾很缓
@@ -145,7 +145,7 @@ final class StartMenuController {
                           duration: 0.3, timing: CAMediaTimingFunction(controlPoints: 0.1, 0.9, 0.2, 1))
             CATransaction.commit()
         } else {
-            panel.hasShadow = true
+            stopTrackingShadow()
             panel.makeKeyAndOrderFront(nil)
         }
         installMonitors()
@@ -170,7 +170,7 @@ final class StartMenuController {
         let token = animationToken
         // 缩回去的途中不接点击，免得点到正在消失的格子
         panel.ignoresMouseEvents = true
-        panel.hasShadow = false
+        trackShadow()
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated {
@@ -191,12 +191,28 @@ final class StartMenuController {
         closing = false
         panel.orderOut(nil)
         panel.ignoresMouseEvents = false
-        panel.hasShadow = true
+        stopTrackingShadow()
         hosting?.alphaValue = 0  // 见 init
         hosting?.layer?.removeAnimation(forKey: Self.slideKey)
     }
 
     private static let slideKey = "startMenuSlide"
+
+    private func trackShadow() {
+        shadowTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.panel.invalidateShadow() }
+        }
+        // common 模式：拖着窗口 / 菜单跟踪时也照样跑
+        RunLoop.main.add(timer, forMode: .common)
+        shadowTimer = timer
+    }
+
+    private func stopTrackingShadow() {
+        shadowTimer?.invalidate()
+        shadowTimer = nil
+        panel.invalidateShadow()
+    }
 
     /// 上下滑 + 淡入淡出。动画停在终点（fillMode forwards），模型值不动，
     /// 下次开 / 关先移除它复位
