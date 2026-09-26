@@ -287,7 +287,7 @@ struct PreviewView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if model.items.count > 1 {
-                    Text("\(model.items.count) 个窗口")
+                    Text("\(model.items.count) 個視窗")
                         .font(.system(size: TTLayout.font(10)))
                         .foregroundStyle(Color.primary.opacity(0.55))
                 }
@@ -479,7 +479,7 @@ final class PreviewController {
     private func closeWindow(at index: Int) {
         guard let pid = currentPID, let win = window(at: index) else { return }
         guard WindowBridge.isTrusted else {
-            model.hint = "开启「辅助功能」权限后才能关闭窗口"
+            model.hint = "開啟「輔助使用」權限後才能關閉視窗"
             return
         }
         TTLog("close idx=\(index) title=\"\(win.title)\" ax=\(String(describing: win.axIndex))")
@@ -510,7 +510,7 @@ final class PreviewController {
             self.reload()
             // 窗口服务器里还在，才叫真的没关掉
             guard WindowBridge.windowExists(pid: pid, frame: target.frame) else { return }
-            self.model.hint = "没能关掉这个窗口（App 没有响应关闭请求）"
+            self.model.hint = "沒能關掉這個視窗（App 沒有響應關閉請求）"
             TTLog("close failed idx=\(index) title=\"\(target.title)\"")
         }
     }
@@ -582,7 +582,7 @@ final class PreviewController {
         // 其余窗口数 < 2 一律不弹（空态面板若还在屏上顺手收掉）。
         guard windows.count >= 2 || windows.contains(where: \.isMinimized) else {
             if panel.isVisible { hide() }
-            TTLog("preview \(entry.name) → \(windows.count) 个窗口，不弹")
+            TTLog("preview \(entry.name) → \(windows.count) 個視窗，不彈")
             return
         }
 
@@ -590,7 +590,7 @@ final class PreviewController {
         model.items = windows.enumerated().map { idx, win in
             PreviewItem(id: win.id,
                         index: idx,
-                        title: win.title.isEmpty ? "窗口 \(idx + 1)" : win.title,
+                        title: win.title.isEmpty ? "視窗 \(idx + 1)" : win.title,
                         frame: win.frame,
                         isMinimized: win.isMinimized,
                         image: engine.cached(win.id, maxAge: 4.0))
@@ -601,11 +601,11 @@ final class PreviewController {
         // 多窗口但没辅助功能权限时，点击只能把 App 拉到前台 —— 无法指定具体窗口，
         // 表现出来就是"点哪个都回到第一个窗口"。这里明说一句，别让用户以为是坏的。
         if windows.count > 1, !WindowBridge.isTrusted {
-            model.hint = "开启「辅助功能」权限后才能切到指定窗口"
+            model.hint = "開啟「輔助使用」權限後才能切到指定視窗"
         }
 
         guard ScreenCaptureEngine.hasPermission else {
-            model.hint = "开启「屏幕录制」权限后可显示窗口缩略图"
+            model.hint = "開啟「螢幕錄製」權限後可顯示視窗縮圖"
             ScreenCaptureEngine.requestPermissionIfNeeded()
             return
         }

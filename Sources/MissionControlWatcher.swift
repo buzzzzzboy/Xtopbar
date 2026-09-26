@@ -77,7 +77,7 @@ final class MissionControlWatcher {
         let seen = Self.dockOverlayOnScreen()
         guard seen != overlaySeen else { return }
         overlaySeen = seen
-        TTLog("MissionControl: Dock 全屏窗口\(seen ? "出现" : "消失")")
+        TTLog("MissionControl: Dock 全螢幕視窗\(seen ? "出現" : "消失")")
         setActive(seen)
     }
 
@@ -110,7 +110,7 @@ final class MissionControlWatcher {
         var created: AXObserver?
         guard AXObserverCreate(pid, missionControlCallback, &created) == .success,
               let obs = created else {
-            TTLog("MissionControl: AXObserverCreate 失败 pid=\(pid)")
+            TTLog("MissionControl: AXObserverCreate 失敗 pid=\(pid)")
             return
         }
         let element = AXUIElementCreateApplication(pid)
@@ -122,14 +122,14 @@ final class MissionControlWatcher {
             }
         }
         guard !added.isEmpty else {
-            TTLog("MissionControl: Dock 不接受通知（多半还没起来），稍后重试")
+            TTLog("MissionControl: Dock 不接受通知（多半還沒起來），稍後重試")
             return
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .commonModes)
         observer = obs
         dockElement = element
         dockPID = pid
-        TTLog("MissionControl: 已挂到 Dock pid=\(pid) 通知=\(added)")
+        TTLog("MissionControl: 已掛到 Dock pid=\(pid) 通知=\(added)")
     }
 
     private func detach() {
@@ -157,7 +157,7 @@ final class MissionControlWatcher {
         let work = DispatchWorkItem { [weak self] in
             // Dock 的全屏窗口还在，说明确实还没退出
             guard let self, self.isActive, !self.overlaySeen else { return }
-            TTLog("MissionControl: 前台已切换但没等到退出通知，按已退出处理")
+            TTLog("MissionControl: 前景已切換但沒等到退出通知，按已退出處理")
             self.setActive(false)
         }
         staleCheck = work

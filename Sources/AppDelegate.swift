@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 调试用：验证 SMAppService 注册是否被系统接受（自签名 App 可能被拒）
         if CommandLine.arguments.contains("--test-login") {
-            TTLog("LaunchAtLogin 测试前：\(LaunchAtLogin.statusDescription)")
+            TTLog("LaunchAtLogin 測試前：\(LaunchAtLogin.statusDescription)")
             let on = LaunchAtLogin.set(true)
             TTLog("register → \(on ?? "ok")，status=\(LaunchAtLogin.statusDescription)")
             let off = LaunchAtLogin.set(false)

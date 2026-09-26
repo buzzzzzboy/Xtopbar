@@ -88,7 +88,7 @@ enum WindowBridge {
 
         guard let target = locateTarget(pid: pid, app: app, axIndex: axIndex,
                                         frame: frame, title: title, cgID: cgID) else {
-            TTLog("focus ax=\(String(describing: axIndex)) → 无匹配，只激活 App")
+            TTLog("focus ax=\(String(describing: axIndex)) → 無匹配，只啟用 App")
             activateApp(pid)
             return
         }
@@ -118,7 +118,7 @@ enum WindowBridge {
             usleep(300_000)
             if title.isEmpty || cgFrontMatches(pid: pid, frame: frame, title: title) { break }
         }
-        if attempts > 1 { TTLog("focus 重发 raise \(attempts) 次") }
+        if attempts > 1 { TTLog("focus 重發 raise \(attempts) 次") }
     }
 
     /// 按 **CG 编号位置配对 → AX 下标 → 标题几何** 的顺序在最新窗口列表里定位目标元素
@@ -247,7 +247,7 @@ enum WindowBridge {
         if windows.isEmpty {
             // 窗口服务器明明看得到它，AX 却问不出来 —— 多半是 Electron 系
             // 还没建无障碍树，写开关唤醒后再问两次
-            TTLog("close pid=\(pid) AX 回空，尝试唤醒无障碍（AXManualAccessibility）")
+            TTLog("close pid=\(pid) AX 回空，嘗試喚醒無障礙（AXManualAccessibility）")
             wakeUpAccessibility(pid)
             usleep(400_000)
             windows = axWindows(app)
@@ -259,7 +259,7 @@ enum WindowBridge {
         guard !windows.isEmpty else {
             // AX 彻底问不出来。窗口本身还在（frame 是预览阶段从窗口服务器拿的），
             // 还能走最后一条路：真实点击它左上角的红点。
-            TTLog("close pid=\(pid) → AX 列不出窗口，改用合成点击红点兜底")
+            TTLog("close pid=\(pid) → AX 列不出視窗，改用合成點選紅點兜底")
             return closeByRedDotClick(pid: pid, frame: frame, avoid: avoid)
         }
 
@@ -274,7 +274,7 @@ enum WindowBridge {
         }
         if target == nil { target = bestMatch(in: windows, frame: frame, title: title) }
         guard let target else {
-            TTLog("close ax=\(String(describing: axIndex)) → 无匹配 "
+            TTLog("close ax=\(String(describing: axIndex)) → 無匹配 "
                   + "all=\(windows.map(\.title))")
             return false
         }
@@ -317,16 +317,16 @@ enum WindowBridge {
         let dot = CGPoint(x: frame.minX + 13, y: frame.minY + 13)
         // 自己的面板正好压在红点上时，这一下会点进预览卡片里去（变成切窗口）—— 绝不点
         guard !avoid.contains(where: { $0.insetBy(dx: -4, dy: -4).contains(dot) }) else {
-            TTLog("close 兜底放弃：红点位置被自己的面板挡住 dot=\(dot)")
+            TTLog("close 兜底放棄：紅點位置被自己的面板擋住 dot=\(dot)")
             return false
         }
         guard topmostWindowOwner(at: dot) == pid else {
-            TTLog("close 兜底放弃：红点位置最上层不是目标窗口（dot=\(dot)）")
+            TTLog("close 兜底放棄：紅點位置最上層不是目標視窗（dot=\(dot)）")
             return false
         }
         let before = matchingWindowCount(pid: pid, frame: frame)
         guard before > 0 else {
-            TTLog("close 兜底放弃：窗口服务器里数不到这个窗口")
+            TTLog("close 兜底放棄：視窗伺服器裡數不到這個視窗")
             return false
         }
 
@@ -338,7 +338,7 @@ enum WindowBridge {
             usleep(70_000)
         }
         let gone = waitUntilWindowGone(pid: pid, frame: frame, before: before, timeout: 1.5)
-        TTLog("close 兜底点击红点 @\(Int(dot.x)),\(Int(dot.y)) before=\(before) gone=\(gone)")
+        TTLog("close 兜底點選紅點 @\(Int(dot.x)),\(Int(dot.y)) before=\(before) gone=\(gone)")
         return gone
     }
 
@@ -555,7 +555,7 @@ enum WindowBridge {
             minimizedLock.lock()
             minimizedByTap[pid] = open
             minimizedLock.unlock()
-            TTLog("tap-minimize pid=\(pid) 收起 \(open.count) 个窗口")
+            TTLog("tap-minimize pid=\(pid) 收起 \(open.count) 個視窗")
             return true
         }
     }
@@ -588,7 +588,7 @@ enum WindowBridge {
             if let top = targets.first {
                 AXUIElementPerformAction(top, kAXRaiseAction as CFString)
             }
-            TTLog("tap-restore pid=\(pid) 放回 \(targets.count) 个窗口")
+            TTLog("tap-restore pid=\(pid) 放回 \(targets.count) 個視窗")
         }
     }
 

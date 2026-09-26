@@ -23,10 +23,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let image = XtopbarIcon.statusBar()
             image.isTemplate = true
             button.image = image
-            button.toolTip = "Xtopbar — Dock / App 切换条"
+            button.toolTip = "Xtopbar — Dock / App 切換條"
             TTLog("statusItem button ok image=\(image.size) visible=\(statusItem.isVisible)")
         } else {
-            TTLog("statusItem button 为 nil")
+            TTLog("statusItem button 為 nil")
         }
 
         let menu = NSMenu()
@@ -56,19 +56,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         add(to: menu,
-            title: prefs.barEnabled ? "隐藏悬浮条" : "显示悬浮条",
+            title: prefs.barEnabled ? "隱藏懸浮條" : "顯示懸浮條",
             action: #selector(toggleBar))
 
         if prefs.showStartButton {
-            add(to: menu, title: "开始菜单", action: #selector(openStartMenu))
+            add(to: menu, title: "開始選單", action: #selector(openStartMenu))
         }
-        add(to: menu, title: "设置…", action: #selector(openSettings), key: ",")
+        add(to: menu, title: "設定…", action: #selector(openSettings), key: ",")
 
         // 有新版就把标题换成醒目的一行，点了直接弹更新框
         if case .available(let release) = Updater.shared.phase {
             add(to: menu, title: "有新版本 v\(release.version) →", action: #selector(checkUpdate))
         } else {
-            add(to: menu, title: "检查更新…", action: #selector(checkUpdate))
+            add(to: menu, title: "檢查更新…", action: #selector(checkUpdate))
         }
 
         menu.addItem(.separator())
@@ -84,19 +84,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             item.state = abs(prefs.hideDelay - option.value) < 0.001 ? .on : .off
             delayMenu.addItem(item)
         }
-        let delayItem = NSMenuItem(title: "自动隐藏", action: nil, keyEquivalent: "")
+        let delayItem = NSMenuItem(title: "自動隱藏", action: nil, keyEquivalent: "")
         delayItem.submenu = delayMenu
         menu.addItem(delayItem)
 
-        add(to: menu, title: "只显示有窗口的 App",
+        add(to: menu, title: "只顯示有視窗的 App",
             action: #selector(toggleOnlyWindowed),
             state: prefs.onlyWindowedApps)
 
-        add(to: menu, title: "窗口预览",
+        add(to: menu, title: "視窗預覽",
             action: #selector(togglePreview),
             state: prefs.previewEnabled)
 
-        add(to: menu, title: "只显示已打开的窗口",
+        add(to: menu, title: "只顯示已開啟的視窗",
             action: #selector(toggleMinimized),
             state: prefs.hideMinimizedWindows)
 
@@ -106,13 +106,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let perm = NSMenuItem(title: permissionSummary(), action: nil, keyEquivalent: "")
         perm.isEnabled = false
         menu.addItem(perm)
-        add(to: menu, title: "请求屏幕录制权限", action: #selector(requestScreen))
-        add(to: menu, title: "请求辅助功能权限", action: #selector(requestAX))
+        add(to: menu, title: "請求螢幕錄製權限", action: #selector(requestScreen))
+        add(to: menu, title: "請求輔助使用權限", action: #selector(requestAX))
 
         menu.addItem(.separator())
-        add(to: menu, title: "刷新列表", action: #selector(refresh))
+        add(to: menu, title: "重新整理列表", action: #selector(refresh))
         menu.addItem(.separator())
-        add(to: menu, title: "退出 Xtopbar", action: #selector(quit), key: "q")
+        add(to: menu, title: "結束 Xtopbar", action: #selector(quit), key: "q")
     }
 
     private func add(to menu: NSMenu,
@@ -129,7 +129,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func permissionSummary() -> String {
         let screen = ScreenCaptureEngine.hasPermission ? "✅" : "❌"
         let ax = WindowBridge.isTrusted ? "✅" : "❌"
-        return "权限 — 屏幕录制 \(screen) 辅助功能 \(ax)"
+        return "權限 — 螢幕錄製 \(screen) 輔助使用 \(ax)"
     }
 
     // MARK: - 动作

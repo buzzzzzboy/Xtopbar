@@ -56,11 +56,11 @@ final class Updater: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .http(let code):    return "发布接口返回 HTTP \(code)"
-            case .parse:             return "发布信息解析失败"
-            case .network:           return "网络请求失败"
-            case .unpack(let why):   return "解压失败：\(why)"
-            case .verify(let why):   return "校验失败：\(why)"
+            case .http(let code):    return "發布 API 回傳 HTTP \(code)"
+            case .parse:             return "發布資訊解析失敗"
+            case .network:           return "網路請求失敗"
+            case .unpack(let why):   return "解壓縮失敗：\(why)"
+            case .verify(let why):   return "驗證失敗：\(why)"
             }
         }
     }
@@ -177,8 +177,8 @@ final class Updater: ObservableObject {
                 let release = try await fetchLatest()
                 if Self.isNewer(release.version, than: Self.currentVersion) {
                     phase = .available(release)
-                    TTLog("updater: 发现新版本 \(release.version)（当前 \(Self.currentVersion)）"
-                          + " zip=\(release.zipURL ?? "无")")
+                    TTLog("updater: 發現新版本 \(release.version)（目前 \(Self.currentVersion)）"
+                          + " zip=\(release.zipURL ?? "無")")
                     // 静默检查时，用户已经点过「跳过这个版本」就不再打扰
                     if silent, Preferences.shared.ignoredVersion == release.version { return }
                     presentUpdateAlert(release)
@@ -187,14 +187,14 @@ final class Updater: ObservableObject {
                     TTLog("updater: 已是最新 \(Self.currentVersion)")
                     if !silent {
                         presentInfo("已是最新版本",
-                                    "当前 v\(Self.currentVersion) 已经是最新版本。")
+                                    "目前 v\(Self.currentVersion) 已經是最新版本。")
                     }
                 }
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
                 phase = .failed(message)
-                TTLog("updater: 检查失败 \(message)")
-                if !silent { presentInfo("检查更新失败", message) }
+                TTLog("updater: 檢查失敗 \(message)")
+                if !silent { presentInfo("檢查更新失敗", message) }
             }
         }
     }
@@ -218,12 +218,12 @@ final class Updater: ObservableObject {
                     return
                 }
                 phase = .available(release)
-                TTLog("updater: --update-install 直接安装 \(Self.currentVersion) → \(release.version)")
+                TTLog("updater: --update-install 直接安裝 \(Self.currentVersion) → \(release.version)")
                 downloadAndInstall(release, confirmSignatureChange: false)
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
                 phase = .failed(message)
-                TTLog("updater: --update-install 失败 \(message)")
+                TTLog("updater: --update-install 失敗 \(message)")
             }
         }
     }
@@ -235,18 +235,18 @@ final class Updater: ObservableObject {
 
         let alert = NSAlert()
         alert.messageText = "Xtopbar \(release.version) 可以更新"
-        var info = "当前版本 v\(Self.currentVersion) → v\(release.version)"
+        var info = "目前版本 v\(Self.currentVersion) → v\(release.version)"
         if !release.notes.isEmpty {
             let notes = release.notes.prefix(600)
             info += "\n\n" + notes + (release.notes.count > 600 ? "…" : "")
         }
         if release.zipURL == nil {
-            info += "\n\n这个版本没有上传 .zip 分发包，只能去发布页手动下载。"
+            info += "\n\n這個版本沒有上傳 .zip 分發包，只能去發布頁手動下載。"
         }
         alert.informativeText = info
-        alert.addButton(withTitle: release.zipURL == nil ? "打开发布页" : "立即更新")
-        alert.addButton(withTitle: "稍后")
-        alert.addButton(withTitle: "跳过这个版本")
+        alert.addButton(withTitle: release.zipURL == nil ? "開啟發布頁" : "立即更新")
+        alert.addButton(withTitle: "稍後")
+        alert.addButton(withTitle: "跳過這個版本")
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
@@ -284,9 +284,9 @@ final class Updater: ObservableObject {
         // App Translocation：从 DMG 直接打开、没拖进 Applications 时，
         // 系统会把 App 挂到一个随机只读路径下跑，那里替换不了。
         if destination.path.contains("/AppTranslocation/") {
-            presentInfo("请先移动 Xtopbar",
-                        "Xtopbar 现在运行在系统的临时挂载位置。\n"
-                        + "请把 Xtopbar.app 拖到「应用程序」文件夹里再打开，之后就能自动更新了。")
+            presentInfo("請先移動 Xtopbar",
+                        "Xtopbar 現在執行在系統的臨時掛載位置。\n"
+                        + "請把 Xtopbar.app 拖到「應用程式」資料夾裡再開啟，之後就能自動更新了。")
             openReleasePage(release)
             return
         }
@@ -294,9 +294,9 @@ final class Updater: ObservableObject {
         // 先探路：位置不可写就直说，别等下完才发现装不进去
         let parent = destination.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
-            presentInfo("无法自动更新",
-                        "Xtopbar 所在的 \(parent.path) 没有写入权限。\n"
-                        + "请到发布页手动下载，或把 App 移到自己的用户目录下再试。")
+            presentInfo("無法自動更新",
+                        "Xtopbar 所在的 \(parent.path) 沒有寫入權限。\n"
+                        + "請到發布頁手動下載，或把 App 移到自己的使用者目錄下再試。")
             openReleasePage(release)
             return
         }
@@ -309,22 +309,22 @@ final class Updater: ObservableObject {
                 try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
                 work = workDir
 
-                phase = .working("正在下载 v\(release.version)…")
+                phase = .working("正在下載 v\(release.version)…")
                 let (downloaded, _) = try await URLSession.shared.download(from: zipURL)
                 let archive = workDir.appendingPathComponent("update.zip")
                 try FileManager.default.moveItem(at: downloaded, to: archive)
 
-                phase = .working("正在解压…")
+                phase = .working("正在解壓縮…")
                 let extractDir = workDir.appendingPathComponent("extract")
                 try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
                 let unpack = Self.run("/usr/bin/ditto", ["-x", "-k", archive.path, extractDir.path])
                 guard unpack.status == 0 else { throw UpdateError.unpack(unpack.output) }
 
                 guard let newApp = Self.findApp(in: extractDir) else {
-                    throw UpdateError.unpack("压缩包里没有 .app")
+                    throw UpdateError.unpack("壓縮檔裡沒有 .app")
                 }
 
-                phase = .working("正在校验…")
+                phase = .working("正在驗證…")
                 try Self.verify(newApp, expecting: release)
 
                 // 签名证书变了 → TCC 里的授权记录（屏幕录制 / 辅助功能）会失效
@@ -333,12 +333,12 @@ final class Updater: ObservableObject {
                 if !sameSigner, confirmSignatureChange {
                     NSApp.activate(ignoringOtherApps: true)
                     let warn = NSAlert()
-                    warn.messageText = "更新后需要重新授权"
+                    warn.messageText = "更新後需要重新授權"
                     warn.informativeText =
-                        "这个版本的签名与当前安装的不同。\n"
-                        + "更新完成后 Xtopbar 会需要重新授予「屏幕录制」和「辅助功能」权限。\n\n"
-                        + "（如果你是拿同一台机器、同一张证书重新构建的，看到这个提示说明证书被重建过。）"
-                    warn.addButton(withTitle: "继续更新")
+                        "這個版本的簽名與目前安裝的不同。\n"
+                        + "更新完成後 Xtopbar 會需要重新授予「螢幕錄製」和「輔助使用」權限。\n\n"
+                        + "（如果你是拿同一臺機器、同一張憑證重新建置的，看到這個提示說明憑證被重建過。）"
+                    warn.addButton(withTitle: "繼續更新")
                     warn.addButton(withTitle: "取消")
                     guard warn.runModal() == .alertFirstButtonReturn else {
                         phase = .available(release)
@@ -346,20 +346,20 @@ final class Updater: ObservableObject {
                     }
                 }
 
-                phase = .working("正在安装…")
+                phase = .working("正在安裝…")
                 try Self.launchInstaller(source: newApp, destination: destination)
 
-                TTLog("updater: helper 已启动，Xtopbar 即将退出并由 helper 重新拉起")
+                TTLog("updater: helper 已啟動，Xtopbar 即將退出並由 helper 重新拉起")
                 // 给 helper 一点时间起来，然后退出自己 —— 剩下的交给它
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     NSApp.terminate(nil)
                 }
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-                TTLog("updater: 安装失败 \(message)")
+                TTLog("updater: 安裝失敗 \(message)")
                 phase = .failed(message)
                 if let work { try? FileManager.default.removeItem(at: work) }
-                presentInfo("更新失败", message + "\n\n可以到发布页手动下载。")
+                presentInfo("更新失敗", message + "\n\n可以到發布頁手動下載。")
                 openReleasePage(release)
             }
         }
@@ -405,18 +405,18 @@ final class Updater: ObservableObject {
     private static func verify(_ app: URL, expecting release: UpdateRelease) throws {
         guard let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
               let bundleID = info["CFBundleIdentifier"] as? String else {
-            throw UpdateError.verify("包内缺少 Info.plist")
+            throw UpdateError.verify("包內缺少 Info.plist")
         }
         guard bundleID == Bundle.main.bundleIdentifier else {
-            throw UpdateError.verify("包内的 App 不是 Xtopbar（\(bundleID)）")
+            throw UpdateError.verify("包內的 App 不是 Xtopbar（\(bundleID)）")
         }
         let newVersion = (info["CFBundleShortVersionString"] as? String) ?? ""
         guard !Self.isNewer(release.version, than: newVersion) else {
-            throw UpdateError.verify("包内版本 \(newVersion) 低于发布版本 \(release.version)")
+            throw UpdateError.verify("包內版本 \(newVersion) 低於發布版本 \(release.version)")
         }
         let check = run("/usr/bin/codesign", ["--verify", "--strict", app.path])
         guard check.status == 0 else {
-            throw UpdateError.verify("签名校验没通过：\(check.output)")
+            throw UpdateError.verify("簽名驗證沒通過：\(check.output)")
         }
     }
 
@@ -448,12 +448,12 @@ final class Updater: ObservableObject {
         let script = workDir.appendingPathComponent("install.sh")
         let body = """
         #!/bin/sh
-        # Xtopbar 自动更新 helper
-        # $1 = 旧进程 pid   $2 = 新 .app   $3 = 目标 .app
+        # Xtopbar 自動更新 helper
+        # $1 = 舊程序 pid   $2 = 新 .app   $3 = 目標 .app
         PID="$1"; SRC="$2"; DST="$3"
         if [ -z "$PID" ] || [ -z "$SRC" ] || [ -z "$DST" ]; then exit 2; fi
 
-        # 等旧进程退出，最多 60 秒
+        # 等舊程序退出，最多 60 秒
         i=0
         while kill -0 "$PID" 2>/dev/null; do
           i=$((i + 1))
@@ -474,11 +474,11 @@ final class Updater: ObservableObject {
             exit 1
           fi
         else
-          # 跨卷等 mv 失败的情况，退回原地覆盖
+          # 跨卷等 mv 失敗的情況，退回原地覆蓋
           ditto "$SRC" "$DST" || { open "$DST"; exit 1; }
         fi
 
-        # 自签名 App 没公证，从网络下来的副本会被 Gatekeeper 隔离，必须去掉
+        # 自簽名 App 沒公證，從網路下來的副本會被 Gatekeeper 隔離，必須去掉
         xattr -dr com.apple.quarantine "$DST" 2>/dev/null
         open "$DST"
         exit 0

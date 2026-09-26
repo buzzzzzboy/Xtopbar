@@ -15,11 +15,11 @@ enum LaunchAtLogin {
 
     static var statusDescription: String {
         switch SMAppService.mainApp.status {
-        case .enabled:          return "已启用"
-        case .notRegistered:    return "未启用"
-        case .requiresApproval: return "等待系统批准（系统设置 → 通用 → 登录项）"
-        case .notFound:         return "未找到（把 App 移到「应用程序」后再试）"
-        @unknown default:       return "未知状态"
+        case .enabled:          return "已啟用"
+        case .notRegistered:    return "未啟用"
+        case .requiresApproval: return "等待系統批准（系統設定 → 一般 → 登入項目）"
+        case .notFound:         return "未找到（把 App 移到「應用程式」後再試）"
+        @unknown default:       return "未知狀態"
         }
     }
 
