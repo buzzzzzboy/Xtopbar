@@ -136,6 +136,13 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     var url: URL { URL(fileURLWithPath: path) }
 }
 
+/// 开始菜单里的一个文件夹：自己起名、自己往里放 App，和「已固定」各管各的
+struct StartFolder: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var name: String
+    var apps: [PinnedApp] = []
+}
+
 /// 全局偏好：集中管理 UserDefaults 读写，视图与控制器都订阅它。
 ///
 /// 旧实现把 UserDefaults key 散落在 TabBarController 的 getter/setter 里，
@@ -165,6 +172,8 @@ final class Preferences: ObservableObject {
         static let dockEdge      = "dockEdge"
         static let dockPins      = "dockPins"
         static let startPins     = "startPins"
+        static let startFolders  = "startFolders"
+        static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let iconOnly      = "iconOnly"
         static let onlyWindowedApps = "onlyWindowedApps"
@@ -289,6 +298,18 @@ final class Preferences: ObservableObject {
         didSet { Self.save(startPins, key: Key.startPins, to: d) }
     }
 
+    /// 开始菜单「已固定」下面的文件夹（顺序即显示顺序）
+    @Published var startFolders: [StartFolder] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(startFolders) { d.set(data, forKey: Key.startFolders) }
+        }
+    }
+
+    /// 开始菜单底栏「现正播放」显示哪个播放器
+    @Published var nowPlayingSource: NowPlayingSource = .auto {
+        didSet { d.set(nowPlayingSource.rawValue, forKey: Key.nowPlayingSource) }
+    }
+
     /// 最近使用的 App（bundle id，最新在前，最多 8 个）：开始菜单「最近使用」
     @Published var recentApps: [String] = [] {
         didSet { d.set(recentApps, forKey: Key.recentApps) }
@@ -407,6 +428,10 @@ final class Preferences: ObservableObject {
         if let raw = d.string(forKey: Key.dockEdge), let e = DockEdge(rawValue: raw) { dockEdge = e }
         if let pins = Self.load(Key.dockPins, from: d) { dockPins = pins }
         if let pins = Self.load(Key.startPins, from: d) { startPins = pins }
+        if let data = d.data(forKey: Key.startFolders),
+           let folders = try? JSONDecoder().decode([StartFolder].self, from: data) { startFolders = folders }
+        if let raw = d.string(forKey: Key.nowPlayingSource),
+           let s = NowPlayingSource(rawValue: raw) { nowPlayingSource = s }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }

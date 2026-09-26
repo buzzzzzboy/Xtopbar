@@ -397,7 +397,7 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.hidePreview()
-                self.startMenu.close()
+                self.startMenu.close(animated: false)
                 self.currentWidth = 0
                 self.relayout()
             }
@@ -1005,7 +1005,7 @@ final class TabBarController: TabBarHost {
         TTLog("MissionControl \(active ? "進入 → 條淡出" : "退出 → 恢復")")
         if active {
             hidePreview()
-            startMenu.close()
+            startMenu.close(animated: false)
             if catalog.keyboardSession {
                 catalog.endKeyboardSession()
                 cmdTap.swallowEscape = false
