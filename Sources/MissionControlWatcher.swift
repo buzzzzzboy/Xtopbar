@@ -1,12 +1,16 @@
 import AppKit
 import ApplicationServices
 
-/// 调度中心（Mission Control）开没开。
+/// 调度中心（Mission Control）开没开。系统没有公开的 API，两路一起看：
 ///
-/// 系统没有公开的 API，但 Dock 进程的无障碍对象会发几条私有通知：
-/// `AXExposeShowAllWindows`（调度中心）、`AXExposeShowFrontWindows`（App Exposé）、
-/// `AXExposeShowDesktop`（显示桌面）、`AXExposeExit`（退出）。yabai 等窗口管理器都靠它。
-/// 需要辅助功能权限；没权限时什么都收不到，条的行为和以前一样。
+/// 1. 窗口：调度中心 / App Exposé 开着时，Dock 会铺一张 layer 20、盖满整块屏幕的窗口，
+///    平时 Dock 没有这种窗口（自己的 Dock 条也是 layer 20，但只有一条）。
+///    macOS 27 起下面的无障碍通知挂得上却不再发，只能靠这一路；约 7Hz 轮询，
+///    一次 `CGWindowListCopyWindowInfo` 不到 1ms，也不需要屏幕录制权限（不读窗口标题）。
+/// 2. 无障碍通知：Dock 进程的私有通知 `AXExposeShowAllWindows`（调度中心）、
+///    `AXExposeShowFrontWindows`（App Exposé）、`AXExposeShowDesktop`（显示桌面）、
+///    `AXExposeExit`（退出），yabai 等窗口管理器都靠它。旧系统上比轮询快一点。
+///    需要辅助功能权限；没权限时收不到。
 ///
 /// Dock 会重启（「隐藏系统 Dock」开关就会重启它一次），重启后 pid 变了，
 /// 旧的观察者全部作废 —— 所以盯着 Dock 的启动通知重新挂，再用低频轮询兜底。
@@ -26,6 +30,9 @@ final class MissionControlWatcher {
     private var dockElement: AXUIElement?
     private var dockPID: pid_t = 0
     private var retryTimer: Timer?
+    private var pollTimer: Timer?
+    /// 上一轮轮询看到的状态：只在它变化时才动，免得和无障碍通知那一路互相打架
+    private var overlaySeen = false
     private var workspaceTokens: [NSObjectProtocol] = []
     /// 退出通知万一丢了，条会一直藏着：调度中心里点窗口 / 切 App 必然会退出它，
     /// 所以看到前台 App 变化后稍等一下还没收到退出，就当已经退出
@@ -57,6 +64,37 @@ final class MissionControlWatcher {
         }
         RunLoop.main.add(timer, forMode: .common)
         retryTimer = timer
+
+        // 调度中心的进场动画约 0.3s，0.15s 一轮足够让条和它一起淡出
+        let poll = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollOverlay() }
+        }
+        RunLoop.main.add(poll, forMode: .common)
+        pollTimer = poll
+    }
+
+    private func pollOverlay() {
+        let seen = Self.dockOverlayOnScreen()
+        guard seen != overlaySeen else { return }
+        overlaySeen = seen
+        TTLog("MissionControl: Dock 全屏窗口\(seen ? "出现" : "消失")")
+        setActive(seen)
+    }
+
+    /// Dock 有没有一张 layer 20、和某块屏幕一样大的窗口
+    private static func dockOverlayOnScreen() -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let screens = NSScreen.screens.map { $0.frame.size }
+        return list.contains { w in
+            guard (w[kCGWindowOwnerName as String] as? String) == "Dock",
+                  (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.dockWindow)),
+                  let dict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict)
+            else { return false }
+            return screens.contains { abs($0.width - bounds.width) < 1 && abs($0.height - bounds.height) < 1 }
+        }
     }
 
     /// 挂到当前的 Dock 进程上（已经挂在同一个 pid 上就什么都不做）
@@ -117,7 +155,8 @@ final class MissionControlWatcher {
         guard isActive else { return }
         staleCheck?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.isActive else { return }
+            // Dock 的全屏窗口还在，说明确实还没退出
+            guard let self, self.isActive, !self.overlaySeen else { return }
             TTLog("MissionControl: 前台已切换但没等到退出通知，按已退出处理")
             self.setActive(false)
         }
