@@ -102,6 +102,15 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Picker("現正播放", selection: $prefs.nowPlayingSource) {
+                ForEach(NowPlayingSource.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            Text("開始選單底部的播放控制。自動：誰在播就顯示誰；也可以固定為 Spotify 或 Apple Music。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Toggle("只顯示圖示（Dock 風格）", isOn: $prefs.iconOnly)
                 .toggleStyle(.switch)
 

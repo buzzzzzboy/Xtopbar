@@ -103,6 +103,7 @@ final class StartMenuController {
     func show(anchorInScreen: NSRect, barFrame: NSRect, barWindow: NSWindow) {
         self.barWindow = barWindow
         AppLibrary.shared.refreshIfStale()
+        NowPlaying.shared.menuDidOpen()
         model.reset()
 
         let size = StartMenuController.size

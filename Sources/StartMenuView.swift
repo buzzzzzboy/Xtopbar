@@ -13,6 +13,7 @@ struct StartMenuView: View {
     @ObservedObject var model: StartMenuModel
     @ObservedObject var library: AppLibrary
     @ObservedObject var prefs: Preferences
+    @ObservedObject var nowPlaying = NowPlaying.shared
     let catalog: AppCatalog
     let onLaunch: (LibraryApp) -> Void
     let onSettings: () -> Void
@@ -456,13 +457,7 @@ struct StartMenuView: View {
 
     private var footer: some View {
         HStack(spacing: TTLayout.s(10)) {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: TTLayout.font(22)))
-                .foregroundStyle(.secondary)
-            Text(NSFullUserName().isEmpty ? NSUserName() : NSFullUserName())
-                .font(.system(size: TTLayout.font(12), weight: .medium))
-                .lineLimit(1)
-            Spacer()
+            NowPlayingBar(nowPlaying: nowPlaying, prefs: prefs)
             Button(action: onSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: TTLayout.font(14)))
@@ -774,6 +769,117 @@ private struct PinSlotFramesKey: PreferenceKey {
     static var defaultValue: [Int: CGRect] = [:]
     static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
         value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// 底栏的现正播放：封面 + 歌名 / 歌手 + 上一首 / 播放暂停 / 下一首。
+/// 点歌名切到播放器；右键选来源（自动 / Spotify / Apple Music）。
+private struct NowPlayingBar: View {
+    @ObservedObject var nowPlaying: NowPlaying
+    @ObservedObject var prefs: Preferences
+
+    private var player: MediaPlayer? { nowPlaying.player ?? prefs.nowPlayingSource.player }
+
+    var body: some View {
+        HStack(spacing: TTLayout.s(10)) {
+            HStack(spacing: TTLayout.s(10)) {
+                cover
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: TTLayout.font(12), weight: .medium))
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: TTLayout.font(10)))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { nowPlaying.openPlayer() }
+            .help(player.map { "開啟 \($0.title)" } ?? "")
+
+            HStack(spacing: TTLayout.s(2)) {
+                control("backward.fill", enabled: nowPlaying.track != nil) { nowPlaying.previous() }
+                control(nowPlaying.track?.playing == true ? "pause.fill" : "play.fill", enabled: true, large: true) {
+                    nowPlaying.playPause()
+                }
+                control("forward.fill", enabled: nowPlaying.track != nil) { nowPlaying.next() }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .contextMenu {
+            Picker("來源", selection: $prefs.nowPlayingSource) {
+                ForEach(NowPlayingSource.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.inline)
+        }
+    }
+
+    private var title: String {
+        if let t = nowPlaying.track, !t.title.isEmpty { return t.title }
+        return "未在播放"
+    }
+
+    private var subtitle: String {
+        if let t = nowPlaying.track { return t.artist.isEmpty ? (player?.title ?? "") : t.artist }
+        return player.map { $0.isRunning ? $0.title : "按 ▶ 開啟 \($0.title)" } ?? "Spotify / Apple Music"
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        let size = TTLayout.s(32)
+        Group {
+            if let art = nowPlaying.artwork {
+                Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+            } else if let url = player?.appURL {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().interpolation(.high)
+            } else {
+                Image(systemName: "music.note")
+                    .font(.system(size: TTLayout.font(14)))
+                    .foregroundStyle(.secondary)
+                    .frame(width: size, height: size)
+                    .background(Color.primary.opacity(0.08))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous))
+    }
+
+    private func control(_ symbol: String, enabled: Bool, large: Bool = false,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: TTLayout.font(large ? 15 : 12)))
+                .frame(width: TTLayout.s(large ? 32 : 26), height: TTLayout.s(28))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ControlButtonStyle())
+        .disabled(!enabled)
+    }
+}
+
+/// 播放控制键：无底色，按下 / 悬停时给一层浅底
+private struct ControlButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        ControlLabel(configuration: configuration)
+    }
+
+    /// 悬停状态得放在真正的 View 里，ButtonStyle 本身存不住 @State
+    private struct ControlLabel: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(enabled ? .primary : .tertiary)
+                .background(
+                    RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous)
+                        .fill(Color.primary.opacity(configuration.isPressed ? 0.16 : hovering && enabled ? 0.08 : 0))
+                )
+                .onHover { hovering = $0 }
+        }
     }
 }
 

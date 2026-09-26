@@ -173,6 +173,7 @@ final class Preferences: ObservableObject {
         static let dockPins      = "dockPins"
         static let startPins     = "startPins"
         static let startFolders  = "startFolders"
+        static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let iconOnly      = "iconOnly"
         static let onlyWindowedApps = "onlyWindowedApps"
@@ -304,6 +305,11 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// 开始菜单底栏「现正播放」显示哪个播放器
+    @Published var nowPlayingSource: NowPlayingSource = .auto {
+        didSet { d.set(nowPlayingSource.rawValue, forKey: Key.nowPlayingSource) }
+    }
+
     /// 最近使用的 App（bundle id，最新在前，最多 8 个）：开始菜单「最近使用」
     @Published var recentApps: [String] = [] {
         didSet { d.set(recentApps, forKey: Key.recentApps) }
@@ -424,6 +430,8 @@ final class Preferences: ObservableObject {
         if let pins = Self.load(Key.startPins, from: d) { startPins = pins }
         if let data = d.data(forKey: Key.startFolders),
            let folders = try? JSONDecoder().decode([StartFolder].self, from: data) { startFolders = folders }
+        if let raw = d.string(forKey: Key.nowPlayingSource),
+           let s = NowPlayingSource(rawValue: raw) { nowPlayingSource = s }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
