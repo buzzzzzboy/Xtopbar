@@ -1,117 +1,117 @@
-# 发布与在线更新
+# 發布與線上更新
 
-## 结论：不需要服务器，也不需要买云空间
+## 結論：不需要伺服器，也不需要買雲空間
 
-App 里的「检查更新」直接读 **GitHub Releases**。这一个东西同时提供了两样：
+App 裡的「檢查更新」直接讀 **GitHub Releases**。這一個東西同時提供了兩樣：
 
-| 需要什么 | GitHub 给什么 |
+| 需要什麼 | GitHub 給什麼 |
 |---|---|
-| 一个地址恒定、不会变的接口 | `https://api.github.com/repos/buzzzzzboy/Xtopbar/releases/latest` |
-| 文件托管（放新版本的安装包） | Release 附件，走 GitHub 的 CDN |
-| 费用 | 公开仓库免费、无流量限制 |
+| 一個地址恆定、不會變的介面 | `https://api.github.com/repos/buzzzzzboy/Xtopbar/releases/latest` |
+| 檔案託管（放新版本的安裝包） | Release 附件，走 GitHub 的 CDN |
+| 費用 | 公開倉庫免費、無流量限制 |
 
-仓库是公开的，所以**客户端拉更新不需要任何 token**。你唯一需要 token 的地方是自己发版时调 API 上传附件。
+倉庫是公開的，所以**客戶端拉更新不需要任何 token**。你唯一需要 token 的地方是自己發版時調 API 上傳附件。
 
-对比一下别的方案，看为什么选它：
+對比一下別的方案，看為什麼選它：
 
-| 方案 | 成本 | 说明 |
+| 方案 | 成本 | 說明 |
 |---|---|---|
-| **GitHub Releases**（当前） | 免费 | 无需服务器、无需域名、无需备案 |
-| 对象存储（OSS / COS） | 几毛钱/月 | 只当文件托管，还得自己写一个 appcast 文件 |
-| 自建 VPS | 服务器费用 + 域名 | 为了一个版本号文件养一台机器，不划算 |
-| Sparkle + GitHub Pages | 免费 | Sparkle 要嵌 xcframework 进 App 再单独签名，本项目是 swiftc 直编、没有 SPM 工程，接入成本高于自己写 |
-| Mac App Store | 年费 | 要审核，且 App 要开沙盒，AX 功能会残废 |
+| **GitHub Releases**（當前） | 免費 | 無需伺服器、無需網域、無需備案 |
+| 物件儲存（OSS / COS） | 幾毛錢/月 | 只當檔案託管，還得自己寫一個 appcast 檔案 |
+| 自建 VPS | 伺服器費用 + 網域 | 為了一個版本號檔案養一臺機器，不划算 |
+| Sparkle + GitHub Pages | 免費 | Sparkle 要嵌 xcframework 進 App 再單獨簽名，本專案是 swiftc 直編、沒有 SPM 工程，接入成本高於自己寫 |
+| Mac App Store | 年費 | 要審核，且 App 要開沙盒，AX 功能會殘廢 |
 
-## 发版：一条命令
+## 發版：一條命令
 
 ```bash
-GITHUB_TOKEN=<你的 token> ./scripts/make-release.sh 1.3.0 "新增在线更新
-- 启动后自动检查新版本
-- 设置里可以手动检查"
+GITHUB_TOKEN=<你的 token> ./scripts/make-release.sh 1.3.0 "新增線上更新
+- 啟動後自動檢查新版本
+- 設定裡可以手動檢查"
 ```
 
-脚本会做四件事：
+腳本會做四件事：
 
-1. 把版本号写进 `Resources/Info.plist`（`CFBundleVersion` 自增）
-2. `./build.sh` 双架构编译 + 自签名
-3. 打成 `dist/Xtopbar-v1.3.0.zip` —— **必须是 zip**，App 要解包后替换自己
-4. 建 Release 并把 zip 传成附件（已经有同名 Release 时会改成替换附件）
+1. 把版本號寫進 `Resources/Info.plist`（`CFBundleVersion` 自增）
+2. `./build.sh` 雙架構編譯 + 自簽名
+3. 打成 `dist/Xtopbar-v1.3.0.zip` —— **必須是 zip**，App 要解包後替換自己
+4. 建 Release 並把 zip 傳成附件（已經有同名 Release 時會改成替換附件）
 
-打包后会**自动解压回来验一次签名**，签名损坏会直接报错停住 —— 这一步很关键，签名坏的包用户装上去打不开。
+打包後會**自動解壓縮回來驗一次簽名**，簽名損壞會直接報錯停住 —— 這一步很關鍵，簽名壞的包使用者裝上去打不開。
 
-### 没设 token 会怎样
+### 沒設 token 會怎樣
 
-脚本会跳过发布，只产出 `dist/Xtopbar-v1.3.0.zip`，并打印手动上传步骤。手动上传完全可以：
+腳本會跳過發布，只產出 `dist/Xtopbar-v1.3.0.zip`，並列印手動上傳步驟。手動上傳完全可以：
 
-1. 打开 <https://github.com/buzzzzzboy/Xtopbar/releases/new>
-2. Tag 填 `v1.3.0`，标题填 `v1.3.0`
-3. 说明里写更新内容 —— **这段文字会显示在用户的更新弹窗里**，写人话
-4. 把 `dist/Xtopbar-v1.3.0.zip` 拖进去当附件
+1. 開啟 <https://github.com/buzzzzzboy/Xtopbar/releases/new>
+2. Tag 填 `v1.3.0`，標題填 `v1.3.0`
+3. 說明裡寫更新內容 —— **這段文字會顯示在使用者的更新彈窗裡**，寫人話
+4. 把 `dist/Xtopbar-v1.3.0.zip` 拖進去當附件
 
-只要附件的文件名以 `.zip` 结尾，App 就能自动安装；没有 zip 时按钮会退化成「打开发布页」。
+只要附件的檔名以 `.zip` 結尾，App 就能自動安裝；沒有 zip 時按鈕會退化成「開啟發布頁」。
 
-### token 从哪来
+### token 從哪來
 
 GitHub → Settings → Developer settings → Personal access tokens → Fine-grained token，
-对 `buzzzzzboy/Xtopbar` 仓库给 **Contents: Read and write** 权限即可。
+對 `buzzzzzboy/Xtopbar` 倉庫給 **Contents: Read and write** 權限即可。
 
-别把 token 写进脚本或提交进仓库，用环境变量传：
+別把 token 寫進腳本或提交進倉庫，用環境變數傳：
 
 ```bash
-export GITHUB_TOKEN=xxx          # 临时
-# 或者只对这一次命令生效
-GITHUB_TOKEN=xxx ./scripts/make-release.sh 1.3.0 "说明"
+export GITHUB_TOKEN=xxx          # 臨時
+# 或者只對這一次命令生效
+GITHUB_TOKEN=xxx ./scripts/make-release.sh 1.3.0 "說明"
 ```
 
-## 铁律：每次都必须用同一张签名证书
+## 鐵律：每次都必須用同一張簽名憑證
 
-`build.sh` 用的是固定身份 `Xtopbar Self-Signed`（存在独立 keychain
+`build.sh` 用的是固定身份 `Xtopbar Self-Signed`（存在獨立 keychain
 `~/Library/Keychains/xtopbar-signing.keychain-db`）。
 
-macOS 的 TCC（屏幕录制 / 辅助功能授权）认的是签名里的 **designated requirement**，
-它包含证书指纹。所以：
+macOS 的 TCC（螢幕錄製 / 輔助功能授權）認的是簽名裡的 **designated requirement**，
+它包含憑證指紋。所以：
 
-- **证书不变** → 更新后用户权限照旧，什么都不用重做
-- **证书变了**（换机器构建、删了 keychain 重建）→ 用户更新完必须重新授权一次
+- **憑證不變** → 更新後使用者權限照舊，什麼都不用重做
+- **憑證變了**（換機器建置、刪了 keychain 重建）→ 使用者更新完必須重新授權一次
 
-更新器会在装包前对比新旧两包的 DR，发现不一致会先弹窗提醒「更新后需要重新授权」，
-不会默默让用户以为权限丢了。
+更新器會在裝包前對比新舊兩包的 DR，發現不一致會先彈窗提醒「更新後需要重新授權」，
+不會默默讓使用者以為權限丟了。
 
-所以：**别删那个 keychain，也别在别的机器上重新生成证书发版。**
+所以：**別刪那個 keychain，也別在別的機器上重新生成憑證發版。**
 
-## 用户侧的更新体验
+## 使用者側的更新體驗
 
-- 启动 3 秒后静默检查一次（每小时最多一次），没新版本就毫无动静
-- 有新版本 → 弹窗，三个按钮：立即更新 / 稍后 / 跳过这个版本
-- 「跳过这个版本」后静默检查不再提示，但手动点「检查更新…」仍会提示
-- 菜单栏图标 →「检查更新…」，或 设置 → 关于 →「检查更新」
-- 更新过程：下载 → 解压 → 校验（bundle id / 版本号 / 签名）→ 退出自己 → 覆盖 → 重新拉起
-- 装不上会明确说明原因（位置不可写、App Translocation），并给「打开发布页」的退路
+- 啟動 3 秒後靜默檢查一次（每小時最多一次），沒新版本就毫無動靜
+- 有新版本 → 彈窗，三個按鈕：立即更新 / 稍後 / 跳過這個版本
+- 「跳過這個版本」後靜默檢查不再提示，但手動點「檢查更新…」仍會提示
+- 選單列圖示 →「檢查更新…」，或 設定 → 關於 →「檢查更新」
+- 更新過程：下載 → 解壓縮 → 驗證（bundle id / 版本號 / 簽名）→ 退出自己 → 覆蓋 → 重新拉起
+- 裝不上會明確說明原因（位置不可寫、App Translocation），並給「開啟發布頁」的退路
 
-## 自己验证更新链路
+## 自己驗證更新鏈路
 
-不想等真实发版、也不想手点弹窗时：
+不想等真實發版、也不想手點彈窗時：
 
 ```bash
-# 1. 造一个更高的版本号发到本地
-#    把 feed.json 里的 browser_download_url 指向本地 http 服务
-# 2. 用一个旧版本副本启动，跳过弹窗直接装
+# 1. 造一個更高的版本號發到本機
+#    把 feed.json 裡的 browser_download_url 指向本機 http 服務
+# 2. 用一個舊版本副本啟動，跳過彈窗直接裝
 XTOPBAR_DEBUG=1 \
 XTOPBAR_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
   /path/to/Xtopbar.app/Contents/MacOS/Xtopbar --update-install
 ```
 
-`XTOPBAR_UPDATE_FEED` 会把检查地址换成你指定的任意 URL（本地 `file://` 也行），
-`--update-install` 跳过弹窗直接安装，日志在 `/tmp/xtopbar.log`。
+`XTOPBAR_UPDATE_FEED` 會把檢查地址換成你指定的任意 URL（本機 `file://` 也行），
+`--update-install` 跳過彈窗直接安裝，日誌在 `/tmp/xtopbar.log`。
 
-`--check-update` 是只检查、正常弹窗。
+`--check-update` 是只檢查、正常彈窗。
 
-## 踩过的坑
+## 踩過的坑
 
-| 现象 | 原因 |
+| 現象 | 原因 |
 |---|---|
-| 用户点「立即更新」提示位置不可写 | App 在 `/Applications` 下但不是当前用户所有。更新器会提前探测并给出提示 |
-| 提示「请先移动 Xtopbar」 | App Translocation —— 用户从 DMG 里直接双击运行，没拖进应用程序文件夹，系统把它挂在一个随机只读路径下。更新器会识别并引导 |
-| 下载的包打不开 | 自签名 App 没公证，从网络下来的副本会被打上 `com.apple.quarantine`。更新脚本装完会 `xattr -dr` 去掉 |
-| 更新完权限全没了 | 换了签名证书，见上面「铁律」 |
-| 附件传了 `.dmg` | 自动安装需要能解包，只认 `.zip`。可以同时传 dmg 给人手动装，但 zip 必须传 |
+| 使用者點「立即更新」提示位置不可寫 | App 在 `/Applications` 下但不是當前使用者所有。更新器會提前探測並給出提示 |
+| 提示「請先移動 Xtopbar」 | App Translocation —— 使用者從 DMG 裡直接雙擊執行，沒拖進應用程式資料夾，系統把它掛在一個隨機唯讀路徑下。更新器會識別並引導 |
+| 下載的包打不開 | 自簽名 App 沒公證，從網路下來的副本會被打上 `com.apple.quarantine`。更新腳本裝完會 `xattr -dr` 去掉 |
+| 更新完權限全沒了 | 換了簽名憑證，見上面「鐵律」 |
+| 附件傳了 `.dmg` | 自動安裝需要能解包，只認 `.zip`。可以同時傳 dmg 給人手動裝，但 zip 必須傳 |
