@@ -34,6 +34,9 @@ struct StartMenuView: View {
         var location: CGPoint
     }
 
+    /// 拖动让位动画跟系统「减少动态效果」走（不跟条的「進出場動畫」开关）
+    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
     private var pinColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: TTLayout.s(4)), count: 6)
     }
@@ -215,12 +218,12 @@ struct StartMenuView: View {
                 // 指针停在哪一格就把拖动项挪过去
                 guard let target = pinSlots.first(where: { $0.value.contains(value.location) })?.key,
                       apps.indices.contains(target), apps[target].id != app.id else { return }
-                withAnimation(prefs.animationsEnabled ? .easeInOut(duration: 0.18) : nil) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                     move(app.bundleID, apps[target].bundleID)
                 }
             }
             .onEnded { _ in
-                withAnimation(prefs.animationsEnabled ? .easeOut(duration: 0.12) : nil) { pinDrag = nil }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) { pinDrag = nil }
             }
     }
 

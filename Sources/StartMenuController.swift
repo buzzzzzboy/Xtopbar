@@ -39,6 +39,15 @@ final class StartMenuController {
     private let model = StartMenuModel()
     private let panel: FloatingPanel
     private var hosting: FirstMouseHostingView<StartMenuView>?
+    /// 内容的外框（裁掉越界部分）：开关动画时内容在里面上下滑，
+    /// 看起来像从条后面升起来 / 缩回去，同 Windows 11
+    private let clip = NSView()
+    /// 正在播收起动画（面板还在屏上，但对外已经算关了）
+    private var closing = false
+    /// 每次开 / 关 +1：收起动画播完时若已被重新打开，就别再 orderOut
+    private var animationToken = 0
+    /// 这次是往上弹（条在下）还是往下弹；收起时按它缩回条那一侧
+    private var opensUpward = true
     private var monitors: [Any] = []
     private var resignObserver: NSObjectProtocol?
     private weak var barWindow: NSWindow?
@@ -46,7 +55,7 @@ final class StartMenuController {
     /// 菜单收起时回调（条据此复位开始按钮的按下态、重新计自动隐藏）
     var onClose: (@MainActor () -> Void)?
 
-    var isVisible: Bool { panel.isVisible }
+    var isVisible: Bool { panel.isVisible && !closing }
     var frame: NSRect { panel.frame }
 
     static var size: CGSize { CGSize(width: TTLayout.s(560), height: TTLayout.s(600)) }
@@ -72,7 +81,13 @@ final class StartMenuController {
         let host = FirstMouseHostingView(rootView: view)
         host.frame = NSRect(origin: .zero, size: size)
         host.autoresizingMask = [.width, .height]
-        panel.contentView = host
+        clip.frame = NSRect(origin: .zero, size: size)
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        clip.addSubview(host)
+        // 收着时内容保持透明：窗口 orderFront 比开场动画早一帧上屏，那一帧不能是完整菜单
+        host.alphaValue = 0
+        panel.contentView = clip
         hosting = host
     }
 
@@ -97,33 +112,117 @@ final class StartMenuController {
         hosting?.frame = NSRect(origin: .zero, size: size)
 
         let upward = DockGeometry.opensUpward(barFrame: barFrame, visible: screen.visibleFrame)
-        if Preferences.shared.animationsEnabled {
-            var start = target
-            start.origin.y += upward ? -12 : 12
-            panel.alphaValue = 0
-            panel.setFrame(start, display: false)
+        opensUpward = upward
+        animationToken &+= 1
+        closing = false
+        panel.ignoresMouseEvents = false
+        panel.alphaValue = 1
+        panel.setFrame(target, display: false)
+        guard let host = hosting else { return }
+        host.setFrameOrigin(.zero)
+        host.alphaValue = 1
+        // 收起动画播到一半又打开：从当前位置接着往回升，不先跳到底
+        let midway = host.layer?.animation(forKey: Self.slideKey) != nil ? host.layer?.presentation() : nil
+        host.layer?.removeAnimation(forKey: Self.slideKey)
+        if let slide = slideDistance, let layer = host.layer {
+            // 阴影按窗口内容算，滑动中途会对不上，动画期间先关掉
+            panel.hasShadow = false
             panel.makeKeyAndOrderFront(nil)
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.14
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(target, display: true)
-                panel.animator().alphaValue = 1
+            let token = animationToken
+            // 从条那一侧滑进来：条在下 → 内容先压在下面（y 往下），往上升；条在上反过来。
+            // 直接给 layer 加显式动画：NSView.animator() 取的起点是还没提交的旧位置，开场会不动
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.animationToken == token else { return }
+                    self.panel.hasShadow = true
+                    self.panel.invalidateShadow()
+                }
             }
+            // Windows 11 的减速曲线：起步快、收尾很缓
+            Self.addSlide(to: layer, fromY: midway?.transform.m42 ?? (upward ? -slide : slide), toY: 0,
+                          fromAlpha: midway?.opacity ?? 0, toAlpha: 1,
+                          duration: 0.3, timing: CAMediaTimingFunction(controlPoints: 0.1, 0.9, 0.2, 1))
+            CATransaction.commit()
         } else {
-            panel.setFrame(target, display: true)
-            panel.alphaValue = 1
+            panel.hasShadow = true
             panel.makeKeyAndOrderFront(nil)
         }
         installMonitors()
         TTLog("startMenu show frame=\(target) upward=\(upward) apps=\(AppLibrary.shared.apps.count)")
     }
 
-    func close() {
-        guard panel.isVisible else { return }
+    /// - Parameter animated: 调度中心 / 设置变更这类"整个场景要换"的场合传 false，直接消失
+    func close(animated: Bool = true) {
+        guard isVisible else {
+            // 收起动画播到一半又要求立刻关：直接收尾
+            if closing, !animated { finishClose() }
+            return
+        }
         removeMonitors()
-        panel.orderOut(nil)
-        panel.alphaValue = 1
         onClose?()
+        guard animated, let slide = slideDistance, let host = hosting, host.layer != nil else {
+            finishClose()
+            return
+        }
+        closing = true
+        animationToken &+= 1
+        let token = animationToken
+        // 缩回去的途中不接点击，免得点到正在消失的格子
+        panel.ignoresMouseEvents = true
+        panel.hasShadow = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.animationToken == token else { return }
+                self.finishClose()
+            }
+        }
+        // 加速曲线：起步慢、越走越快，干脆地收回条里。
+        // 从当前实际位置起步：开场动画还没播完就关，也不会先跳回原位
+        let now = host.layer?.presentation()
+        Self.addSlide(to: host.layer, fromY: now?.transform.m42 ?? 0, toY: opensUpward ? -slide : slide,
+                      fromAlpha: now?.opacity ?? 1, toAlpha: 0,
+                      duration: 0.18, timing: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.84, 0))
+        CATransaction.commit()
+    }
+
+    private func finishClose() {
+        closing = false
+        panel.orderOut(nil)
+        panel.ignoresMouseEvents = false
+        panel.hasShadow = true
+        hosting?.alphaValue = 0  // 见 init
+        hosting?.layer?.removeAnimation(forKey: Self.slideKey)
+    }
+
+    private static let slideKey = "startMenuSlide"
+
+    /// 上下滑 + 淡入淡出。动画停在终点（fillMode forwards），模型值不动，
+    /// 下次开 / 关先移除它复位
+    private static func addSlide(to layer: CALayer?, fromY: CGFloat, toY: CGFloat,
+                                 fromAlpha: Float, toAlpha: Float,
+                                 duration: CFTimeInterval, timing: CAMediaTimingFunction) {
+        guard let layer else { return }
+        let slide = CABasicAnimation(keyPath: "transform.translation.y")
+        slide.fromValue = fromY
+        slide.toValue = toY
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = fromAlpha
+        fade.toValue = toAlpha
+        let group = CAAnimationGroup()
+        group.animations = [slide, fade]
+        group.duration = duration
+        group.timingFunction = timing
+        group.fillMode = .forwards
+        group.isRemovedOnCompletion = false
+        layer.add(group, forKey: slideKey)
+    }
+
+    /// 开关动画的滑动距离。不跟「進出場動畫」开关走（那个管的是条本身进出场），
+    /// 系统开了「减少动态效果」就只淡入淡出、不滑动。
+    private var slideDistance: CGFloat? {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : TTLayout.s(90)
     }
 
     private func launch(_ app: LibraryApp) {
