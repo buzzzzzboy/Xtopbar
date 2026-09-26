@@ -1,111 +1,111 @@
-# Xtopbar 实现细节（开发笔记）
+# Xtopbar 實作細節（開發筆記）
 
-README 只讲用户看得见的东西，这一份放工程内幕：窗口枚举方案、AX 的坑、签名机制、动效参数。改代码前先看这里。
+README 只講使用者看得見的東西，這一份放工程內幕：視窗列舉方案、AX 的坑、簽名機制、動畫參數。改程式碼前先看這裡。
 
-## 目录结构
+## 目錄結構
 
 ```
 Sources/
-  App.swift                  @main + Settings 场景（无主窗口）
-  AppDelegate.swift          accessory 策略、启动、菜单栏、调试参数
-  Preferences.swift          全局偏好（UserDefaults 的唯一入口）
-  AppCatalog.swift           固定项 + 运行中 App 采集 / 分类 / 排序 / 激活 / 启动 / 固定
-  AppCategory.swift          分类关键词表（启发式，仅决定排序）
-  XtopbarIcon.swift           状态栏 template 图标的程序化绘制
-  StatusItemController.swift 菜单栏图标 + 下拉菜单
-  SettingsWindow.swift       设置窗口（NSWindow + SwiftUI Form）
-  LaunchAtLogin.swift        SMAppService 开机自启封装
-  GlassEffect.swift          液态玻璃 / 毛玻璃 / 纯色三种背景
-  ScreenCaptureEngine.swift  SC 枚举 + 抓图 + 缓存 + 预热；AX 窗口集合配对
-  WindowBridge.swift         AX 窗口聚焦（下标优先，标题/几何回退）
-  TabBarView.swift           SwiftUI 标签条 + 开始按钮 + 命中区域上报 + 分隔线 + 右键菜单
-  TabBarController.swift     面板定位（DockGeometry）、自动隐藏、热点唤出、预览调度、预热、开始菜单开关
-  AppLibrary.swift           已安装 App 索引（扫 Applications 目录）+ 搜索
-  StartMenuController.swift  开始菜单浮层（定位 / key 窗口 / 键盘与点外面收起）
-  StartMenuView.swift        开始菜单视图（搜索 / 已固定 / 最近使用 / 所有应用 A–Z）
-  SystemDock.swift           隐藏 / 还原系统 Dock（defaults + killall Dock）
-  WindowPresence.swift       哪些运行中的 App 没有窗口（「只显示有窗口的 App」）
-  PreviewController.swift    窗口预览浮层（模型 + 视图 + 面板 + 点击切窗口）
-  FloatingPanel.swift        悬浮面板 + 窗口层命中测试 + 调试日志
-  Updater.swift              在线更新（检查 GitHub Releases + 下载替换自身）
+  App.swift                  @main + Settings 場景（無主視窗）
+  AppDelegate.swift          accessory 策略、啟動、選單列、除錯引數
+  Preferences.swift          全域偏好（UserDefaults 的唯一入口）
+  AppCatalog.swift           固定項 + 執行中 App 採集 / 分類 / 排序 / 啟用 / 啟動 / 固定
+  AppCategory.swift          分類關鍵詞表（啟發式，僅決定排序）
+  XtopbarIcon.swift           狀態列 template 圖示的程式化繪製
+  StatusItemController.swift 選單列圖示 + 下拉選單
+  SettingsWindow.swift       設定視窗（NSWindow + SwiftUI Form）
+  LaunchAtLogin.swift        SMAppService 開機自啟封裝
+  GlassEffect.swift          液態玻璃 / 毛玻璃 / 純色三種背景
+  ScreenCaptureEngine.swift  SC 列舉 + 抓圖 + 快取 + 預熱；AX 視窗集合配對
+  WindowBridge.swift         AX 視窗聚焦（下標優先，標題/幾何回退）
+  TabBarView.swift           SwiftUI 標籤條 + 開始按鈕 + 命中區域上報 + 分隔線 + 右鍵選單
+  TabBarController.swift     面板定位（DockGeometry）、自動隱藏、熱點喚出、預覽排程、預熱、開始選單開關
+  AppLibrary.swift           已安裝 App 索引（掃 Applications 目錄）+ 搜尋
+  StartMenuController.swift  開始選單浮層（定位 / key 視窗 / 鍵盤與點外面收起）
+  StartMenuView.swift        開始選單檢視（搜尋 / 已固定 / 最近使用 / 所有應用 A–Z）
+  SystemDock.swift           隱藏 / 還原系統 Dock（defaults + killall Dock）
+  WindowPresence.swift       哪些執行中的 App 沒有視窗（「只顯示有視窗的 App」）
+  PreviewController.swift    視窗預覽浮層（模型 + 檢視 + 面板 + 點選切視窗）
+  FloatingPanel.swift        懸浮面板 + 視窗層命中測試 + 除錯日誌
+  Updater.swift              線上更新（檢查 GitHub Releases + 下載替換自身）
 Resources/Info.plist
-scripts/make-signing-identity.sh   自签名证书
-scripts/make-icons.swift           App 图标生成（→ .icns）
-scripts/make-release.sh            打包 + 发布 GitHub Release
+scripts/make-signing-identity.sh   自簽名憑證
+scripts/make-icons.swift           App 圖示生成（→ .icns）
+scripts/make-release.sh            打包 + 發布 GitHub Release
 build.sh
-docs/INTERNALS.md                  ← 本文件
-docs/RELEASING.md                  发布流程 / 在线更新怎么用
+docs/INTERNALS.md                  ← 本檔案
+docs/RELEASING.md                  發布流程 / 線上更新怎麼用
 ```
 
-## 分类：这是启发式，不是系统定义
+## 分類：這是啟發式，不是系統定義
 
-`Sources/AppCategory.swift` 里是一张**手写关键词表**（浏览器 / 终端 / 媒体 / 开发 / 通讯 / 文档 / 工具 / 其他），拿 App 名称 + Bundle ID 做 `contains` 匹配，顺序即优先级。
+`Sources/AppCategory.swift` 裡是一張**手寫關鍵詞表**（瀏覽器 / 終端 / 媒體 / 開發 / 通訊 / 文件 / 工具 / 其他），拿 App 名稱 + Bundle ID 做 `contains` 匹配，順序即優先順序。
 
-macOS **没有**提供任何"App 分类"的公开 API —— 这个分组完全是为了排序稳定而自造的，不是系统语义。
+macOS **沒有**提供任何"App 分類"的公開 API —— 這個分組完全是為了排序穩定而自造的，不是系統語義。
 
-**目前条上已不按分类排序**：运行中的 App 统一一组、按打开时间（`NSRunningApplication.launchDate`）从左到右排，新开的接在最右边。分类仍会算出来写进 `AppEntry.category`，但不影响顺序和界面。早先按"分类边界画深线、组内画淡线"来暗示分组，实测大多数 App 落到「其他」，后半条几乎没有线，看起来像坏了，所以**分隔线已统一成一种深线**。
+**目前條上已不按分類排序**：執行中的 App 統一一組、按開啟時間（`NSRunningApplication.launchDate`）從左到右排，新開的接在最右邊。分類仍會算出來寫進 `AppEntry.category`，但不影響順序和介面。早先按"分類邊界畫深線、組內畫淡線"來暗示分組，實測大多數 App 落到「其他」，後半條幾乎沒有線，看起來像壞了，所以**分隔線已統一成一種深線**。
 
-## 权限为什么这么关键
+## 權限為什麼這麼關鍵
 
-**辅助功能权限是窗口列表准不准的关键。** 没有它时只能靠窗口服务器（`CGWindowList`）的启发式猜，猜出来的就是"抖店工作台 2 个真窗口显示成 4 个"这类幽灵窗口；多窗口 App 点击缩略图也只会把 App 拉到前台，表现为"点哪个都回到第一个窗口"。
+**輔助功能權限是視窗列表準不準的關鍵。** 沒有它時只能靠視窗伺服器（`CGWindowList`）的啟發式猜，猜出來的就是"抖店工作臺 2 個真視窗顯示成 4 個"這類幽靈視窗；多視窗 App 點選縮圖也只會把 App 拉到前景，表現為"點哪個都回到第一個視窗"。
 
-所以启动后 1 秒会自动弹一次系统授权请求，签名固定后授权一次就长期有效。
+所以啟動後 1 秒會自動彈一次系統授權請求，簽名固定後授權一次就長期有效。
 
-## 外观：液态玻璃的实现
+## 外觀：液態玻璃的實作
 
-| 材质 | 实现 | 说明 |
+| 材質 | 實作 | 說明 |
 |---|---|---|
-| **液态玻璃**（默认） | `NSGlassEffectView`（macOS 26+） | 系统原生 Liquid Glass。**自动跟随外观（浅色/深色）和「降低透明度」「增强对比度」等辅助功能开关**，不需要自己适配 |
-| 毛玻璃 | `NSVisualEffectView`（`.hudWindow`） | 经典 HUD 材质，所有系统版本可用 |
-| 纯色 | `CALayer` + 窗口背景色 | 不透明，最省 GPU |
+| **液態玻璃**（預設） | `NSGlassEffectView`（macOS 26+） | 系統原生 Liquid Glass。**自動跟隨外觀（淺色/深色）和「降低透明度」「增強對比度」等輔助功能開關**，不需要自己適配 |
+| 毛玻璃 | `NSVisualEffectView`（`.hudWindow`） | 經典 HUD 材質，所有系統版本可用 |
+| 純色 | `CALayer` + 視窗背景色 | 不透明，最省 GPU |
 
-实测确认玻璃**确实在采样窗口背后**：把面板压到黑色窗口上，面板底色同步变暗并透出模糊内容（`NSGlassEffectView` 走的是 behind-window 混合）。
+實測確認玻璃**確實在取樣視窗背後**：把面板壓到黑色視窗上，面板底色同步變暗並透出模糊內容（`NSGlassEffectView` 走的是 behind-window 混合）。
 
-在 macOS 26 以下运行时，「液态玻璃」选项不会出现在设置里，存下来的值也会自动降级成毛玻璃（`GlassStyle.resolved`）。
+在 macOS 26 以下執行時，「液態玻璃」選項不會出現在設定裡，存下來的值也會自動降級成毛玻璃（`GlassStyle.resolved`）。
 
-## 图标
+## 圖示
 
-| 图标 | 形状 | 生成方式 |
+| 圖示 | 形狀 | 生成方式 |
 |---|---|---|
-| 状态栏 | 一条胶囊（悬浮栏）+ 三个圆点（App） | 运行时用 `NSBezierPath` 画，`isTemplate = true`，系统按菜单栏配色自动上色 |
-| App | 蓝紫渐变圆角方形 + 白色顶栏 + 三个标签块 | `scripts/make-icons.swift` 程序化生成 1024 PNG → `iconutil` 打成 `.icns`，`build.sh` 自动执行 |
+| 狀態列 | 一條膠囊（懸浮欄）+ 三個圓點（App） | 執行時用 `NSBezierPath` 畫，`isTemplate = true`，系統按選單列配色自動上色 |
+| App | 藍紫漸變圓角方形 + 白色頂欄 + 三個標籤塊 | `scripts/make-icons.swift` 程式化生成 1024 PNG → `iconutil` 打成 `.icns`，`build.sh` 自動執行 |
 
-状态栏图标试过的形态：「横条 + 三个方块」→ 像床；「屏幕外框 + 顶栏」→ 像文件夹；「胶囊 + 三个竖片」→ 像梳子；「胶囊 + 双箭头」→ 两个箭头黏成菱形。圆点比方块轻，是这几个里最经得起 18pt 缩放的。
+狀態列圖示試過的形態：「橫條 + 三個方塊」→ 像床；「螢幕外框 + 頂欄」→ 像資料夾；「膠囊 + 三個豎片」→ 像梳子；「膠囊 + 雙箭頭」→ 兩個箭頭黏成菱形。圓點比方塊輕，是這幾個裡最經得起 18pt 縮放的。
 
-## 签名：为什么不能再用 ad-hoc
+## 簽名：為什麼不能再用 ad-hoc
 
-ad-hoc 签名（`codesign --sign -`）的指定要求里带的是**这次构建的 cdhash**，每次重编译哈希都变，macOS 就当成另一个 App —— 屏幕录制和辅助功能授权全部失效，这就是"每次更新都要重新授权"的原因。
+ad-hoc 簽名（`codesign --sign -`）的指定要求裡帶的是**這次建置的 cdhash**，每次重編譯雜湊都變，macOS 就當成另一個 App —— 螢幕錄製和輔助功能授權全部失效，這就是"每次更新都要重新授權"的原因。
 
-`scripts/make-signing-identity.sh` 生成一张自签名代码签名证书（首次构建自动创建）放进独立 keychain，`build.sh` 用它签名。指定要求变成：
+`scripts/make-signing-identity.sh` 生成一張自簽名程式碼簽名憑證（首次建置自動建立）放進獨立 keychain，`build.sh` 用它簽名。指定要求變成：
 
 ```
 designated => identifier "com.buzzzzzboy.xtopbar" and certificate root = H"58d0e1e7…"
 ```
 
-证书不变 → 哈希不变 → 授权一直有效。两个容易踩的细节：
+憑證不變 → 雜湊不變 → 授權一直有效。兩個容易踩的細節：
 
-- 证书是 `CSSMERR_TP_NOT_TRUSTED`（没加进信任链），所以检测身份**不能带 `-v`** —— `security find-identity -v` 只列受信任的身份，会误判成"没有身份"而退回 ad-hoc。codesign 签名本身不需要证书受信，TCC 记的也只是 DR 里的证书哈希
-- 证书放独立 keychain 而不是 login keychain，配合 `security set-key-partition-list -S apple-tool:,apple:,codesign:`，codesign 调用不会弹钥匙串授权对话框，可以无人值守构建
+- 憑證是 `CSSMERR_TP_NOT_TRUSTED`（沒加進信任鏈），所以檢測身份**不能帶 `-v`** —— `security find-identity -v` 只列受信任的身份，會誤判成"沒有身份"而退回 ad-hoc。codesign 簽名本身不需要憑證受信，TCC 記的也只是 DR 裡的憑證雜湊
+- 憑證放獨立 keychain 而不是 login keychain，配合 `security set-key-partition-list -S apple-tool:,apple:,codesign:`，codesign 呼叫不會彈鑰匙圈授權對話方塊，可以無人值守建置
 
-从 ad-hoc 换到自签名身份后**需要重新授权一次**（旧 TCC 记录绑在旧 cdhash 上），之后重建都不用再授权。
+從 ad-hoc 換到自簽名身份後**需要重新授權一次**（舊 TCC 記錄綁在舊 cdhash 上），之後重建都不用再授權。
 
-## 实现要点
+## 實作要點
 
 **1. 面板** — `FloatingPanel: NSPanel`
-- `styleMask: [.borderless, .nonactivatingPanel]`：无边框、点击不抢焦点
-- `level = .statusBar`：浮在所有普通窗口之上
-- `collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]`：所有空间可见，含全屏 App
-- App 以 `LSUIElement = true` + `.accessory` 运行：不进 Dock、不进 Cmd+Tab
+- `styleMask: [.borderless, .nonactivatingPanel]`：無邊框、點選不搶焦點
+- `level = .statusBar`：浮在所有普通視窗之上
+- `collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]`：所有空間可見，含全螢幕 App
+- App 以 `LSUIElement = true` + `.accessory` 執行：不進 Dock、不進 Cmd+Tab
 
-**2. 点击命中** — 不走 SwiftUI 手势
-SwiftUI 的 tap 手势在非激活悬浮窗里命中不稳定。所以：
-- `AppTab` 用 `GeometryReader` + `PreferenceKey` 把每个标签的 frame 上报给 `AppCatalog.tabFrames`
-- `FloatingPanel.sendEvent(_:)` 拦截 `leftMouseDown`，把 AppKit 窗口坐标（原点左下）翻转成视图坐标（原点左上），命中标签则直接触发切换，并吞掉配对的 `mouseUp`
+**2. 點選命中** — 不走 SwiftUI 手勢
+SwiftUI 的 tap 手勢在非啟用懸浮窗裡命中不穩定。所以：
+- `AppTab` 用 `GeometryReader` + `PreferenceKey` 把每個標籤的 frame 上報給 `AppCatalog.tabFrames`
+- `FloatingPanel.sendEvent(_:)` 攔截 `leftMouseDown`，把 AppKit 視窗座標（原點左下）翻轉成檢視座標（原點左上），命中標籤則直接觸發切換，並吞掉配對的 `mouseUp`
 
-**3. 切换 App** — LaunchServices 路径
-macOS 14+ 下，非激活 App 调用 `NSRunningApplication.activate()` 会被系统接受但静默忽略（返回 `true` 却不生效）。
+**3. 切換 App** — LaunchServices 路徑
+macOS 14+ 下，非啟用 App 呼叫 `NSRunningApplication.activate()` 會被系統接受但靜默忽略（返回 `true` 卻不生效）。
 
-可靠做法是走和"点击 Dock 图标"同一条 LaunchServices 通道：
+可靠做法是走和"點選 Dock 圖示"同一條 LaunchServices 通道：
 
 ```swift
 let config = NSWorkspace.OpenConfiguration()
@@ -116,289 +116,289 @@ NSWorkspace.shared.openApplication(at: app.bundleURL!, configuration: config) { 
 }
 ```
 
-对已在运行的 App，这个调用只会把它带到前台，不会重启。
+對已在執行的 App，這個呼叫只會把它帶到前景，不會重啟。
 
-**4. 刷新** — `NSWorkspace` 的 launch / terminate / activate / hide 通知 + 1.2s 兜底轮询；列表签名不变则不触发重绘。
+**4. 重新整理** — `NSWorkspace` 的 launch / terminate / activate / hide 通知 + 1.2s 兜底輪詢；列表簽名不變則不觸發重繪。
 
-**5. 自动隐藏** — 10Hz 轮询 `NSEvent.mouseLocation`（不需要任何权限，读鼠标位置极廉价）：
+**5. 自動隱藏** — 10Hz 輪詢 `NSEvent.mouseLocation`（不需要任何權限，讀滑鼠位置極廉價）：
 
 ```swift
-let inHot = hotZone.contains(NSEvent.mouseLocation)   // 顶部中央唤醒区
+let inHot = hotZone.contains(NSEvent.mouseLocation)   // 頂部中央喚醒區
 if inHot || inPanel || inPreview { lastInteraction = now; if !isRevealed { reveal() } }
 else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hideDelay { hide() }
 ```
 
-隐藏用 `orderOut` 而不是仅把 alpha 设成 0，这样窗口彻底离开合成器，不占任何资源也不参与鼠标命中。
+隱藏用 `orderOut` 而不是僅把 alpha 設成 0，這樣視窗徹底離開合成器，不佔任何資源也不參與滑鼠命中。
 
-**离场时 `orderOut` 必须在复位 `alphaValue` 之前**：反过来的话，窗口还在屏上的那一帧会带着 `alpha = 1` 被画出来 —— 主面板和预览面板各闪一下，就是"消失时闪两次"的来源。
+**離場時 `orderOut` 必須在復位 `alphaValue` 之前**：反過來的話，視窗還在螢幕上的那一幀會帶著 `alpha = 1` 被畫出來 —— 主面板和預覽面板各閃一下，就是"消失時閃兩次"的來源。
 
-唤醒区的上边界要**故意越过屏幕顶部 2pt**：鼠标贴到最上面时 `mouseLocation.y` 正好等于 `screen.frame.maxY`，而 `NSRect.contains` 是半开区间，不越过就会漏判（这个 bug 实测会出现"顶到最上面反而不出来"）。
+喚醒區的上邊界要**故意越過螢幕頂部 2pt**：滑鼠貼到最上面時 `mouseLocation.y` 正好等於 `screen.frame.maxY`，而 `NSRect.contains` 是半開區間，不越過就會漏判（這個 bug 實測會出現"頂到最上面反而不出來"）。
 
-**5b. 多屏：热区锚在哪块屏（`ScreenPick`）**
+**5b. 多螢幕：熱區錨在哪塊螢幕（`ScreenPick`）**
 
-热区与"默认停靠位"用哪块屏，由 `Preferences.hotZoneScreen` 决定：`.menuBar`（默认，带菜单栏的系统主屏）/ `.notch`（内置屏，有刘海那块）/ `.followMouse`。选择逻辑抽在 `ScreenPick` 里（纯下标运算，可离线测）：
+熱區與"預設停靠位"用哪塊螢幕，由 `Preferences.hotZoneScreen` 決定：`.menuBar`（預設，帶選單列的系統主螢幕）/ `.notch`（內建螢幕，有劉海那塊）/ `.followMouse`。選擇邏輯抽在 `ScreenPick` 裡（純下標運算，可離線測）：
 
-- `.menuBar` → `screens[0]`。顶部唤出本来就贴在菜单栏上，而 `screens[0]` 原点恒为 `(0,0)`，就是系统意义上的主显示器
-- `.notch` → `notched.firstIndex(of: true) ?? 0`。刘海屏用 `NSScreen.auxiliaryTopLeftArea != nil`（macOS 12+）判定，这是唯一可靠的官方信号；合盖 / 纯外接时没有刘海屏，自动退化成 `screens[0]`
-- `.followMouse` → 鼠标所在屏，找不到就兜底 `screens[0]`
+- `.menuBar` → `screens[0]`。頂部喚出本來就貼在選單列上，而 `screens[0]` 原點恆為 `(0,0)`，就是系統意義上的主顯示器
+- `.notch` → `notched.firstIndex(of: true) ?? 0`。劉海螢幕用 `NSScreen.auxiliaryTopLeftArea != nil`（macOS 12+）判定，這是唯一可靠的官方訊號；合蓋 / 純外接時沒有劉海螢幕，自動退化成 `screens[0]`
+- `.followMouse` → 滑鼠所在螢幕，找不到就兜底 `screens[0]`
 
-**这两个概念在多屏下不是一回事**：接了外接屏并把外接屏设为主屏时，系统的"主显示器"是外接屏（无刘海），而刘海在内置屏上。本机实测就是这样：
+**這兩個概念在多螢幕下不是一回事**：接了外接螢幕並把外接螢幕設為主螢幕時，系統的"主顯示器"是外接螢幕（無劉海），而劉海在內建螢幕上。本機實測就是這樣：
 
 ```
-[0] RV100 Q                (0,0,1920,1080)      无刘海  ← 系统主屏（带菜单栏）
-[1] Built-in Retina Display (-1470,124,1470,956) 有刘海  ← 顶部中点 x = -735
+[0] RV100 Q                (0,0,1920,1080)      無劉海  ← 系統主螢幕（帶選單列）
+[1] Built-in Retina Display (-1470,124,1470,956) 有劉海  ← 頂部中點 x = -735
 ```
 
-所以默认取 `.menuBar`（用户说"主显示器"时指的就是它），刘海屏要显式选 —— 别替用户猜。
+所以預設取 `.menuBar`（使用者說"主顯示器"時指的就是它），劉海螢幕要顯式選 —— 別替使用者猜。
 
-> **修掉的老 bug**：热区以前按 `panel.screen` 算，而 `panel.screen` 是"面板当前停在哪个屏"。⌘Tab 会在鼠标位置弹出并钉住面板，于是在另一块屏用过一次 ⌘Tab 之后，面板 frame 就留在那块屏，热区跟着搬过去 —— 表现为"只有那块屏顶部能唤出，主屏彻底没反应"。
+> **修掉的老 bug**：熱區以前按 `panel.screen` 算，而 `panel.screen` 是"面板當前停在哪個螢幕"。⌘Tab 會在滑鼠位置彈出並釘住面板，於是在另一塊螢幕用過一次 ⌘Tab 之後，面板 frame 就留在那塊螢幕，熱區跟著搬過去 —— 表現為"只有那塊螢幕頂部能喚出，主螢幕徹底沒反應"。
 >
-> 同理不能用 `NSScreen.main`：它跟着"当前接收键盘事件的窗口"漂移，副屏上的 App 一激活它就变成副屏。
+> 同理不能用 `NSScreen.main`：它跟著"當前接收鍵盤事件的視窗"漂移，副螢幕上的 App 一啟用它就變成副螢幕。
 >
-> 三处一起改：① 热区与默认停靠位改看 `anchorScreen`（不再看 `panel.screen`）；② 收起后 `parkOnAnchorScreen()` 把面板 frame 挪回锚定屏，不留旧位置；③ 常驻模式（不自动隐藏）下 ⌘Tab 提交后主动归位，否则会一直钉在鼠标那处。
+> 三處一起改：① 熱區與預設停靠位改看 `anchorScreen`（不再看 `panel.screen`）；② 收起後 `parkOnAnchorScreen()` 把面板 frame 挪回錨定螢幕，不留舊位置；③ 常駐模式（不自動隱藏）下 ⌘Tab 提交後主動歸位，否則會一直釘在滑鼠那處。
 
-**⌘Tab 呼出刻意不走这套** —— 它永远在鼠标位置弹出（`revealAtMouse` / `pinnedAnchor`），那才是这个功能的意义。锚定屏只约束"顶部唤出"。
+**⌘Tab 叫出刻意不走這套** —— 它永遠在滑鼠位置彈出（`revealAtMouse` / `pinnedAnchor`），那才是這個功能的意義。錨定螢幕只約束"頂部喚出"。
 
-**5c. ⌘Tab 会话：循环序列与呼出动效**
+**5c. ⌘Tab 會話：迴圈序列與叫出動效**
 
-`CmdTabTap` 用会话级 `CGEventTap` 吞掉「按住 ⌘ 时按下 Tab」（⌘Tab 会被 Dock 抢在任何 App 之前消费，只有 HID/会话层的 tap 能截住）。会话由 `AppCatalog` 的三个方法驱动：`startKeyboardSession` / `cycleKeyboardSession` / `commitKeyboardSession`。
+`CmdTabTap` 用會話級 `CGEventTap` 吞掉「按住 ⌘ 時按下 Tab」（⌘Tab 會被 Dock 搶在任何 App 之前消費，只有 HID/會話層的 tap 能截住）。會話由 `AppCatalog` 的三個方法驅動：`startKeyboardSession` / `cycleKeyboardSession` / `commitKeyboardSession`。
 
-**循环序列 = 面板的视觉顺序**（`groups.flatMap(\.entries)`，也就是标签从左到右），起点另算：
+**迴圈序列 = 面板的視覺順序**（`groups.flatMap(\.entries)`，也就是標籤從左到右），起點另算：
 
-- 起点 = MRU 里第一个既不是当前前台、又还在条上的 App（`SessionCycle.startIndex`）。快按快放因此仍然等于切回上一个 App
-- 之后每一发 Tab 只做 `(index + 1) % count`，走一格挪一格，末尾回到第一个
+- 起點 = MRU 裡第一個既不是當前前景、又還在條上的 App（`SessionCycle.startIndex`）。快按快放因此仍然等於切回上一個 App
+- 之後每一發 Tab 只做 `(index + 1) % count`，走一格挪一格，末尾回到第一個
 
-> **修掉的老 bug**：序列以前直接按 MRU 顺序排（"最近用过"优先，当前前台插到最前，剩下的补在后面）。它跟屏幕上看到的排布毫无关系 —— 高亮于是会在图标之间横跳（第二个直接蹦到第四个），功能没错但看着像漏帧。顺序抽在 `SessionCycle` 里（纯下标运算），回归要断言的不变量是：**从任何起点连按 N 发，相邻两步的下标差恒为 `+1 mod count`**。
+> **修掉的老 bug**：序列以前直接按 MRU 順序排（"最近用過"優先，當前前景插到最前，剩下的補在後面）。它跟螢幕上看到的排布毫無關係 —— 反白於是會在圖示之間橫跳（第二個直接蹦到第四個），功能沒錯但看著像漏幀。順序抽在 `SessionCycle` 裡（純下標運算），迴歸要斷言的不變數是：**從任何起點連按 N 發，相鄰兩步的下標差恆為 `+1 mod count`**。
 
-**⌘Tab 呼出不做动效**：`beginReveal(animated:)` 传 `false`。它是高频纯键盘动作，滑落 + 淡入那 50ms 在这里只是延迟 —— 手指按下去那一刻条就该在。顶部热区唤出仍走动画（鼠标慢慢顶上来，有过程可看）。无动画路径必须**先把 frame 摆好、再设 alpha、最后 `orderFrontRegardless()`**，顺序错了会闪一帧。
+**⌘Tab 叫出不做動效**：`beginReveal(animated:)` 傳 `false`。它是高頻純鍵盤動作，滑落 + 淡入那 50ms 在這裡只是延遲 —— 手指按下去那一刻條就該在。頂部熱區喚出仍走動畫（滑鼠慢慢頂上來，有過程可看）。無動畫路徑必須**先把 frame 擺好、再設 alpha、最後 `orderFrontRegardless()`**，順序錯了會閃一幀。
 
-**选完立刻消失**：`dismissQuickSwitch()`。⌘Tab 呼出的条在完成选择那一刻（松 ⌘ 提交 / 鼠标点标签 / 点窗口缩略图 / Esc 反悔）直接收掉，不走"鼠标离开后 N 秒"那套 —— 条就贴在鼠标位置，选完还杵着会挡住刚切过去的窗口。收场同样走 `hide(animated: false)`，和呼出两头一致。
+**選完立刻消失**：`dismissQuickSwitch()`。⌘Tab 叫出的條在完成選擇那一刻（鬆 ⌘ 提交 / 滑鼠點標籤 / 點視窗縮圖 / Esc 反悔）直接收掉，不走"滑鼠離開後 N 秒"那套 —— 條就貼在滑鼠位置，選完還杵著會擋住剛切過去的視窗。收場同樣走 `hide(animated: false)`，和叫出兩頭一致。
 
-判定抽在 `QuickSwitchDismiss.action(pinnedToMouse:hideDelay:)`（三值：`ignore` / `hideNow` / `parkBack`），可离线回归。两条边界必须守住：
+判定抽在 `QuickSwitchDismiss.action(pinnedToMouse:hideDelay:)`（三值：`ignore` / `hideNow` / `parkBack`），可離線迴歸。兩條邊界必須守住：
 
-- **不是 ⌘Tab 呼出的（`pinnedToMouse == false`）→ `ignore`**。鼠标从顶部顶出来的条点标签后仍按原延迟淡出，不能被键盘逻辑收掉；
-- **常驻模式（`hideDelay ≤ 0`）→ `parkBack`**。条本来就该一直在，只摆回锚定屏顶部。
+- **不是 ⌘Tab 叫出的（`pinnedToMouse == false`）→ `ignore`**。滑鼠從頂部頂出來的條點標籤後仍按原延遲淡出，不能被鍵盤邏輯收掉；
+- **常駐模式（`hideDelay ≤ 0`）→ `parkBack`**。條本來就該一直在，只擺回錨定螢幕頂部。
 
-还有个坑：⌘Tab 面板弹在鼠标处，指针停在屏幕顶部中央时和顶部唤出区正好重叠 —— 瞬间收起后下一帧 `tick` 看到 `inHot` 就又把条拉出来，表现为"选完闪一下又回来"。所以收起时置 `suppressHotZoneUntilExit`，等指针离开唤出区一次再恢复唤出。
+還有個坑：⌘Tab 面板彈在滑鼠處，指標停在螢幕頂部中央時和頂部喚出區正好重疊 —— 瞬間收起後下一幀 `tick` 看到 `inHot` 就又把條拉出來，表現為"選完閃一下又回來"。所以收起時置 `suppressHotZoneUntilExit`，等指標離開喚出區一次再恢復喚出。
 
-**6. 窗口预览** — 悬停 0.12s 防抖后弹出第二个 `NSPanel`。
+**6. 視窗預覽** — 懸停 0.12s 防抖後彈出第二個 `NSPanel`。
 
-窗口枚举用 **AX 定集合、ScreenCaptureKit 出像素**，这是"预览只有前台窗口""最小化窗口没缩略图"两个问题的根因所在：
+視窗列舉用 **AX 定集合、ScreenCaptureKit 出像素**，這是"預覽只有前景視窗""最小化視窗沒縮圖"兩個問題的根因所在：
 
-| 方案 | 最小化 / 其它桌面的窗口 | 噪声 |
+| 方案 | 最小化 / 其它桌面的視窗 | 噪聲 |
 |---|---|---|
-| `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` | 根本列不出来 | 少 |
-| `CGWindowListCopyWindowInfo(.optionAll)` | 列得出来，但 `CGWindowListCreateImage` 抓图一律返回 **nil** | 极多（Chrome 2 个真窗口 → 7 条记录，微信 1 个 → 4 条） |
-| **AX `kAXWindowsAttribute` 定集合 + SC 出像素** | 列出且能抓到 | 无 |
+| `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` | 根本列不出來 | 少 |
+| `CGWindowListCopyWindowInfo(.optionAll)` | 列得出來，但 `CGWindowListCreateImage` 抓圖一律返回 **nil** | 極多（Chrome 2 個真視窗 → 7 條記錄，微信 1 個 → 4 條） |
+| **AX `kAXWindowsAttribute` 定集合 + SC 出像素** | 列出且能抓到 | 無 |
 
-实测同一时刻对比：
+實測同一時刻對比：
 
 ```
-                   AX 窗口数   CG(.optionAll) 条数
+                   AX 視窗數   CG(.optionAll) 條數
 Google Chrome          2              7
 微信                    1              4
-抖店工作台              2              5
+抖店工作臺              2              5
 ```
 
-- 配对方式：几何完全一致（容差 2pt）优先，其次标题一致；命中即从候选池移除，避免同名同尺寸的多个窗口全指向同一条
-- AX 查询要**并发 + 失败重试**：Chromium / Electron 系（微信、抖店工作台、Chrome）第一次被 AX 问的时候要现场构建无障碍树，常常超时返回 `kAXErrorCannotComplete`。旧代码把这种失败和"这个 App 没有窗口"一视同仁，于是掉进启发式分支 —— 幽灵窗口就是这么来的。现在失败会等 200ms 重试一次
-- **回空也要重试**：Electron 系被问到回「success + 空数组」时错误码是 0，和"真的没有窗口"在返回值上分不开。重试后仍是空就照实记录 —— 那是真没窗口
-- **并发必须按进程串行（`WindowBridge.axGate`）**：Electron 系被并发问 `kAXWindowsAttribute` 会回「success + 空数组」，实测 QQ 串行 5/5 正常、6 路并发 48/48 全空。不同 App 之间照常并行，互不影响
-- **AX 回了空数组就信**（`resolve`）：说明这个 App 真的没有窗口。早先「空」和「拿不到」一样走启发式，微信因此一直多出一张点不动也关不掉的卡片
-- **座位池（`SeatPool`）**：QQ 偶发把同一个窗口在无障碍树里报成两条（同标题同几何，日志抓到过 `raw=2 titles=["QQ","QQ"]`），第二条在 SC/CG 里都没有对应表面 —— 就是用户看到的「多余的空白窗口」（合成卡片、图标兜底、缩略图空白）。修法：AX 报的每个真窗口都必须在 `CGWindowListCopyWindowInfo(.optionAll)` 的该 pid layer-0 大表面里**领到一个座位**，领不到就丢弃；SC 匹配到的也记一笔账，同一表面只发一张票。**不能按"标题+几何去重"** —— Chrome 真实存在同标题同几何的多个窗口，只能靠窗口服务器数座位
-- AX 过滤：`kAXWindowsAttribute` 并不保证只给窗口（访达会多报一条 `role=AXScrollArea` 的桌面滚动区）。按 role / subrole / 尺寸三重判定
-- AX 拿不到时的兜底门槛（两者之一）：① 此刻真在屏幕上；② 不在屏、且**同一帧几何没有被 3 个以上进程同时列出**（`500×500 @0,456` 这种是系统共享缓冲，会挂到几乎每个进程名下）、有标题、尺寸 ≥ 800×500。宁可少列，也不能把幽灵塞进预览
-- 抓图用 `SCScreenshotManager.captureImage`，直接按目标尺寸渲染，省掉"全分辨率抓取 + 自己缩放"
-- 点击缩略图优先用枚举阶段记下的 AX 下标定位；下标失效（期间开了/关了窗口）就用标题 + 几何重新配对
-- 提窗顺序：`minimize=false` → `AXMain=true` → `AXFocused=true` → `AXRaise` → **最后**才把 App 设为 frontmost。反过来的话 Chromium / Electron 系会把 App 拉到前台但保留它自己认定的 main window
-- 光标从标签滑向预览面板的途中会经过 8pt 空隙，所以离开标签后留 **0.4s 宽限**再收起预览，否则会闪断。收起纯按指针位置判断（既不在预览上、也不在面板里的标签上，就开始计时），不依赖 `onTabHoverEnd` —— 以前进过预览再移走不会重新计时，预览会一直挂着、只能点窗口才关得掉
-- 空态（该 App 没有窗口）刻意做成**和单窗口预览等宽**：早先为放下提示文字把它撑到两张卡宽，悬停时尺寸来回跳很突兀
+- 配對方式：幾何完全一致（容差 2pt）優先，其次標題一致；命中即從候選池移除，避免同名同尺寸的多個視窗全指向同一條
+- AX 查詢要**併發 + 失敗重試**：Chromium / Electron 系（微信、抖店工作臺、Chrome）第一次被 AX 問的時候要現場建置無障礙樹，常常超時返回 `kAXErrorCannotComplete`。舊程式碼把這種失敗和"這個 App 沒有視窗"一視同仁，於是掉進啟發式分支 —— 幽靈視窗就是這麼來的。現在失敗會等 200ms 重試一次
+- **回空也要重試**：Electron 系被問到回「success + 空陣列」時錯誤碼是 0，和"真的沒有視窗"在返回值上分不開。重試後仍是空就照實記錄 —— 那是真沒視窗
+- **併發必須按程序序列化（`WindowBridge.axGate`）**：Electron 系被併發問 `kAXWindowsAttribute` 會回「success + 空陣列」，實測 QQ 循序 5/5 正常、6 路併發 48/48 全空。不同 App 之間照常並行，互不影響
+- **AX 回了空陣列就信**（`resolve`）：說明這個 App 真的沒有視窗。早先「空」和「拿不到」一樣走啟發式，微信因此一直多出一張點不動也關不掉的卡片
+- **座位池（`SeatPool`）**：QQ 偶發把同一個視窗在無障礙樹裡報成兩條（同標題同幾何，日誌抓到過 `raw=2 titles=["QQ","QQ"]`），第二條在 SC/CG 裡都沒有對應表面 —— 就是使用者看到的「多餘的空白視窗」（合成卡片、圖示兜底、縮圖空白）。修法：AX 報的每個真視窗都必須在 `CGWindowListCopyWindowInfo(.optionAll)` 的該 pid layer-0 大表面裡**領到一個座位**，領不到就丟棄；SC 匹配到的也記一筆賬，同一表面只發一張票。**不能按"標題+幾何去重"** —— Chrome 真實存在同標題同幾何的多個視窗，只能靠視窗伺服器數座位
+- AX 過濾：`kAXWindowsAttribute` 並不保證只給視窗（Finder 會多報一條 `role=AXScrollArea` 的桌面捲動區）。按 role / subrole / 尺寸三重判定
+- AX 拿不到時的兜底門檻（兩者之一）：① 此刻真在螢幕上；② 不在螢幕、且**同一幀幾何沒有被 3 個以上程序同時列出**（`500×500 @0,456` 這種是系統共享緩衝，會掛到幾乎每個程序名下）、有標題、尺寸 ≥ 800×500。寧可少列，也不能把幽靈塞進預覽
+- 抓圖用 `SCScreenshotManager.captureImage`，直接按目標尺寸渲染，省掉"全解析度抓取 + 自己縮放"
+- 點選縮圖優先用列舉階段記下的 AX 下標定位；下標失效（期間開了/關了視窗）就用標題 + 幾何重新配對
+- 提窗順序：`minimize=false` → `AXMain=true` → `AXFocused=true` → `AXRaise` → **最後**才把 App 設為 frontmost。反過來的話 Chromium / Electron 系會把 App 拉到前景但保留它自己認定的 main window
+- 游標從標籤滑向預覽面板的途中會經過 8pt 空隙，所以離開標籤後留 **0.4s 寬限**再收起預覽，否則會閃斷。收起純按指標位置判斷（既不在預覽上、也不在面板裡的標籤上，就開始計時），不依賴 `onTabHoverEnd` —— 以前進過預覽再移走不會重新計時，預覽會一直掛著、只能點視窗才關得掉
+- 空態（該 App 沒有視窗）刻意做成**和單視窗預覽等寬**：早先為放下提示文字把它撐到兩張卡寬，懸停時尺寸來回跳很突兀
 
-**6b. 卡片交互（悬停 / 按下 / 关闭窗口）**
+**6b. 卡片互動（懸停 / 按下 / 關閉視窗）**
 
-- 点击做成**两段式**（`FloatingPanel.onPress` / `onRelease`）：按下只给反馈，抬起才执行。原来的 `onTap` 在 mouseDown 就动手，按下到切窗口之间一个像素都不动，用户看不出自己有没有点中
-- 抬起时**必须校验落点还是同一个部位**（`spot == pressed`），拖出去再松手算取消 —— 否则误点会直接切窗口
-- 命中优先级：**关闭按钮 > 卡片**。关闭按钮叠在缩略图左上角，两块区域天然重叠
-- 悬停高亮复用主面板那条 10Hz 鼠标轮询（`preview.updatePointer`），不用 SwiftUI `.onHover`：预览是非激活浮窗，onHover 的到达时机不可靠，而按下判定本来就在窗口层，共用一套坐标不容易错位
-- 关窗三级按下：`kAXCloseButtonAttribute` + `AXPress` → 子树里 `subrole == AXCloseButton` 的元素 + `AXPress` → 窗口自身的 `AXClose` 动作。**不发 Cmd+W** —— 快捷键是发给当前前台 App 的，预览里那个 App 未必在前台，会关错窗口
-- **关闭结果不看 AX 的返回值，看窗口还在不在**。Chromium / Electron 系（QQ、微信、抖店工作台）经常"返回成功其实没关"，反之也有"返回失败其实关了"。所以按下前后各数一次「这个几何下、属于该 pid 的窗口有几个」（`CGWindowListCopyWindowInfo`，按 owner pid + bounds 匹配），数量减少才算成功
-- **数数量而不是查存在**：Chrome 两个窗口都是 `0,33 1470×841` 是常态（实测同名同尺寸一次 4 个），"还在不在"必然误判
-- **验证用窗口服务器而不是 AX**：AX 是同步阻塞的，对端卡住时要等超时；轮询验证需要 120ms 一次地反复问，只能用 `CGWindowList`
-- **必须按目标进程串行 AX 查询（`WindowBridge.axGate`）**。这是"App 没有响应关闭请求"的真正根因：Electron 系被**并发**询问 `kAXWindowsAttribute` 会返回「success + 空数组」—— 实测 QQ 串行 5/5 正常，6 路并发 **48/48 全空**，错误码还是 0，跟"真的没窗口"分不开。而 Xtopbar 恰好会同一瞬间对同一进程发两路（预览枚举 + 关窗前重新配对）。按 pid 上闸之后不同 App 仍并行，同一 App 排队
-- **AX 问不出来还有最后一条路：真实点击红点**。`closeByRedDotClick` 点窗口左上角 `(minX+13, minY+13)`，点之前必须确认①红点位置最上层就是目标窗口（`topmostWindowOwner`）②这个点不被自己的预览/主面板压住（`avoid`），否则宁可不点 —— 点歪了就是切窗口。实测对**后台** App 的窗口点红点能关掉，而且不会把那个 App 拉到前台
-- Electron 冷启动树没建好时写 `AXManualAccessibility`（Electron）/ `AXEnhancedUserInterface`（Chromium）唤醒，代价是对端要维护整棵树，只在「明明有窗口却问不出来」时才用
-- 关掉之后要 `refresh(minInterval: 0)` 再重新枚举，且**等 200ms** 让窗口真的消失。重枚举后用窗口服务器确认窗口**还在**才提示失败 —— 幽灵卡片（微信挂在屏幕外的主界面）点不动是正常的，不该报错吓人
-- **预览只为「多窗口」服务**：单窗口的 App 点标签本身就切过去了，再弹预览纯属打扰。窗口数 < 2 一律不弹（`show` 里 `hide()` + return，面板若还在屏上顺手收掉）。窗口刚被关到只剩 1 个时，预览也会随之自动收起
-- 卡片标题的字重**不能跟着悬停变**：`.semibold` 比 `.medium` 宽 1~2pt，截断位置跟着跳，鼠标横扫几张卡时看得见抖
+- 點選做成**兩段式**（`FloatingPanel.onPress` / `onRelease`）：按下只給反饋，抬起才執行。原來的 `onTap` 在 mouseDown 就動手，按下到切視窗之間一個像素都不動，使用者看不出自己有沒有點中
+- 抬起時**必須驗證落點還是同一個部位**（`spot == pressed`），拖出去再鬆手算取消 —— 否則誤點會直接切視窗
+- 命中優先順序：**關閉按鈕 > 卡片**。關閉按鈕疊在縮圖左上角，兩塊區域天然重疊
+- 懸停反白複用主面板那條 10Hz 滑鼠輪詢（`preview.updatePointer`），不用 SwiftUI `.onHover`：預覽是非啟用浮窗，onHover 的到達時機不可靠，而按下判定本來就在視窗層，共用一套座標不容易錯位
+- 關窗三級按下：`kAXCloseButtonAttribute` + `AXPress` → 子樹裡 `subrole == AXCloseButton` 的元素 + `AXPress` → 視窗自身的 `AXClose` 動作。**不發 Cmd+W** —— 快捷鍵是發給當前前景 App 的，預覽裡那個 App 未必在前景，會關錯視窗
+- **關閉結果不看 AX 的返回值，看視窗還在不在**。Chromium / Electron 系（QQ、微信、抖店工作臺）經常"返回成功其實沒關"，反之也有"返回失敗其實關了"。所以按下前後各數一次「這個幾何下、屬於該 pid 的視窗有幾個」（`CGWindowListCopyWindowInfo`，按 owner pid + bounds 匹配），數量減少才算成功
+- **數數量而不是查存在**：Chrome 兩個視窗都是 `0,33 1470×841` 是常態（實測同名同尺寸一次 4 個），"還在不在"必然誤判
+- **驗證用視窗伺服器而不是 AX**：AX 是同步阻塞的，對端卡住時要等超時；輪詢驗證需要 120ms 一次地反覆問，只能用 `CGWindowList`
+- **必須按目標程序序列化 AX 查詢（`WindowBridge.axGate`）**。這是"App 沒有響應關閉請求"的真正根因：Electron 系被**併發**詢問 `kAXWindowsAttribute` 會返回「success + 空陣列」—— 實測 QQ 循序 5/5 正常，6 路併發 **48/48 全空**，錯誤碼還是 0，跟"真的沒視窗"分不開。而 Xtopbar 恰好會同一瞬間對同一程序發兩路（預覽列舉 + 關窗前重新配對）。按 pid 上閘之後不同 App 仍並行，同一 App 排隊
+- **AX 問不出來還有最後一條路：真實點選紅點**。`closeByRedDotClick` 點視窗左上角 `(minX+13, minY+13)`，點之前必須確認①紅點位置最上層就是目標視窗（`topmostWindowOwner`）②這個點不被自己的預覽/主面板壓住（`avoid`），否則寧可不點 —— 點歪了就是切視窗。實測對**背景** App 的視窗點紅點能關掉，而且不會把那個 App 拉到前景
+- Electron 冷啟動樹沒建好時寫 `AXManualAccessibility`（Electron）/ `AXEnhancedUserInterface`（Chromium）喚醒，代價是對端要維護整棵樹，只在「明明有視窗卻問不出來」時才用
+- 關掉之後要 `refresh(minInterval: 0)` 再重新列舉，且**等 200ms** 讓視窗真的消失。重列舉後用視窗伺服器確認視窗**還在**才提示失敗 —— 幽靈卡片（微信掛在螢幕外的主介面）點不動是正常的，不該報錯嚇人
+- **預覽只為「多視窗」服務**：單視窗的 App 點標籤本身就切過去了，再彈預覽純屬打擾。視窗數 < 2 一律不彈（`show` 裡 `hide()` + return，面板若還在螢幕上順手收掉）。視窗剛被關到只剩 1 個時，預覽也會隨之自動收起
+- 卡片標題的字重**不能跟著懸停變**：`.semibold` 比 `.medium` 寬 1~2pt，截斷位置跟著跳，滑鼠橫掃幾張卡時看得見抖
 
-**7. 预览速度** — 从旧方案的 ~600–900ms 降到 **~180ms**（实测 176–222ms）：
+**7. 預覽速度** — 從舊方案的 ~600–900ms 降到 **~180ms**（實測 176–222ms）：
 
-- **面板一出现就预热**：后台做一次 SC 枚举 + AX 配对，再把窗口缩略图按 6 路并发抓进 `NSCache`。用户真正悬停时图已在缓存里
-- **先铺卡片再补图**：`show()` 同步用缓存铺满，缺图的卡片并行补抓，谁先回来谁更新
-- **防抖 0.28s → 0.12s**：够滤掉扫过标签时的抖动，体感接近即时
-- **缓存 stale-while-revalidate**：4s 内算新鲜直接复用；过期也是先用旧图顶上、后台再刷
-- AX 是同步阻塞 API，全部丢进 `Task.detached`；枚举有最短间隔节流，连续悬停不同标签不会反复枚举
+- **面板一出現就預熱**：背景做一次 SC 列舉 + AX 配對，再把視窗縮圖按 6 路併發抓進 `NSCache`。使用者真正懸停時圖已在快取裡
+- **先鋪卡片再補圖**：`show()` 同步用快取鋪滿，缺圖的卡片並行補抓，誰先回來誰更新
+- **防抖 0.28s → 0.12s**：夠濾掉掃過標籤時的抖動，體感接近即時
+- **快取 stale-while-revalidate**：4s 內算新鮮直接複用；過期也是先用舊圖頂上、背景再刷
+- AX 是同步阻塞 API，全部丟進 `Task.detached`；列舉有最短間隔節流，連續懸停不同標籤不會反覆列舉
 
-**8. 动效** — 面板进出场控制在 0.18s 以内，卡片交互 0.13s 以内，不拖效率：
+**8. 動效** — 面板進出場控制在 0.18s 以內，卡片互動 0.13s 以內，不拖效率：
 
-| 位置 | 动效 |
+| 位置 | 動效 |
 |---|---|
-| 唤出 / 收起 | 面板整体"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比单纯变透明度自然。**⌘Tab 例外：进出场都不动效**（见 5c） |
-| 标签悬停 | 图标弹簧放大到 1.12（0.22s）；底色渐变 0.11s |
-| 前台 App 高亮 | 弹簧（0.26s, damping 0.74），切换 App 时高亮块"落"下来；指针离开条面时缩回 |
-| 预览弹出 | 面板下滑 + 淡入；整块只托一下（0.99 → 1，0.12s easeOut） |
-| 缩略图卡片 | 错峰入场，每张只延迟 18ms，0.13s easeOut；图片后到时淡入 0.14s |
-| 卡片悬停 | 阴影浮起（radius 6 / y 2）+ 强调色描边 + 关闭按钮淡入，0.12s easeOut |
-| 卡片按下 | 缩到 0.975、边框加粗到 1.8pt，0.1s easeOut |
-| 卡片点中 | 只闪一下边框，**动作立刻执行** |
+| 喚出 / 收起 | 面板整體"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比單純變透明度自然。**⌘Tab 例外：進出場都不動效**（見 5c） |
+| 標籤懸停 | 圖示彈簧放大到 1.12（0.22s）；底色漸變 0.11s |
+| 前景 App 反白 | 彈簧（0.26s, damping 0.74），切換 App 時反白塊"落"下來；指標離開條面時縮回 |
+| 預覽彈出 | 面板下滑 + 淡入；整塊只託一下（0.99 → 1，0.12s easeOut） |
+| 縮圖卡片 | 錯峰入場，每張只延遲 18ms，0.13s easeOut；圖片後到時淡入 0.14s |
+| 卡片懸停 | 陰影浮起（radius 6 / y 2）+ 強調色描邊 + 關閉按鈕淡入，0.12s easeOut |
+| 卡片按下 | 縮到 0.975、邊框加粗到 1.8pt，0.1s easeOut |
+| 卡片點中 | 只閃一下邊框，**動作立刻執行** |
 
-**点击动效刻意做"小"**：卡片交互是高频动作，用 spring 会拖出尾巴、看着"黏"；按下幅度 0.955→0.975、曲线从 spring 换成 easeOut，动作本身在 mouseUp 那一刻就发生。早先为了让"有没有点到"看得见，点中后先弹 0.1s 再切窗口 —— 每次切换白等 100ms，正是"不够干脆"的来源，已去掉。
+**點選動效刻意做"小"**：卡片互動是高頻動作，用 spring 會拖出尾巴、看著"黏"；按下幅度 0.955→0.975、曲線從 spring 換成 easeOut，動作本身在 mouseUp 那一刻就發生。早先為了讓"有沒有點到"看得見，點中後先彈 0.1s 再切視窗 —— 每次切換白等 100ms，正是"不夠乾脆"的來源，已去掉。
 
-两个刻意的约束：**缩放只作用在图标或整块预览上，绝不做在标签上** —— 标签的命中区域是 `GeometryReader` 上报的，缩放会让点击判定和视觉错位；悬停 / 选中一律用颜色过渡而不是位移。布局上：位置锚定屏（默认系统主显示器，见 5b）可见区域顶部居中，距菜单栏 6pt（⌘Tab 呼出时钉在鼠标位置，默认在指针上方，贴顶则翻到下方）；宽度随 App 数量自适应，上限为屏宽 −24pt（超出可横向滚动，两端渐隐）；分隔线每两个标签之间都是同一条淡竖线（1×16pt，opacity 0.14）；左右留白各 12pt，标签自身 9pt 内边距 —— 内边距太小（8pt）时最右那个标签看起来像"贴边"。前台 App 高亮**只在指针够得着的时候亮**：指针在唤出热点区或标签条上时亮起，离开即撤下。高亮表达的是"这个可以点"，不是"它是前台" —— 让它常驻的话，切走 App 之后高亮还挂在旧标签上，看起来像选中了它，很容易误读。
+兩個刻意的約束：**縮放只作用在圖示或整塊預覽上，絕不做在標籤上** —— 標籤的命中區域是 `GeometryReader` 上報的，縮放會讓點選判定和視覺錯位；懸停 / 選中一律用顏色過渡而不是位移。佈局上：位置錨定螢幕（預設系統主顯示器，見 5b）可見區域頂部居中，距選單列 6pt（⌘Tab 叫出時釘在滑鼠位置，預設在指標上方，貼頂則翻到下方）；寬度隨 App 數量自適應，上限為螢幕寬 −24pt（超出可橫向捲動，兩端漸隱）；分隔線每兩個標籤之間都是同一條淡豎線（1×16pt，opacity 0.14）；左右留白各 12pt，標籤自身 9pt 內邊距 —— 內邊距太小（8pt）時最右那個標籤看起來像"貼邊"。前景 App 反白**只在指標夠得著的時候亮**：指標在喚出熱點區或標籤條上時亮起，離開即撤下。反白表達的是"這個可以點"，不是"它是前景" —— 讓它常駐的話，切走 App 之後反白還掛在舊標籤上，看起來像選中了它，很容易誤讀。
 
-## Dock 化：停靠边、固定、开始菜单
+## Dock 化：停靠邊、固定、開始選單
 
-**1. 停靠边（`DockEdge` / `DockGeometry`）**
+**1. 停靠邊（`DockEdge` / `DockGeometry`）**
 
-`Preferences.dockEdge`：`.top`（默认，原版外观）/ `.bottom`。「只显示图标」`iconOnly` 和「显示开始按钮」`showStartButton` 也默认关 —— 不动设置就是原版的顶部标签条。所有跟停靠边有关的几何都收在 `TabBarController.swift` 里的 `DockGeometry`（纯矩形运算，同 `ScreenPick` 的思路，`--test-pins` 会把两边都打一遍）：
+`Preferences.dockEdge`：`.top`（預設，原版外觀）/ `.bottom`。「只顯示圖示」`iconOnly` 和「顯示開始按鈕」`showStartButton` 也預設關 —— 不動設定就是原版的頂部標籤條。所有跟停靠邊有關的幾何都收在 `TabBarController.swift` 裡的 `DockGeometry`（純矩形運算，同 `ScreenPick` 的思路，`--test-pins` 會把兩邊都打一遍）：
 
-| 函数 | 顶部 | 底部 |
+| 函式 | 頂部 | 底部 |
 |---|---|---|
-| `barFrame` | `visible.maxY - inset - height`（菜单栏正下方） | `visible.minY + inset`（系统 Dock 常驻时 visibleFrame 已经让出它的位置，不会叠） |
-| `hotZone` | 菜单栏中央、宽度可调（默认 120pt，免得误触状态图标），上边界越出屏幕 2pt | 底边一条 6pt 高的窄带，向下越出 2pt（同样是半开区间的坑），宽度 = max(条宽, 设置值) —— 底边没有状态图标可误触 |
-| `slideSign` | +1（从上方落下） | −1（从下方升起） |
+| `barFrame` | `visible.maxY - inset - height`（選單列正下方） | `visible.minY + inset`（系統 Dock 常駐時 visibleFrame 已經讓出它的位置，不會疊） |
+| `hotZone` | 選單列中央、寬度可調（預設 120pt，免得誤觸狀態圖示），上邊界越出螢幕 2pt | 底邊一條 6pt 高的窄帶，向下越出 2pt（同樣是半開區間的坑），寬度 = max(條寬, 設定值) —— 底邊沒有狀態圖示可誤觸 |
+| `slideSign` | +1（從上方落下） | −1（從下方升起） |
 
-预览和开始菜单往哪边弹，**看条的实际位置而不是设置**（`opensUpward`：条在屏幕下半部就向上）—— ⌘Tab 把条钉在鼠标处时，两种停靠边都可能出现在屏幕任何位置。弹出面板统一走 `popupFrame` 摆位 + 夹进可用区。预览面板顺手改成按"主面板所在屏"夹边界，不再用会跟着键盘焦点漂的 `NSScreen.main`。
+預覽和開始選單往哪邊彈，**看條的實際位置而不是設定**（`opensUpward`：條在螢幕下半部就向上）—— ⌘Tab 把條釘在滑鼠處時，兩種停靠邊都可能出現在螢幕任何位置。彈出面板統一走 `popupFrame` 擺位 + 夾進可用區。預覽面板順手改成按"主面板所在螢幕"夾邊界，不再用會跟著鍵盤焦點漂的 `NSScreen.main`。
 
-**2. 固定项与运行项（`AppCatalog.collect`）**
+**2. 固定項與執行項（`AppCatalog.collect`）**
 
-`AppEntry` 多了 `bundleURL` / `isRunning` / `isPinned`。没在运行的固定项 `pid = 0`：
+`AppEntry` 多了 `bundleURL` / `isRunning` / `isPinned`。沒在執行的固定項 `pid = 0`：
 
-- 分组 = 「已固定」组（`AppCategory.pinned`，rank −1，按用户排的顺序，**不按名称排**）+ 其余运行中的 App 一组、按打开时间排。固定项按 bundle id 合并运行实例
-- 标签模式下固定项不画运行小圆点（只有 Dock 风格才画，同 macOS Dock）
-- 右键菜单开着时（`NSMenu.didBeginTracking` → `menuTracking`）冻结 `pointerOverBar` 和 `refresh()`：菜单是 SwiftUI `contextMenu` 按视图状态生成的，任何 @Published 变化都会重建整个菜单，已展开的「固定」子菜单会当场收起 —— 子菜单常伸出条外，指针一移过去 `pointerOverBar` 就翻转，于是永远够不着。关菜单时补一次 refresh
-- 固定项不受「隐藏此 App」影响；固定时顺手把它从隐藏列表里放出来
-- 所有"只对运行中 App 有意义"的地方都要按 `pid > 0` 过滤：⌘Tab 循环序列、预热、预览、退出。`activePID` / `keyboardHighlightPID` 永远不会是 0，所以高亮也不会落到没运行的图标上
-- 点没运行的固定项 → `launch(url:)`（`NSWorkspace.openApplication`），启动完成后 `didLaunchApplication` 通知触发 refresh，小圆点自己亮
-- 固定的 .app 被挪走：按 bundle id 问 LaunchServices（`urlForApplication(withBundleIdentifier:)`）兜底；两边都找不到也留在条上，方便右键取消固定
-- 持久化：`dockPins` / `startPins` 是 `[PinnedApp]`（bundle id + 路径 + 名称）编码成 JSON 存 UserDefaults；数组顺序即显示顺序
+- 分組 = 「已固定」組（`AppCategory.pinned`，rank −1，按使用者排的順序，**不按名稱排**）+ 其餘執行中的 App 一組、按開啟時間排。固定項按 bundle id 合併執行實例
+- 標籤模式下固定項不畫執行小圓點（只有 Dock 風格才畫，同 macOS Dock）
+- 右鍵選單開著時（`NSMenu.didBeginTracking` → `menuTracking`）凍結 `pointerOverBar` 和 `refresh()`：選單是 SwiftUI `contextMenu` 按視圖狀態生成的，任何 @Published 變化都會重建整個選單，已展開的「固定」子選單會當場收起 —— 子選單常伸出條外，指標一移過去 `pointerOverBar` 就翻轉，於是永遠夠不著。關選單時補一次 refresh
+- 固定項不受「隱藏此 App」影響；固定時順手把它從隱藏列表裡放出來
+- 所有"只對執行中 App 有意義"的地方都要按 `pid > 0` 過濾：⌘Tab 迴圈序列、預熱、預覽、退出。`activePID` / `keyboardHighlightPID` 永遠不會是 0，所以反白也不會落到沒執行的圖示上
+- 點沒執行的固定項 → `launch(url:)`（`NSWorkspace.openApplication`），啟動完成後 `didLaunchApplication` 通知觸發 refresh，小圓點自己亮
+- 固定的 .app 被挪走：按 bundle id 問 LaunchServices（`urlForApplication(withBundleIdentifier:)`）兜底；兩邊都找不到也留在條上，方便右鍵取消固定
+- 持久化：`dockPins` / `startPins` 是 `[PinnedApp]`（bundle id + 路徑 + 名稱）編碼成 JSON 存 UserDefaults；陣列順序即顯示順序
 
-**3. 开始按钮 / 开始菜单**
+**3. 開始按鈕 / 開始選單**
 
-- 开始按钮是条上的第一个元素，命中区域用保留 id `AppCatalog.startButtonID`（`"__start__"`）上报，`handleTap` 先判它 → `host.toggleStartMenu()`。和标签一样走窗口层命中，不走 SwiftUI 手势
-- 开始菜单是独立的 `FloatingPanel`，比主面板高一层。它要接收键盘（搜索框），所以打开时 `makeKeyAndOrderFront` —— 面板是 nonactivating 的，能成为 key 窗口但**不激活 Xtopbar**，前台 App 不会失焦（Spotlight / Alfred 同款）。面板是 key，所以里面直接用 SwiftUI `Button`
-- 键盘不走 SwiftUI `onKeyPress`：焦点在搜索框里时 ↑↓ 会先被文本框吃掉。控制器装一个本地 keyDown 监听处理 Esc / ↑↓ / 回车。监听回调里只用 `MainActor.assumeIsolated` 带出 `Bool`（"吃不吃"）—— 它只允许带出 Sendable 的值
-- 收起时机：Esc、打开 App、点外面（本地 + 全局鼠标监听）、面板失去 key。**点在条上不算点外面**：否则点开始按钮想关菜单时，本地监听先把它关了，按钮的命中测试又把它打开
-- 菜单开着时 `tick` 把它当成 `menuTracking` 一样续命：条不自动隐藏、保持满不透明度、不弹窗口预览
-- 已安装 App 索引（`AppLibrary`）：直接扫 `/Applications`、`/System/Applications`、`/System/Library/CoreServices/Applications`、`/System/Cryptexes/App/System/Applications`（macOS 13+ 的 Safari）、`~/Applications` 往下 4 层以内的 `.app`（符号链接先解析到真身），外加套在 App 包 `Contents/Applications`、`Contents/Developer/Applications` 里的独立 App（Xcode 的 Simulator、Instruments…，菜单栏辅助进程不收），再单独补上 CoreServices 根下的访达；访达、Safari 最后按 bundle id 向 LaunchServices 兜底查一次。纯后台 App（`LSBackgroundOnly`）不收，按 bundle id 去重。
-- App 显示名（`AppNames`）：Xtopbar 自己没有本地化，系统接口（`FileManager.displayName`、`NSRunningApplication.localizedName`）会按调用方进程能用的语言挑名字，结果总是英文。这里改为拿 `Locale.preferredLanguages` 直接匹配目标 App 的 `InfoPlist.loctable`（macOS 14+ 系统 App）或 `<语言>.lproj/InfoPlist.strings`，读 `CFBundleDisplayName` / `CFBundleName`；开始菜单、条上的标签、固定项都走它，找不到再退回原来的名字。分类仍按系统接口给的名字判定。Info.plist 另开了 `CFBundleAllowMixedLocalizations`。
-- 「所有应用」排序（`Preferences.startMenuSort`）：名称 / 最近加入 / 最近更新。扫描时记每个 App 的加入时间（`addedToDirectoryDate`，没有就用创建时间）和更新时间（加入时间、包与 `Contents/Info.plist` 修改时间取最新）。加入时间在 App 更新换包后会刷新，所以第一次见到某个 App 时把时间存进 `appFirstSeen`（bundle id → 秒），之后「最近加入」一直用存下的那个；功能刚上线时没有历史，只能以当时的加入时间为起点。分组见 `StartMenuIndex.dateSections`。
-- 调度中心让位（`MissionControlWatcher`）：没有公开 API，靠 Dock 进程无障碍对象的私有通知 `AXExposeShowAllWindows` / `AXExposeShowFrontWindows`（进入）、`AXExposeShowDesktop` / `AXExposeExit`（退出），yabai 同款。Dock 重启后 pid 变了观察者作废，所以盯 Dock 的启动通知重挂，另有 5 秒轮询兜底（权限后给、漏通知）。万一丢了退出通知：调度中心开着时前台 App 变了（点窗口 / 切 App 必然退出它），1 秒后还没等到退出就按已退出处理。进入时条走 `hide(fade:)` 淡出、期间 tick / 唤出 / 巡检全部暂停；退出时常驻类模式 `beginReveal(fade:)` 淡入。不用 Spotlight：索引被关掉 / 重建中时会返回空。启动时扫一次，之后每次打开菜单超过 60 秒就后台重扫
-- 「所有应用」按首字母分组：中文名先 `applyingTransform(.toLatin)` + `.stripDiacritics` 转拼音取首字母（「微信」→ W），非字母开头归「#」排最后
-- 「最近使用」= `Preferences.recentApps`（bundle id，最多 8 个，`noteActive` 与 `launch` 时记一笔），已固定到开始菜单的不重复列
+- 開始按鈕是條上的第一個元素，命中區域用保留 id `AppCatalog.startButtonID`（`"__start__"`）上報，`handleTap` 先判它 → `host.toggleStartMenu()`。和標籤一樣走視窗層命中，不走 SwiftUI 手勢
+- 開始選單是獨立的 `FloatingPanel`，比主面板高一層。它要接收鍵盤（搜尋框），所以開啟時 `makeKeyAndOrderFront` —— 面板是 nonactivating 的，能成為 key 視窗但**不啟用 Xtopbar**，前景 App 不會失焦（Spotlight / Alfred 同款）。面板是 key，所以裡面直接用 SwiftUI `Button`
+- 鍵盤不走 SwiftUI `onKeyPress`：焦點在搜尋框裡時 ↑↓ 會先被文字框吃掉。控制器裝一個本地 keyDown 監聽處理 Esc / ↑↓ / Return。監聽回呼裡只用 `MainActor.assumeIsolated` 帶出 `Bool`（"吃不吃"）—— 它只允許帶出 Sendable 的值
+- 收起時機：Esc、開啟 App、點外面（本地 + 全域滑鼠監聽）、面板失去 key。**點在條上不算點外面**：否則點開始按鈕想關選單時，本地監聽先把它關了，按鈕的命中測試又把它開啟
+- 選單開著時 `tick` 把它當成 `menuTracking` 一樣續命：條不自動隱藏、保持滿不透明度、不彈視窗預覽
+- 已安裝 App 索引（`AppLibrary`）：直接掃 `/Applications`、`/System/Applications`、`/System/Library/CoreServices/Applications`、`/System/Cryptexes/App/System/Applications`（macOS 13+ 的 Safari）、`~/Applications` 往下 4 層以內的 `.app`（符號連結先解析到真身），外加套在 App 包 `Contents/Applications`、`Contents/Developer/Applications` 裡的獨立 App（Xcode 的 Simulator、Instruments…，選單列輔助程序不收），再單獨補上 CoreServices 根下的 Finder；Finder、Safari 最後按 bundle id 向 LaunchServices 兜底查一次。純背景 App（`LSBackgroundOnly`）不收，按 bundle id 去重。
+- App 顯示名（`AppNames`）：Xtopbar 自己沒有本地化，系統介面（`FileManager.displayName`、`NSRunningApplication.localizedName`）會按呼叫方程序能用的語言挑名字，結果總是英文。這裡改為拿 `Locale.preferredLanguages` 直接匹配目標 App 的 `InfoPlist.loctable`（macOS 14+ 系統 App）或 `<語言>.lproj/InfoPlist.strings`，讀 `CFBundleDisplayName` / `CFBundleName`；開始選單、條上的標籤、固定項都走它，找不到再退回原來的名字。分類仍按系統介面給的名字判定。Info.plist 另開了 `CFBundleAllowMixedLocalizations`。
+- 「所有應用」排序（`Preferences.startMenuSort`）：名稱 / 最近加入 / 最近更新。掃描時記每個 App 的加入時間（`addedToDirectoryDate`，沒有就用建立時間）和更新時間（加入時間、包與 `Contents/Info.plist` 修改時間取最新）。加入時間在 App 更新換包後會重新整理，所以第一次見到某個 App 時把時間存進 `appFirstSeen`（bundle id → 秒），之後「最近加入」一直用存下的那個；功能剛上線時沒有歷史，只能以當時的加入時間為起點。分組見 `StartMenuIndex.dateSections`。
+- 指揮中心讓位（`MissionControlWatcher`）：沒有公開 API，靠 Dock 程序無障礙物件的私有通知 `AXExposeShowAllWindows` / `AXExposeShowFrontWindows`（進入）、`AXExposeShowDesktop` / `AXExposeExit`（退出），yabai 同款。Dock 重啟後 pid 變了觀察者作廢，所以盯 Dock 的啟動通知重掛，另有 5 秒輪詢兜底（權限後給、漏通知）。萬一丟了退出通知：指揮中心開著時前景 App 變了（點視窗 / 切 App 必然退出它），1 秒後還沒等到退出就按已退出處理。進入時條走 `hide(fade:)` 淡出、期間 tick / 喚出 / 巡檢全部暫停；退出時常駐類模式 `beginReveal(fade:)` 淡入。不用 Spotlight：索引被關掉 / 重建中時會返回空。啟動時掃一次，之後每次開啟選單超過 60 秒就背景重掃
+- 「所有應用」按首字母分組：中文名先 `applyingTransform(.toLatin)` + `.stripDiacritics` 轉拼音取首字母（「微信」→ W），非字母開頭歸「#」排最後
+- 「最近使用」= `Preferences.recentApps`（bundle id，最多 8 個，`noteActive` 與 `launch` 時記一筆），已固定到開始選單的不重複列
 
-**4. 只显示有窗口的 App（`WindowPresence`）**
+**4. 只顯示有視窗的 App（`WindowPresence`）**
 
-`Preferences.onlyWindowedApps`（默认开）。关窗不发任何 `NSWorkspace` 通知，只能跟着 catalog 的 1.2s 兜底轮询（外加 launch / activate 等通知）后台查一轮：
+`Preferences.onlyWindowedApps`（預設開）。關窗不發任何 `NSWorkspace` 通知，只能跟著 catalog 的 1.2s 兜底輪詢（外加 launch / activate 等通知）背景查一輪：
 
-- AX `kAXWindowsAttribute` + 预览同款 `isRealWindow` 过滤数真窗口，**最小化的也算**；按 pid 走 `axGate`，不同 App 并发，整轮在 `Task.detached` 里
-- AX 回空但窗口服务器里这个 pid 在屏上有一块 ≥120×90、不透明的 layer-0 表面 → 算有窗口（Electron 系偶发「success + 空数组」，不兜会把开着窗口的微信藏掉）
-- 问不出来（超时 / 失败）= 维持原判；**连续两次**"没窗口"才藏 —— 新启动的 App 窗口还没建好时不闪
-- 固定项在 `collect` 里先被收走，不受过滤；没有辅助功能权限时不过滤（拿不到最小化窗口，宁可多显示）
+- AX `kAXWindowsAttribute` + 預覽同款 `isRealWindow` 過濾數真視窗，**最小化的也算**；按 pid 走 `axGate`，不同 App 併發，整輪在 `Task.detached` 裡
+- AX 回空但視窗伺服器裡這個 pid 在螢幕上有一塊 ≥120×90、不透明的 layer-0 表面 → 算有視窗（Electron 系偶發「success + 空陣列」，不兜會把開著視窗的微信藏掉）
+- 問不出來（超時 / 失敗）= 維持原判；**連續兩次**"沒視窗"才藏 —— 新啟動的 App 視窗還沒建好時不閃
+- 固定項在 `collect` 裡先被收走，不受過濾；沒有輔助功能權限時不過濾（拿不到最小化視窗，寧可多顯示）
 
-**5. 隐藏系统 Dock（`SystemDock`）**
+**5. 隱藏系統 Dock（`SystemDock`）**
 
-没有公开 API 能关掉系统 Dock，做法是 `defaults write com.apple.dock autohide -bool true` + `autohide-delay -float 1000`，再 `killall Dock`（launchd 立刻拉起，窗口不受影响）。
+沒有公開 API 能關掉系統 Dock，做法是 `defaults write com.apple.dock autohide -bool true` + `autohide-delay -float 1000`，再 `killall Dock`（launchd 立刻拉起，視窗不受影響）。
 
-- 开关变化才动手（`AppDelegate` 里 `$hideSystemDock.dropFirst()`），每次先弹确认框；用户取消就把开关弹回去，用 `revertingDockToggle` 挡掉弹回本身触发的第二次确认
-- 原值**只在第一次开启时存**（`hasSavedSystemDock`）：否则"开着再开一次"会把 1000 秒延迟当原值存下来，关掉后系统 Dock 永远出不来
-- 原本没写过的 key，还原时 `defaults delete` 而不是写默认值 —— 还原成"没动过"的样子
+- 開關變化才動手（`AppDelegate` 裡 `$hideSystemDock.dropFirst()`），每次先彈確認框；使用者取消就把開關彈回去，用 `revertingDockToggle` 擋掉彈回本身觸發的第二次確認
+- 原值**只在第一次開啟時存**（`hasSavedSystemDock`）：否則"開著再開一次"會把 1000 秒延遲當原值存下來，關掉後系統 Dock 永遠出不來
+- 原本沒寫過的 key，還原時 `defaults delete` 而不是寫預設值 —— 還原成"沒動過"的樣子
 
-## 偏好与设置实现
+## 偏好與設定實作
 
-- **开机自启动**用 `SMAppService.mainApp`（macOS 13+），不写 LaunchAgent plist。实测自签名 App 也能正常注册（`register → 已启用`）。注意它注册的是**当前 App 所在路径**，把 App 挪到别处需要重新注册；注册被系统拦下时会在设置里显示原因并给出「打开登录项设置」按钮
-- 设置改动**即时生效**，不需要重启（`TabBarController` 订阅 `Preferences` 的 publisher）
-- 偏好集中在 `Sources/Preferences.swift`，统一管 UserDefaults 读写
+- **開機自啟動**用 `SMAppService.mainApp`（macOS 13+），不寫 LaunchAgent plist。實測自簽名 App 也能正常註冊（`register → 已啟用`）。注意它註冊的是**當前 App 所在路徑**，把 App 挪到別處需要重新註冊；註冊被系統攔下時會在設定裡顯示原因並給出「開啟登入項設定」按鈕
+- 設定改動**即時生效**，不需要重啟（`TabBarController` 訂閱 `Preferences` 的 publisher）
+- 偏好集中在 `Sources/Preferences.swift`，統一管 UserDefaults 讀寫
 
-> 修掉的一个老 bug：旧代码用 `v > 0 ? v : 1.5` 读 `hideDelay`，把「不自动隐藏」的 `0` 也读成了 1.5，导致常驻模式永远无法生效。现在用 `object(forKey:) != nil` 判断是否写过。
+> 修掉的一個老 bug：舊程式碼用 `v > 0 ? v : 1.5` 讀 `hideDelay`，把「不自動隱藏」的 `0` 也讀成了 1.5，導致常駐模式永遠無法生效。現在用 `object(forKey:) != nil` 判斷是否寫過。
 
-## 构建
+## 建置
 
 ```bash
-./build.sh          # 生成图标 + 双架构编译 + 自签名 + 校验
+./build.sh          # 生成圖示 + 雙架構編譯 + 自簽名 + 驗證
 open Xtopbar.app
 ```
 
-要求：Xcode 命令行工具；SDK 走 `xcrun --sdk macosx --show-sdk-path`（不要用 `/Library/Developer/CommandLineTools` 的 SDK，版本可能与编译器不匹配）。
+要求：Xcode 命令列工具；SDK 走 `xcrun --sdk macosx --show-sdk-path`（不要用 `/Library/Developer/CommandLineTools` 的 SDK，版本可能與編譯器不匹配）。
 
-## 在线更新（`Sources/Updater.swift`）
+## 線上更新（`Sources/Updater.swift`）
 
-**没有服务器，也没有云空间。** 更新源就是 GitHub Releases：
+**沒有伺服器，也沒有雲空間。** 更新源就是 GitHub Releases：
 
-- 地址恒定：`https://api.github.com/repos/buzzzzzboy/Xtopbar/releases/latest`
-- 仓库公开 → 客户端下载不需要任何 token
-- 发布流程见 `docs/RELEASING.md`
+- 地址恆定：`https://api.github.com/repos/buzzzzzboy/Xtopbar/releases/latest`
+- 倉庫公開 → 客戶端下載不需要任何 token
+- 發布流程見 `docs/RELEASING.md`
 
 流程：
 
 ```
-checkInteractively / 启动静默检查
+checkInteractively / 啟動靜默檢查
   → GET /releases/latest（Accept: application/vnd.github+json）
-  → 解析 tag_name / body / assets[]，优先挑 .zip 资源
-  → 版本比较（versionTuple 补齐到 3 段后逐位比）
-  → 有新版：NSAlert（立即更新 / 稍后 / 跳过这个版本）
-  → URLSession.download → ditto -x -k 解到临时目录
-  → 校验：bundle id 一致 / 包内版本不低于发布版本 / codesign --verify --strict
-  → 对比新旧包的 designated requirement（不一致就先警告要重新授权）
-  → 写 install.sh 到临时目录，/bin/sh 起一个脱离的 helper
-  → 自己 terminate，helper 等 pid 消失 → mv 备份 → ditto 覆盖 → 去 quarantine → open
+  → 解析 tag_name / body / assets[]，優先挑 .zip 資源
+  → 版本比較（versionTuple 補齊到 3 段後逐位比）
+  → 有新版：NSAlert（立即更新 / 稍後 / 跳過這個版本）
+  → URLSession.download → ditto -x -k 解到臨時目錄
+  → 驗證：bundle id 一致 / 包內版本不低於發布版本 / codesign --verify --strict
+  → 對比新舊包的 designated requirement（不一致就先警告要重新授權）
+  → 寫 install.sh 到臨時目錄，/bin/sh 起一個脫離的 helper
+  → 自己 terminate，helper 等 pid 消失 → mv 備份 → ditto 覆蓋 → 去 quarantine → open
 ```
 
-几个关键决定：
+幾個關鍵決定：
 
-- **必须另起进程替换自己**。运行中的 `.app` 没法覆盖自己；而且新版本要拉起来，父进程得先消失。helper 用 `kill -0 "$PID"` 轮询（最多 60s）等旧进程退出，再动手。
-- **helper 里先 `mv` 成 `.old` 再 `ditto`**，失败就把 `.old` 挪回来。直接覆盖一旦中断就是半个 App。
-- **装完必须 `xattr -dr com.apple.quarantine`**。自签名 App 没公证，从网络下来的副本会被 Gatekeeper 打隔离属性，不去掉用户会看到"已损坏"。
-- **签名校验不能省**。打包 → 上传 → 下载 → 解压这一趟容易出问题（比如用 `zip` 而不是 `ditto` 会把签名弄坏）。`make-release.sh` 打包后会自己解压回来验一次。
-- **DR 变了要警告**。TCC 授权记录绑在证书上，`codesign -d -r-` 输出的 requirement 一致就说明授权能延续。不同就弹窗提醒，别让用户以为权限凭空没了。
-- **App Translocation 要提前拦**。用户从 DMG 里直接双击运行时，App 跑在 `/private/var/folders/.../AppTranslocation/...` 这种只读路径下，替换必然失败。识别到就引导用户先拖进「应用程序」。
-- **先探写入权限再下载**。`FileManager.isWritableFile` 查父目录，不可写就直接给「打开发布页」的退路，避免下完才报错。
-- **不用 Sparkle**：本项目是 `swiftc` 直编 + `build.sh`，没有 SPM / Xcode 工程。引入 Sparkle 要另外嵌 xcframework、复制 framework、再单独签名，成本高于自己写这 400 行。
+- **必須另起程序替換自己**。執行中的 `.app` 沒法覆蓋自己；而且新版本要拉起來，父程序得先消失。helper 用 `kill -0 "$PID"` 輪詢（最多 60s）等舊程序退出，再動手。
+- **helper 裡先 `mv` 成 `.old` 再 `ditto`**，失敗就把 `.old` 挪回來。直接覆蓋一旦中斷就是半個 App。
+- **裝完必須 `xattr -dr com.apple.quarantine`**。自簽名 App 沒公證，從網路下來的副本會被 Gatekeeper 打隔離屬性，不去掉使用者會看到"已損壞"。
+- **簽名驗證不能省**。打包 → 上傳 → 下載 → 解壓縮這一趟容易出問題（比如用 `zip` 而不是 `ditto` 會把簽名弄壞）。`make-release.sh` 打包後會自己解壓縮回來驗一次。
+- **DR 變了要警告**。TCC 授權記錄綁在憑證上，`codesign -d -r-` 輸出的 requirement 一致就說明授權能延續。不同就彈窗提醒，別讓使用者以為權限憑空沒了。
+- **App Translocation 要提前攔**。使用者從 DMG 裡直接雙擊執行時，App 跑在 `/private/var/folders/.../AppTranslocation/...` 這種唯讀路徑下，替換必然失敗。識別到就引導使用者先拖進「應用程式」。
+- **先探寫入權限再下載**。`FileManager.isWritableFile` 查父目錄，不可寫就直接給「開啟發布頁」的退路，避免下完才報錯。
+- **不用 Sparkle**：本專案是 `swiftc` 直編 + `build.sh`，沒有 SPM / Xcode 工程。引入 Sparkle 要另外嵌 xcframework、複製 framework、再單獨簽名，成本高於自己寫這 400 行。
 
-调试入口：
+除錯入口：
 
 ```bash
-open Xtopbar.app --args --check-update    # 检查并正常弹窗
-open Xtopbar.app --args --update-install  # 跳过弹窗，发现新版直接装
+open Xtopbar.app --args --check-update    # 檢查並正常彈窗
+open Xtopbar.app --args --update-install  # 跳過彈窗，發現新版直接裝
 
-# 指向任意更新源（本地文件或自己的 http 服务），用来测整条链路
+# 指向任意更新源（本機檔案或自己的 http 服務），用來測整條鏈路
 XTOPBAR_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
   /path/to/Xtopbar.app/Contents/MacOS/Xtopbar --update-install
 ```
 
-相关偏好：`autoCheckUpdates`（默认开）、`ignoredVersion`（点过「跳过这个版本」的版本号，
-静默检查时不再提示，手动检查仍然提示）。
+相關偏好：`autoCheckUpdates`（預設開）、`ignoredVersion`（點過「跳過這個版本」的版本號，
+靜默檢查時不再提示，手動檢查仍然提示）。
 
-## 调试
+## 除錯
 
-环境变量 `XTOPBAR_DEBUG=1`，或存在标记文件 `/tmp/xtopbar.debug`（后者用于 `open Xtopbar.app` 启动的场景 —— 走 LaunchServices 时环境变量传不进去）。日志写到 `/tmp/xtopbar.log`。
+環境變數 `XTOPBAR_DEBUG=1`，或存在標記檔案 `/tmp/xtopbar.debug`（後者用於 `open Xtopbar.app` 啟動的場景 —— 走 LaunchServices 時環境變數傳不進去）。日誌寫到 `/tmp/xtopbar.log`。
 
-启动参数：
+啟動引數：
 
 ```bash
-open Xtopbar.app --args --settings      # 直接拉起设置窗口
-open Xtopbar.app --args --test-login    # 跑一遍 SMAppService 注册/注销并记录结果
-open Xtopbar.app --args --test-hotzone=0  # 模拟"在 0 号屏用过一次 ⌘Tab"，看热区最终落在哪块屏
-open Xtopbar.app --args --test-cycle=8    # 不开面板，把 ⌘Tab 会话连按 8 发，看高亮是否一格一格连着
-open Xtopbar.app --args --test-quickswitch # 模拟"⌘Tab 呼出 → 选完"，看条是否当场消失、会不会被唤出区拉回来
-open Xtopbar.app --args --test-pins       # 打印固定 / 运行分组、两种停靠边的条 / 唤出区 / 开始菜单位置、一次应用搜索
-open Xtopbar.app --args --start-menu      # 启动后直接弹开始菜单
+open Xtopbar.app --args --settings      # 直接拉起設定視窗
+open Xtopbar.app --args --test-login    # 跑一遍 SMAppService 註冊/取消註冊並記錄結果
+open Xtopbar.app --args --test-hotzone=0  # 模擬"在 0 號螢幕用過一次 ⌘Tab"，看熱區最終落在哪塊螢幕
+open Xtopbar.app --args --test-cycle=8    # 不開面板，把 ⌘Tab 會話連按 8 發，看反白是否一格一格連著
+open Xtopbar.app --args --test-quickswitch # 模擬"⌘Tab 叫出 → 選完"，看條是否當場消失、會不會被喚出區拉回來
+open Xtopbar.app --args --test-pins       # 列印固定 / 執行分組、兩種停靠邊的條 / 喚出區 / 開始選單位置、一次應用搜尋
+open Xtopbar.app --args --start-menu      # 啟動後直接彈開始選單
 ```
 
-`--test-hotzone=<屏序号>` 就是上面 5b 那个 bug 的回归入口：它会模拟 ⌘Tab 把面板钉到指定屏，再按正常流程收起，然后把面板停靠位置、热区矩形、热区落在哪块屏一起写进日志。换个屏号再跑一次，就能看出热区是否会被 ⌘Tab 带跑。
+`--test-hotzone=<螢幕序號>` 就是上面 5b 那個 bug 的迴歸入口：它會模擬 ⌘Tab 把面板釘到指定螢幕，再按正常流程收起，然後把面板停靠位置、熱區矩形、熱區落在哪塊螢幕一起寫進日誌。換個螢幕號再跑一次，就能看出熱區是否會被 ⌘Tab 帶跑。
 
-`--test-cycle=<次数>` 是 5c 的回归入口：它不开面板、不抢键，只用真实的 App 列表把会话走一遍，日志里每一步都带「App 名 + 下标 / 总数」。下标必须是逐个 ±1 的（`1/8 → 2/8 → … → 0/8 → 1/8`），一旦出现跳号就说明循环序列又串了顺序。
+`--test-cycle=<次數>` 是 5c 的迴歸入口：它不開面板、不搶鍵，只用真實的 App 列表把會話走一遍，日誌裡每一步都帶「App 名 + 下標 / 總數」。下標必須是逐個 ±1 的（`1/8 → 2/8 → … → 0/8 → 1/8`），一旦出現跳號就說明迴圈序列又串了順序。
 
-`--test-quickswitch` 是"选完立刻消失"的回归入口：走一遍真实的 `revealAtMouse()`（钉在鼠标位置呼出）+ 结束会话 + `dismissQuickSwitch()`，日志给出 `isRevealed` / `panel.isVisible` / `suppressHotZone` 三个值，并在 +0.5s 再打一次 —— 该看到当场 `panel.isVisible=false`，且半秒后 `suppressHotZone` 已复位（指针不在唤出区时自然会解除），热区矩形不变。
+`--test-quickswitch` 是"選完立刻消失"的迴歸入口：走一遍真實的 `revealAtMouse()`（釘在滑鼠位置叫出）+ 結束會話 + `dismissQuickSwitch()`，日誌給出 `isRevealed` / `panel.isVisible` / `suppressHotZone` 三個值，並在 +0.5s 再打一次 —— 該看到當場 `panel.isVisible=false`，且半秒後 `suppressHotZone` 已復位（指標不在喚出區時自然會解除），熱區矩形不變。
 
-判定"是否真的切到前台"要看窗口叠放序（`CGWindowListCopyWindowInfo` 的 layer 0 首条），别信 `NSWorkspace.frontmostApplication` —— 它返回缓存值，会出现"日志说成功、实际没变"的假象。
+判定"是否真的切到前景"要看視窗疊放序（`CGWindowListCopyWindowInfo` 的 layer 0 首條），別信 `NSWorkspace.frontmostApplication` —— 它返回快取值，會出現"日誌說成功、實際沒變"的假象。
