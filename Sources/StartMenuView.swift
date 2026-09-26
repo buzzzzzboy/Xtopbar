@@ -229,11 +229,11 @@ struct StartMenuView: View {
     /// 首页「已固定」下面的文件夹区：点文件夹在菜单里打开它
     private var folderSection: some View {
         VStack(alignment: .leading, spacing: TTLayout.s(10)) {
-            sectionHeader("文件夹") {
+            sectionHeader("資料夾") {
                 Button { openFolder(catalog.createStartFolder(), rename: true) } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "plus")
-                        Text("新建文件夹")
+                        Text("新增資料夾")
                     }
                     .font(.system(size: TTLayout.font(11), weight: .medium))
                 }
@@ -241,7 +241,7 @@ struct StartMenuView: View {
             }
 
             if prefs.startFolders.isEmpty {
-                Text("把几个应用收进一个文件夹：点「新建文件夹」，或者右键任意应用 →「添加到文件夹」。")
+                Text("把幾個應用收進一個資料夾：點「新增資料夾」，或者右鍵任意應用 →「加入資料夾」。")
                     .font(.system(size: TTLayout.font(11)))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: TTLayout.s(44))
@@ -254,10 +254,10 @@ struct StartMenuView: View {
                             openFolder(folder.id)
                         }
                         .contextMenu {
-                            Button("打开") { openFolder(folder.id) }
-                            Button("重命名") { openFolder(folder.id, rename: true) }
+                            Button("開啟") { openFolder(folder.id) }
+                            Button("重新命名") { openFolder(folder.id, rename: true) }
                             Divider()
-                            Button("删除文件夹") { catalog.deleteStartFolder(folder.id) }
+                            Button("刪除資料夾") { catalog.deleteStartFolder(folder.id) }
                         }
                     }
                 }
@@ -280,7 +280,7 @@ struct StartMenuView: View {
                 }
                 .buttonStyle(PillButtonStyle())
 
-                TextField("文件夹名称", text: Binding(
+                TextField("資料夾名稱", text: Binding(
                     get: { folder.name },
                     set: { catalog.renameStartFolder(folder.id, to: $0) }
                 ))
@@ -302,14 +302,14 @@ struct StartMenuView: View {
                         .font(.system(size: TTLayout.font(11), weight: .medium))
                 }
                 .buttonStyle(PillButtonStyle())
-                .help("删除文件夹（里面的应用不受影响）")
+                .help("刪除資料夾（裡面的應用不受影響）")
             }
             .padding(.horizontal, TTLayout.s(24))
             .padding(.bottom, TTLayout.s(10))
 
             ScrollView(.vertical, showsIndicators: false) {
                 if apps.isEmpty {
-                    Text("文件夹是空的。右键任意应用 →「添加到文件夹」→「\(folder.name)」。")
+                    Text("資料夾是空的。右鍵任意應用 →「加入資料夾」→「\(folder.name)」。")
                         .font(.system(size: TTLayout.font(11)))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
@@ -320,7 +320,7 @@ struct StartMenuView: View {
                                 move: { catalog.moveInStartFolder(folder.id, $0, to: $1) }) { app in
                         itemMenu(app)
                         Divider()
-                        Button("从「\(folder.name)」中移除") { catalog.removeFromStartFolder(folder.id, app.bundleID) }
+                        Button("從「\(folder.name)」中移除") { catalog.removeFromStartFolder(folder.id, app.bundleID) }
                     }
                 }
             }
@@ -540,7 +540,7 @@ struct StartMenuView: View {
         } else {
             Button("固定到工作列") { catalog.pinToDock(app.pinned) }
         }
-        Menu("添加到文件夹") {
+        Menu("加入資料夾") {
             ForEach(prefs.startFolders) { folder in
                 Toggle(folder.name, isOn: Binding(
                     get: { catalog.folderContains(folder.id, app.bundleID) },
@@ -551,7 +551,7 @@ struct StartMenuView: View {
                 ))
             }
             if !prefs.startFolders.isEmpty { Divider() }
-            Button("新建文件夹") {
+            Button("新增資料夾") {
                 let id = catalog.createStartFolder(with: app.pinned)
                 // 在「所有应用」/ 搜索里就原地建好，方便接着往里加；首页才直接进去改名
                 if model.showAll || !model.query.isEmpty { return }

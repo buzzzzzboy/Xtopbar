@@ -609,13 +609,13 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - 开始菜单文件夹
 
-    /// 新建文件夹（可顺手放进一个 App），返回它的 id。名字重了就加序号：新建文件夹 2、3…
+    /// 新建文件夹（可顺手放进一个 App），返回它的 id。名字重了就加序号：新資料夾 2、3…
     @discardableResult
     func createStartFolder(with pin: PinnedApp? = nil) -> UUID {
         let names = Set(Preferences.shared.startFolders.map(\.name))
-        var name = "新建文件夹"
+        var name = "新資料夾"
         var n = 2
-        while names.contains(name) { name = "新建文件夹 \(n)"; n += 1 }
+        while names.contains(name) { name = "新資料夾 \(n)"; n += 1 }
         let folder = StartFolder(name: name, apps: pin.map { [$0] } ?? [])
         Preferences.shared.startFolders.append(folder)
         return folder.id
