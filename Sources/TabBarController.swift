@@ -435,7 +435,7 @@ final class TabBarController: TabBarHost {
               + "bid=\(Bundle.main.bundleIdentifier ?? "-") "
               + "glass=\(prefs.glassStyle.rawValue) delay=\(prefs.hideDelay)")
         TTLog("hotZone 模式=\(prefs.hotZoneScreen.rawValue) "
-              + "锚定屏=\(anchorScreen?.localizedName ?? "-") 热区=\(hotZone)")
+              + "錨定螢幕=\(anchorScreen?.localizedName ?? "-") 熱區=\(hotZone)")
         relayout()
         startMouseTracking()
         missionControl.onChange = { [weak self] active in self?.missionControlChanged(active) }
@@ -451,23 +451,23 @@ final class TabBarController: TabBarHost {
         let screens = NSScreen.screens
         guard screens.indices.contains(index) else { return }
         let target = screens[index]
-        TTLog("自检：模拟在 [#\(index)] \(target.localizedName) 上用 ⌘Tab 呼出")
+        TTLog("自檢：模擬在 [#\(index)] \(target.localizedName) 上用 ⌘Tab 叫出")
         pinnedToMouse = true
         pinnedAnchor = NSPoint(x: target.frame.midX, y: target.frame.midY)
         beginReveal()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            TTLog("  钉住后 panel.frame=\(self.panel.frame) 所在屏=\(self.panel.screen?.localizedName ?? "-")")
+            TTLog("  釘住後 panel.frame=\(self.panel.frame) 所在螢幕=\(self.panel.screen?.localizedName ?? "-")")
             self.hide()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let hot = self.hotZone
                 let hotScreen = NSScreen.screens.first { $0.frame.intersects(hot) }
                 let anchor = self.anchorScreen
-                TTLog("  收起后 panel.frame=\(self.panel.frame) 所在屏=\(self.panel.screen?.localizedName ?? "-")")
-                TTLog("  热区=\(hot) → 落在 \(hotScreen?.localizedName ?? "?")")
-                TTLog("  锚定屏(设置=\(self.prefs.hotZoneScreen.title))=\(anchor?.localizedName ?? "-")")
-                TTLog("  结论：锚定屏顶部"
-                      + (hotScreen?.localizedName == anchor?.localizedName ? "可唤出 ✓" : "唤不出 ✗"))
+                TTLog("  收起後 panel.frame=\(self.panel.frame) 所在螢幕=\(self.panel.screen?.localizedName ?? "-")")
+                TTLog("  熱區=\(hot) → 落在 \(hotScreen?.localizedName ?? "?")")
+                TTLog("  錨定螢幕(設定=\(self.prefs.hotZoneScreen.title))=\(anchor?.localizedName ?? "-")")
+                TTLog("  結論：錨定螢幕頂部"
+                      + (hotScreen?.localizedName == anchor?.localizedName ? "可喚出 ✓" : "喚不出 ✗"))
             }
         }
     }
@@ -477,31 +477,31 @@ final class TabBarController: TabBarHost {
     /// 而不是在图标之间横跳（早先按 MRU 顺序走就是这个毛病）。
     func diagnoseCycle(presses: Int) {
         guard catalog.startKeyboardSession() else {
-            TTLog("自检：可见 App 不足 2 个，无法开始会话")
+            TTLog("自檢：可見 App 不足 2 個，無法開始會話")
             return
         }
-        TTLog("自检：沿视觉顺序连按 Tab \(presses) 发")
+        TTLog("自檢：沿視覺順序連按 Tab \(presses) 發")
         for _ in 0..<max(0, presses) { catalog.cycleKeyboardSession() }
         catalog.endKeyboardSession()
-        TTLog("自检：结束")
+        TTLog("自檢：結束")
     }
 
     /// 调试自检：`--test-quickswitch`
     /// 走一遍真实的"⌘Tab 钉在鼠标位置呼出 → 选择完成"，看条是不是当场消失，
     /// 以及半秒后有没有被顶部唤出区又拉回来。
     func diagnoseQuickSwitch() {
-        TTLog("自检：模拟 ⌘Tab 呼出 → 完成选择（hideDelay=\(prefs.hideDelay)）")
+        TTLog("自檢：模擬 ⌘Tab 叫出 → 完成選擇（hideDelay=\(prefs.hideDelay)）")
         revealAtMouse()
-        TTLog("  呼出后 isRevealed=\(isRevealed) panel.isVisible=\(panel.isVisible) "
+        TTLog("  叫出後 isRevealed=\(isRevealed) panel.isVisible=\(panel.isVisible) "
               + "pinnedToMouse=\(pinnedToMouse)")
         catalog.startKeyboardSession()
         catalog.endKeyboardSession()
         let handled = dismissQuickSwitch()
-        TTLog("  收场 handled=\(handled) isRevealed=\(isRevealed) "
+        TTLog("  收場 handled=\(handled) isRevealed=\(isRevealed) "
               + "panel.isVisible=\(panel.isVisible) suppressHotZone=\(suppressHotZoneUntilExit)")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             TTLog("  +0.5s isRevealed=\(self.isRevealed) panel.isVisible=\(self.panel.isVisible) "
-                  + "suppressHotZone=\(self.suppressHotZoneUntilExit) 热区=\(self.hotZone)")
+                  + "suppressHotZone=\(self.suppressHotZoneUntilExit) 熱區=\(self.hotZone)")
         }
     }
 
@@ -510,9 +510,9 @@ final class TabBarController: TabBarHost {
     /// 用来核对"固定项排最前、没运行的 pid=0"和底部停靠的几何是不是对的。
     func diagnosePins() {
         catalog.refresh()
-        TTLog("自检：任务栏固定 \(prefs.dockPins.map(\.name))，开始菜单固定 \(prefs.startPins.map(\.name))")
+        TTLog("自檢：工作列固定 \(prefs.dockPins.map(\.name))，開始選單固定 \(prefs.startPins.map(\.name))")
         for group in catalog.groups {
-            TTLog("  组 \(group.category.title)：" + group.entries.map {
+            TTLog("  組 \(group.category.title)：" + group.entries.map {
                 "\($0.name)[pid=\($0.pid) running=\($0.isRunning) pinned=\($0.isPinned)]"
             }.joined(separator: ", "))
         }
@@ -528,8 +528,8 @@ final class TabBarController: TabBarHost {
             let menu = DockGeometry.popupFrame(size: StartMenuController.size, anchorX: bar.minX + 12,
                                                alignLeft: true, barFrame: bar,
                                                visible: screen.visibleFrame, gap: 8)
-            TTLog("  [\(edge.rawValue)] 条=\(bar) 唤出区=\(zone) 开始菜单=\(menu) "
-                  + "向上弹=\(DockGeometry.opensUpward(barFrame: bar, visible: screen.visibleFrame))")
+            TTLog("  [\(edge.rawValue)] 條=\(bar) 喚出區=\(zone) 開始選單=\(menu) "
+                  + "向上彈=\(DockGeometry.opensUpward(barFrame: bar, visible: screen.visibleFrame))")
         }
         // 不挡窗口：一扇铺满可用区的窗口，两种停靠边下各会被挪成什么样
         let visibleCG = AvoidGeometry.cgRect(screen.visibleFrame)
@@ -540,11 +540,11 @@ final class TabBarController: TabBarHost {
             let moved = AvoidGeometry.adjusted(window: visibleCG, bar: bar, gap: topInset, edge: edge,
                                                screen: AvoidGeometry.cgRect(screen.frame),
                                                visible: visibleCG)
-            TTLog("  [\(edge.rawValue)] 不挡窗口：铺满窗口 \(visibleCG) → \(moved.map { "\($0)" } ?? "不动")")
+            TTLog("  [\(edge.rawValue)] 不擋視窗：鋪滿視窗 \(visibleCG) → \(moved.map { "\($0)" } ?? "不動")")
         }
-        TTLog("  只显示有窗口的 App=\(prefs.onlyWindowedApps)，判定无窗口：\(WindowPresence.shared.windowless.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
+        TTLog("  只顯示有視窗的 App=\(prefs.onlyWindowedApps)，判定無視窗：\(WindowPresence.shared.windowless.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
         let lib = AppLibrary.shared
-        TTLog("  应用索引 \(lib.apps.count) 个；搜索「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
+        TTLog("  應用索引 \(lib.apps.count) 個；搜尋「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
     }
 
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
@@ -994,7 +994,7 @@ final class TabBarController: TabBarHost {
     private func setFullscreen(_ on: Bool) {
         guard fullscreenActive != on else { return }
         fullscreenActive = on
-        TTLog("fullscreen \(on ? "进入 → 条让位" : "退出 → 条恢复常驻")")
+        TTLog("fullscreen \(on ? "進入 → 條讓位" : "退出 → 條恢復常駐")")
         // 进入全屏：lastInteraction 早就过期了，下一帧 tick 按 0.2s 延迟收起（鼠标正停在条上则等它离开）
         if !on { applyResidency() }
     }
@@ -1002,7 +1002,7 @@ final class TabBarController: TabBarHost {
     /// 进调度中心：条（连同预览、开始菜单）淡出；退出：常驻类模式淡入恢复，
     /// 自动隐藏模式本来就藏着，保持藏着等鼠标顶边唤出。
     private func missionControlChanged(_ active: Bool) {
-        TTLog("MissionControl \(active ? "进入 → 条淡出" : "退出 → 恢复")")
+        TTLog("MissionControl \(active ? "進入 → 條淡出" : "退出 → 恢復")")
         if active {
             hidePreview()
             startMenu.close()
@@ -1066,7 +1066,7 @@ final class TabBarController: TabBarHost {
         } else if inPanel || inPreview || inHot {
             lastInteraction = now
             if !isRevealed {
-                TTLog("hotZone 唤出 mouse=\(mouse) zone=\(hot) screen=\(anchorScreen?.localizedName ?? "-")")
+                TTLog("hotZone 喚出 mouse=\(mouse) zone=\(hot) screen=\(anchorScreen?.localizedName ?? "-")")
                 reveal()
             }
         } else if isRevealed, delay > 0, now.timeIntervalSince(lastInteraction) > delay {
@@ -1208,7 +1208,7 @@ final class TabBarController: TabBarHost {
     func permissionSummary() -> String {
         let screen = ScreenCaptureEngine.hasPermission ? "✅" : "❌"
         let ax = WindowBridge.isTrusted ? "✅" : "❌"
-        return "屏幕录制 \(screen) · 辅助功能 \(ax)"
+        return "螢幕錄製 \(screen) · 輔助使用 \(ax)"
     }
 
     func cmdTabInstallFailed() {
@@ -1216,9 +1216,9 @@ final class TabBarController: TabBarHost {
         // 被调用（上次开着 ⌘Tab 但这次权限被撤销），runModal 会阻塞启动。
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "无法接管 ⌘Tab"
-            alert.informativeText = "安装键盘事件钩子需要「辅助功能」权限。\n请先在系统设置中勾选 Xtopbar，再回到设置里重新打开这个开关。"
-            alert.addButton(withTitle: "去授权")
+            alert.messageText = "無法接管 ⌘Tab"
+            alert.informativeText = "安裝鍵盤事件鉤子需要「輔助使用」權限。\n請先在系統設定中勾選 Xtopbar，再回到設定裡重新開啟這個開關。"
+            alert.addButton(withTitle: "去授權")
             alert.addButton(withTitle: "取消")
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {

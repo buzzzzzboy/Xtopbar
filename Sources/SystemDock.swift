@@ -28,7 +28,7 @@ enum SystemDock {
             }
             run(["write", domain, "autohide", "-bool", "true"])
             run(["write", domain, "autohide-delay", "-float", hiddenDelay])
-            TTLog("SystemDock 隐藏（原值 autohide=\(String(describing: prefs.savedDockAutohide)) "
+            TTLog("SystemDock 隱藏（原值 autohide=\(String(describing: prefs.savedDockAutohide)) "
                   + "delay=\(String(describing: prefs.savedDockDelay))）")
         } else {
             guard prefs.hasSavedSystemDock else { return }
@@ -46,7 +46,7 @@ enum SystemDock {
             prefs.savedDockAutohide = nil
             prefs.savedDockDelay = nil
             prefs.hasSavedSystemDock = false
-            TTLog("SystemDock 已还原")
+            TTLog("SystemDock 已還原")
         }
         restartDock()
     }
@@ -55,11 +55,11 @@ enum SystemDock {
     /// 返回 false = 用户取消。
     static func confirm(hide: Bool) -> Bool {
         let alert = NSAlert()
-        alert.messageText = hide ? "隐藏系统 Dock？" : "恢复系统 Dock？"
+        alert.messageText = hide ? "隱藏系統 Dock？" : "恢復系統 Dock？"
         alert.informativeText = hide
-            ? "会把系统 Dock 设为「自动隐藏」并把唤出延迟调到极长，然后重启一次 Dock（屏幕底部会闪一下，窗口不受影响）。\n\n关掉这个开关会恢复你原来的设置。"
-            : "会恢复开启前的 Dock 自动隐藏设置，并重启一次 Dock。"
-        alert.addButton(withTitle: hide ? "隐藏" : "恢复")
+            ? "會把系統 Dock 設為「自動隱藏」並把喚出延遲調到極長，然後重啟一次 Dock（螢幕底部會閃一下，視窗不受影響）。\n\n關掉這個開關會恢復你原來的設定。"
+            : "會恢復開啟前的 Dock 自動隱藏設定，並重啟一次 Dock。"
+        alert.addButton(withTitle: hide ? "隱藏" : "恢復")
         alert.addButton(withTitle: "取消")
         NSApp.activate(ignoringOtherApps: true)
         return alert.runModal() == .alertFirstButtonReturn
@@ -89,7 +89,7 @@ enum SystemDock {
         do {
             try p.run()
         } catch {
-            TTLog("defaults \(args) 启动失败：\(error)")
+            TTLog("defaults \(args) 啟動失敗：\(error)")
             return nil
         }
         p.waitUntilExit()

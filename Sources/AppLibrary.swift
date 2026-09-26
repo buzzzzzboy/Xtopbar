@@ -89,7 +89,7 @@ final class AppLibrary: ObservableObject {
                 lib.lastScan = Date()
                 let merged = lib.applyFirstSeen(found)
                 if merged != lib.apps { lib.apps = merged }
-                TTLog("AppLibrary 扫描完成 \(found.count) 个 App")
+                TTLog("AppLibrary 掃描完成 \(found.count) 個 App")
             }
         }
     }

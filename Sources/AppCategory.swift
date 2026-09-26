@@ -18,12 +18,12 @@ enum AppCategory: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .pinned:        return "已固定"
-        case .browser:       return "浏览器"
-        case .terminal:      return "终端"
-        case .development:   return "开发"
-        case .communication: return "通讯"
-        case .documents:     return "文档"
-        case .media:         return "媒体"
+        case .browser:       return "瀏覽器"
+        case .terminal:      return "終端"
+        case .development:   return "開發"
+        case .communication: return "通訊"
+        case .documents:     return "文件"
+        case .media:         return "媒體"
         case .utility:       return "工具"
         case .other:         return "其他"
         }

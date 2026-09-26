@@ -11,16 +11,16 @@ enum GlassStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .liquid:  return "液态玻璃"
+        case .liquid:  return "液態玻璃"
         case .frosted: return "毛玻璃"
-        case .solid:   return "纯色"
+        case .solid:   return "純色"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .liquid:  return "macOS 26/27 原生材质，随系统外观与「降低透明度」自动调节"
-        case .frosted: return "经典 HUD 毛玻璃，所有系统版本都可用"
+        case .liquid:  return "macOS 26/27 原生材質，隨系統外觀與「降低透明度」自動調節"
+        case .frosted: return "經典 HUD 毛玻璃，所有系統版本都可用"
         case .solid:   return "不透明底色，最省 GPU"
         }
     }
@@ -61,20 +61,20 @@ enum HotZoneScreen: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .menuBar:     return "系统主显示器（带菜单栏）"
-        case .notch:       return "内置屏（刘海那块）"
-        case .followMouse: return "鼠标所在屏"
+        case .menuBar:     return "系統主顯示器（帶選單列）"
+        case .notch:       return "內建螢幕（劉海那塊）"
+        case .followMouse: return "滑鼠所在螢幕"
         }
     }
 
     var subtitle: String {
         switch self {
         case .menuBar:
-            return "只有带菜单栏的那块屏顶部能唤出。把外接屏设为主显示器时，就是外接屏 —— 系统里的「主显示器」指的是这块。"
+            return "只有帶選單列的那塊螢幕頂部能喚出。把外接螢幕設為主顯示器時，就是外接螢幕 —— 系統裡的「主顯示器」指的是這塊。"
         case .notch:
-            return "只有笔记本内置屏（有刘海那块）顶部能唤出，内置屏以外都不响应。"
+            return "只有筆電內建螢幕（有劉海那塊）頂部能喚出，內建螢幕以外都不響應。"
         case .followMouse:
-            return "鼠标在哪块屏，就顶哪块屏的顶部唤出 —— 和 ⌘Tab 呼出同一套坐标来源。"
+            return "滑鼠在哪塊螢幕，就頂哪塊螢幕的頂部喚出 —— 和 ⌘Tab 叫出同一套座標來源。"
         }
     }
 }
@@ -92,16 +92,16 @@ enum DockEdge: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .bottom: return "底部（Dock）"
-        case .top:    return "顶部"
+        case .top:    return "頂部"
         }
     }
 
     var subtitle: String {
         switch self {
         case .bottom:
-            return "停在屏幕底部，鼠标顶到底边唤出 —— 可以当 Dock 用。窗口预览和开始菜单向上弹出。"
+            return "停在螢幕底部，滑鼠頂到底邊喚出 —— 可以當 Dock 用。視窗預覽和開始選單向上彈出。"
         case .top:
-            return "停在菜单栏下方，鼠标顶到屏幕顶部中央唤出。窗口预览和开始菜单向下弹出。"
+            return "停在選單列下方，滑鼠頂到螢幕頂部中央喚出。視窗預覽和開始選單向下彈出。"
         }
     }
 }
@@ -116,7 +116,7 @@ enum StartMenuSort: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .name:    return "名称"
+        case .name:    return "名稱"
         case .added:   return "最近加入"
         case .updated: return "最近更新"
         }
@@ -439,13 +439,13 @@ final class Preferences: ObservableObject {
 
     /// 自动隐藏延迟的可选档位（秒）；0 表示常驻
     static let delayOptions: [(label: String, value: Double)] = [
-        ("0.2 秒（默认）", 0.2),
+        ("0.2 秒（預設）", 0.2),
         ("0.4 秒（快）", 0.4),
         ("0.8 秒", 0.8),
         ("1.5 秒", 1.5),
         ("3 秒", 3.0),
         ("4 秒", 4.0),
-        ("不自动隐藏", 0.0)
+        ("不自動隱藏", 0.0)
     ]
 }
 

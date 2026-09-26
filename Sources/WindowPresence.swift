@@ -74,7 +74,7 @@ final class WindowPresence {
         emptyStreak = emptyStreak.filter { alive.contains($0.key) }
 
         guard next != windowless else { return }
-        TTLog("WindowPresence 无窗口 App：\(next.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
+        TTLog("WindowPresence 無視窗 App：\(next.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
         windowless = next
         onChange?()
     }

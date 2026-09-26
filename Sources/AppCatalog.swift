@@ -438,7 +438,7 @@ final class AppCatalog: ObservableObject {
         // 没在运行的固定项切不过去，不进 ⌘Tab 循环
         let visible = groups.flatMap(\.entries).filter { $0.pid > 0 }
         guard visible.count >= 2 else {
-            TTLog("kbdSession: 可见 App 不足(\(visible.count))")
+            TTLog("kbdSession: 可見 App 不足(\(visible.count))")
             return false
         }
 
