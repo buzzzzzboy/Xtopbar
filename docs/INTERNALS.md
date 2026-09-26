@@ -43,9 +43,7 @@ docs/RELEASING.md                  发布流程 / 在线更新怎么用
 
 macOS **没有**提供任何"App 分类"的公开 API —— 这个分组完全是为了排序稳定而自造的，不是系统语义。
 
-它的作用仅限于**决定组顺序**（`AppCategory.rank`），对界面已经没有视觉影响：早先按"分类边界画深线、组内画淡线"来暗示分组，但实测大多数 App 落到「其他」，后半条几乎没有线，看起来像坏了，所以**分隔线已统一成一种深线**。
-
-想调整分组顺序就改 `rules` 数组和 `rank`。
+**目前条上已不按分类排序**：运行中的 App 统一一组、按打开时间（`NSRunningApplication.launchDate`）从左到右排，新开的接在最右边。分类仍会算出来写进 `AppEntry.category`，但不影响顺序和界面。早先按"分类边界画深线、组内画淡线"来暗示分组，实测大多数 App 落到「其他」，后半条几乎没有线，看起来像坏了，所以**分隔线已统一成一种深线**。
 
 ## 权限为什么这么关键
 
@@ -213,7 +211,7 @@ Google Chrome          2              7
 - 抓图用 `SCScreenshotManager.captureImage`，直接按目标尺寸渲染，省掉"全分辨率抓取 + 自己缩放"
 - 点击缩略图优先用枚举阶段记下的 AX 下标定位；下标失效（期间开了/关了窗口）就用标题 + 几何重新配对
 - 提窗顺序：`minimize=false` → `AXMain=true` → `AXFocused=true` → `AXRaise` → **最后**才把 App 设为 frontmost。反过来的话 Chromium / Electron 系会把 App 拉到前台但保留它自己认定的 main window
-- 光标从标签滑向预览面板的途中会经过 8pt 空隙，所以离开标签后留 **0.4s 宽限**再收起预览，否则会闪断
+- 光标从标签滑向预览面板的途中会经过 8pt 空隙，所以离开标签后留 **0.4s 宽限**再收起预览，否则会闪断。收起纯按指针位置判断（既不在预览上、也不在面板里的标签上，就开始计时），不依赖 `onTabHoverEnd` —— 以前进过预览再移走不会重新计时，预览会一直挂着、只能点窗口才关得掉
 - 空态（该 App 没有窗口）刻意做成**和单窗口预览等宽**：早先为放下提示文字把它撑到两张卡宽，悬停时尺寸来回跳很突兀
 
 **6b. 卡片交互（悬停 / 按下 / 关闭窗口）**
@@ -276,7 +274,9 @@ Google Chrome          2              7
 
 `AppEntry` 多了 `bundleURL` / `isRunning` / `isPinned`。没在运行的固定项 `pid = 0`：
 
-- 分组 = 「已固定」组（`AppCategory.pinned`，rank −1，按用户排的顺序，**不按名称排**）+ 其余运行中的 App 按分类分组。固定项按 bundle id 合并运行实例
+- 分组 = 「已固定」组（`AppCategory.pinned`，rank −1，按用户排的顺序，**不按名称排**）+ 其余运行中的 App 一组、按打开时间排。固定项按 bundle id 合并运行实例
+- 标签模式下固定项不画运行小圆点（只有 Dock 风格才画，同 macOS Dock）
+- 右键菜单开着时（`NSMenu.didBeginTracking` → `menuTracking`）冻结 `pointerOverBar` 和 `refresh()`：菜单是 SwiftUI `contextMenu` 按视图状态生成的，任何 @Published 变化都会重建整个菜单，已展开的「固定」子菜单会当场收起 —— 子菜单常伸出条外，指针一移过去 `pointerOverBar` 就翻转，于是永远够不着。关菜单时补一次 refresh
 - 固定项不受「隐藏此 App」影响；固定时顺手把它从隐藏列表里放出来
 - 所有"只对运行中 App 有意义"的地方都要按 `pid > 0` 过滤：⌘Tab 循环序列、预热、预览、退出。`activePID` / `keyboardHighlightPID` 永远不会是 0，所以高亮也不会落到没运行的图标上
 - 点没运行的固定项 → `launch(url:)`（`NSWorkspace.openApplication`），启动完成后 `didLaunchApplication` 通知触发 refresh，小圆点自己亮
