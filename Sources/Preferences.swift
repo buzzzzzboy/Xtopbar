@@ -173,6 +173,7 @@ final class Preferences: ObservableObject {
         static let dockPins      = "dockPins"
         static let startPins     = "startPins"
         static let startFolders  = "startFolders"
+        static let startOrder    = "startOrder"
         static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let iconOnly      = "iconOnly"
@@ -298,7 +299,14 @@ final class Preferences: ObservableObject {
         didSet { Self.save(startPins, key: Key.startPins, to: d) }
     }
 
-    /// 开始菜单「已固定」下面的文件夹（顺序即显示顺序）
+    /// 开始菜单「已固定」网格里 App 与文件夹混排的顺序（App 用 bundle id，
+    /// 文件夹用 `folder:<uuid>`）。只记「哪一格是文件夹」，App 格按 startPins 的顺序填，
+    /// 见 `AppCatalog.startGridKeys`
+    @Published var startOrder: [String] = [] {
+        didSet { d.set(startOrder, forKey: Key.startOrder) }
+    }
+
+    /// 开始菜单「已固定」网格里的文件夹
     @Published var startFolders: [StartFolder] = [] {
         didSet {
             if let data = try? JSONEncoder().encode(startFolders) { d.set(data, forKey: Key.startFolders) }
@@ -433,6 +441,7 @@ final class Preferences: ObservableObject {
         if let raw = d.string(forKey: Key.nowPlayingSource),
            let s = NowPlayingSource(rawValue: raw) { nowPlayingSource = s }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
+        if let list = d.stringArray(forKey: Key.startOrder) { startOrder = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }

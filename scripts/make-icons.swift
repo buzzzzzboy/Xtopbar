@@ -6,7 +6,7 @@
 //   /tmp/make-icons <输出目录>
 //
 // 设计：圆角方形（macOS 图标 824/1024 的规范留白）＋ 蓝紫渐变底，
-// 上面是「顶部悬浮条（胶囊）＋ 三个 App 标签块」，与状态栏图标同源。
+// 上面是白色 Logo（Resources/Logo.png，开始按钮用的也是它）。
 //
 import AppKit
 
@@ -14,6 +14,16 @@ let canvas: CGFloat = 1024
 let outputDir = CommandLine.arguments.count > 1
     ? URL(fileURLWithPath: CommandLine.arguments[1])
     : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+let logoPath = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "Resources/Logo.png"
+
+let logoImage: CGImage? = {
+    guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: logoPath) as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+        FileHandle.standardError.write("✗ 读不到 Logo: \(logoPath)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    return image
+}()
 
 // 背景形状：824×824 居中，圆角 185 —— 接近 macOS 的 squircle 观感
 let plate = CGRect(x: 100, y: 100, width: 824, height: 824)
@@ -59,27 +69,22 @@ func drawIcon(into ctx: CGContext, size: CGFloat) {
                            options: [])
     ctx.restoreGState()
 
-    // ── 前景：悬浮条 + 三个标签块
-    // 元素组在 824 的盘子里垂直居中：337..687，中心正好落在 512
-    let barRect = CGRect(x: 192, y: 337, width: 640, height: 80)
-    let barPath = CGPath(roundedRect: barRect, cornerWidth: 40, cornerHeight: 40,
-                         transform: nil)
-    ctx.addPath(barPath)
-    ctx.setFillColor(NSColor.white.withAlphaComponent(0.96).cgColor)
-    ctx.fillPath()
-
-    let blockSide: CGFloat = 180
-    let blockGap: CGFloat = 50
-    let blockY: CGFloat = 507
-    let alphas: [CGFloat] = [0.96, 0.66, 0.40]
-    for i in 0..<3 {
-        let x = 192 + CGFloat(i) * (blockSide + blockGap)
-        let rect = CGRect(x: x, y: blockY, width: blockSide, height: blockSide)
-        let path = CGPath(roundedRect: rect, cornerWidth: 46, cornerHeight: 46,
-                          transform: nil)
-        ctx.addPath(path)
-        ctx.setFillColor(NSColor.white.withAlphaComponent(alphas[i]).cgColor)
-        ctx.fillPath()
+    // ── 前景：白色 Logo（Resources/Logo.png，已裁掉透明边），等比放进盘子中央，
+    // 长边占盘子的 62%
+    if let logo = logoImage {
+        let side = plate.width * 0.62
+        let aspect = CGFloat(logo.width) / CGFloat(logo.height)
+        let size = aspect >= 1 ? CGSize(width: side, height: side / aspect)
+                               : CGSize(width: side * aspect, height: side)
+        let rect = CGRect(x: plate.midX - size.width / 2, y: plate.midY - size.height / 2,
+                          width: size.width, height: size.height)
+        // 坐标系被翻成 top-left，画位图前翻回去，不然 Logo 是倒的
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: rect.midY * 2)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.interpolationQuality = .high
+        ctx.draw(logo, in: rect)
+        ctx.restoreGState()
     }
 
     // ── 内描边：模拟玻璃边缘的一道亮线

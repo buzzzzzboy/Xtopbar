@@ -34,14 +34,25 @@ struct StartButton: View {
 
     @State private var hovering = false
 
+    /// 白色 Logo（和 App 图标同一张，Resources/Logo.png）
+    private static let logo: NSImage? = Bundle.main.image(forResource: "Logo")
+
     var body: some View {
-        Image(systemName: "square.grid.2x2.fill")
-            .font(.system(size: TTLayout.font(iconOnly ? 24 : 15), weight: .semibold))
-            .foregroundStyle(
-                LinearGradient(colors: [Color(red: 0.25, green: 0.62, blue: 1.0),
-                                        Color(red: 0.14, green: 0.42, blue: 0.95)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
+        Group {
+            if let logo = Self.logo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: TTLayout.s(iconOnly ? 24 : 17), height: TTLayout.s(iconOnly ? 24 : 17))
+                    // 白色在偏亮的玻璃上会发虚，垫一圈很淡的阴影托住轮廓
+                    .shadow(color: .black.opacity(0.28), radius: 1, y: 0.5)
+            } else {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.system(size: TTLayout.font(iconOnly ? 24 : 15), weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
             .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
             .scaleEffect(hovering && !isOpen ? 1.08 : 1.0)
             .background(
@@ -68,7 +79,10 @@ struct StartButton: View {
 /// 单个 App 标签（纯视觉，点击由窗口层命中测试处理）
 struct AppTab: View {
     let entry: AppEntry
+    /// 前台 App 且指针在条上：蓝底 + 描边
     let isActive: Bool
+    /// 前台 App（不论指针在不在条上）：平时垫一层灰底，一眼看出谁在前台
+    var isFront: Bool = false
     /// ⌘Tab 会话中被键盘选中的标签：画描边环（和前台蓝底区分开）
     var keyboardSelected: Bool = false
     var animated: Bool = true
@@ -119,6 +133,7 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
+        .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isFront)
         .help(entry.isRunning ? entry.name : "\(entry.name)（未執行，點選開啟）")
         // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
@@ -150,8 +165,8 @@ struct AppTab: View {
         .padding(.bottom, TTLayout.s(2))
     }
 
-    /// 标签风格：图标 + 名称。没在运行的固定项名字压淡；不画运行小圆点
-    /// （标签模式靠名字深浅就能分辨，小圆点反而像多余的装饰）。
+    /// 标签风格：图标 + 名称。没在运行的固定项只放图标；不画运行小圆点
+    /// （标签模式靠有没有名字就能分辨，小圆点反而像多余的装饰）。
     private var labelCell: some View {
         HStack(spacing: TTLayout.s(6)) {
             Image(nsImage: entry.icon)
@@ -162,19 +177,25 @@ struct AppTab: View {
                 // 上报给窗口层的命中区域也就不受影响。
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
                 .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
-            Text(entry.name)
-                // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
-                // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
-                // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
-                // 选中态改用满不透明度的文字 + 蓝底 + 描边来表达。
-                .font(.system(size: TTLayout.font(12), weight: .medium))
-                .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : (entry.isRunning ? 0.85 : 0.55)))
-                .lineLimit(1)
-                .fixedSize()
+            if showsName {
+                Text(entry.name)
+                    // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
+                    // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
+                    // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
+                    // 选中态改用满不透明度的文字 + 蓝底 + 描边来表达。
+                    .font(.system(size: TTLayout.font(12), weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : (entry.isRunning ? 0.85 : 0.55)))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
-        .padding(.horizontal, TTLayout.s(9))
+        // 只有图标时左右也收成 6pt，和上下一样，成一个方块
+        .padding(.horizontal, TTLayout.s(showsName ? 9 : 6))
         .padding(.vertical, TTLayout.s(6))
     }
+
+    /// 固定了但没在运行的 App 只放图标（同 Windows 11 任务栏），名字留在悬停提示里
+    private var showsName: Bool { entry.isRunning || !entry.isPinned }
 
     private func runningDot(visible: Bool) -> some View {
         Circle()
@@ -215,6 +236,10 @@ struct AppTab: View {
     private var backgroundColor: Color {
         if isActive { return Color.accentColor.opacity(0.32) }
         if hot { return Color.primary.opacity(0.12) }
+        // 用中性灰而不是 primary：深色模式下 primary 是白色，
+        // 叠在偏亮的玻璃上几乎看不见；中灰在亮/暗玻璃上都读得出来，
+        // 也比悬停的淡底重一点，和"指针扫过别的标签"区分开
+        if isFront { return Color.gray.opacity(0.38) }
         return Color.clear
     }
 }
@@ -307,6 +332,7 @@ struct TabBarView: View {
                                // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
                                isActive: catalog.pointerOverBar && entry.pid > 0
                                    && entry.pid == catalog.activePID,
+                               isFront: entry.pid > 0 && entry.pid == catalog.activePID,
                                keyboardSelected: entry.pid > 0 && entry.pid == catalog.keyboardHighlightPID,
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,

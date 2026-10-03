@@ -1185,6 +1185,8 @@ final class TabBarController: TabBarHost {
         }
         startMenu.show(anchorInScreen: buttonRect, barFrame: panel.frame, barWindow: panel)
         catalog.startMenuOpen = true
+        // 「背景執行」区要知道谁没窗口：开关关着时平时不查，这里立刻补查一轮
+        catalog.scanWindows()
     }
 
     func refreshCatalog() {

@@ -18,6 +18,14 @@ struct WindowInfo: Identifiable, Sendable {
     let isMinimized: Bool
     /// 该窗口在 App 的 AX 窗口数组里的下标；点击时用它精确定位
     let axIndex: Int?
+    /// 原生分页（访达 / 终端机 / 预览程式…）。少于 2 个分页时为空
+    var tabs: [WindowTab] = []
+}
+
+/// 窗口里的一个原生分页
+struct WindowTab: Sendable, Equatable {
+    let title: String
+    let selected: Bool
 }
 
 /// 窗口枚举（辅助功能 API 定集合）+ 缩略图抓取（ScreenCaptureKit 出像素）。
@@ -129,7 +137,8 @@ final class ScreenCaptureEngine: @unchecked Sendable {
                            frame: ax.frame,
                            isOnScreen: false,
                            isMinimized: ax.minimized,
-                           axIndex: ax.index)
+                           axIndex: ax.index,
+                           tabs: ax.tabs)
             }
         }
 
@@ -206,7 +215,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
                 _ = seats.take(near: ax.frame)
                 out.append(WindowInfo(id: match.windowID, title: title, frame: ax.frame,
                                       isOnScreen: match.isOnScreen, isMinimized: ax.minimized,
-                                      axIndex: ax.index))
+                                      axIndex: ax.index, tabs: ax.tabs))
             } else {
                 // AX 说有窗口但 SC 没有对应表面 —— 找窗口服务器要证据
                 guard seats.take(near: ax.frame) else {
@@ -215,7 +224,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
                 }
                 out.append(WindowInfo(id: syntheticBase + UInt32(ax.index), title: ax.title,
                                       frame: ax.frame, isOnScreen: false,
-                                      isMinimized: ax.minimized, axIndex: ax.index))
+                                      isMinimized: ax.minimized, axIndex: ax.index, tabs: ax.tabs))
             }
         }
         return out
@@ -435,6 +444,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         let minimized: Bool
         /// 用户认知里的"窗口"（排除 AX 窗口数组里混进来的非窗口元素）
         let real: Bool
+        let tabs: [WindowTab]
     }
 
     /// 查询一批 App 的 AX 窗口。**并发**发问，避免 N 个 App 的超时串行叠加。
@@ -489,13 +499,39 @@ final class ScreenCaptureEngine: @unchecked Sendable {
                 let rect = axFrame(of: win) ?? .zero
                 let role = stringAttr(win, kAXRoleAttribute as CFString) ?? ""
                 let subrole = stringAttr(win, kAXSubroleAttribute as CFString) ?? ""
+                let real = isRealWindow(role: role, subrole: subrole, size: rect.size)
                 return AXWindow(index: index,
                                 title: stringAttr(win, kAXTitleAttribute as CFString) ?? "",
                                 frame: rect,
                                 minimized: boolAttr(win, kAXMinimizedAttribute as CFString) ?? false,
-                                real: isRealWindow(role: role, subrole: subrole, size: rect.size))
+                                real: real,
+                                tabs: real ? nativeTabs(of: win) : [])
             }
         }
+    }
+
+    /// 原生分页列：AppKit 窗口分页（访达 / 终端机 / 预览程式 / 文字编辑…）在窗口的
+    /// **直接子元素**里挂一个 AXTabGroup，每个分页是一颗 AXRadioButton，
+    /// AXValue = 1 的是当前分页。只看直接子元素：浏览器的分页列埋在很深的
+    /// 网页树里，往下钻既慢又不是原生分页，不碰。少于 2 个分页时 App 不显示分页列，回空。
+    private static func nativeTabs(of win: AXUIElement) -> [WindowTab] {
+        guard let children = elementsAttr(win, kAXChildrenAttribute as CFString),
+              let group = children.first(where: { stringAttr($0, kAXRoleAttribute as CFString) == "AXTabGroup" }),
+              let buttons = elementsAttr(group, "AXTabs" as CFString)
+                ?? elementsAttr(group, kAXChildrenAttribute as CFString) else { return [] }
+        let tabs: [WindowTab] = buttons.compactMap { button in
+            guard stringAttr(button, kAXRoleAttribute as CFString) == "AXRadioButton" else { return nil }
+            let title = stringAttr(button, kAXTitleAttribute as CFString)
+                ?? stringAttr(button, kAXDescriptionAttribute as CFString) ?? ""
+            return WindowTab(title: title, selected: boolAttr(button, kAXValueAttribute as CFString) ?? false)
+        }
+        return tabs.count >= 2 ? tabs : []
+    }
+
+    private static func elementsAttr(_ element: AXUIElement, _ attribute: CFString) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+        return value as? [AXUIElement]
     }
 
     /// `kAXWindowsAttribute` 并不保证只给窗口：实测访达会多报一条

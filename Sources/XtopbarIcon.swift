@@ -6,12 +6,36 @@ import AppKit
 /// 配色（浅色/深色菜单栏、选中态反白）自动上色，所以这里只画形状不画颜色。
 enum XtopbarIcon {
 
-    /// 状态栏图标（18×18 pt）：顶部一条悬浮栏，下面三个 App 圆点。
+    /// 状态栏图标（18×18 pt）：Logo；读不到时退回旧图标。
+    static func statusBar() -> NSImage {
+        logoStatusBar() ?? legacyStatusBar()
+    }
+
+    /// 状态栏图标用 Logo（Resources/Logo.png，和 App 图标、开始按钮同一张）。
+    /// Logo 是白色 + 透明底，template 只看 alpha，颜色交给系统。
+    /// 用 drawingHandler 画：Retina / 非 Retina 都按实际像素重画，不会糊。
+    private static func logoStatusBar() -> NSImage? {
+        guard let logo = Bundle.main.image(forResource: "Logo"), logo.size.height > 0 else { return nil }
+        let side: CGFloat = 18
+        let glyph: CGFloat = 16   // 和系统状态栏图标的视觉高度对齐，四周各留 1pt
+        let aspect = logo.size.width / logo.size.height
+        let size = aspect >= 1 ? NSSize(width: glyph, height: glyph / aspect)
+                               : NSSize(width: glyph * aspect, height: glyph)
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            logo.draw(in: NSRect(x: (side - size.width) / 2, y: (side - size.height) / 2,
+                                 width: size.width, height: size.height))
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// 旧图标（读不到 Logo 时的兜底）：顶部一条悬浮栏，下面三个 App 圆点。
     ///
     /// 试过的形态：「横条 + 三个方块」→ 像床；「屏幕外框 + 顶栏」→ 像文件夹；
     /// 「胶囊 + 三个竖片」→ 像梳子；「胶囊 + 双箭头」→ 两个箭头黏成菱形。
     /// 圆点比方块轻，不会读成家具腿，是这几个里最小巧、最经得起 18pt 缩放的。
-    static func statusBar() -> NSImage {
+    private static func legacyStatusBar() -> NSImage {
         let side: CGFloat = 18
         let image = rasterize(size: NSSize(width: side, height: side), scale: 2) { _ in
             // 悬浮栏本体

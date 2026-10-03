@@ -18,12 +18,13 @@ import ApplicationServices
 /// AX 是同步阻塞 API，整轮查询丢进 `Task.detached`，按 pid 走 `WindowBridge.axGate` 串行，
 /// 不同 App 之间并发。
 @MainActor
-final class WindowPresence {
+final class WindowPresence: ObservableObject {
 
     static let shared = WindowPresence()
 
     /// 判定为"没有窗口"的 pid
-    private(set) var windowless: Set<pid_t> = []
+    /// 开始菜单的「背景執行」区直接观察它
+    @Published private(set) var windowless: Set<pid_t> = []
 
     /// 集合变化回调（AppCatalog 据此重采）
     var onChange: (@MainActor () -> Void)?
