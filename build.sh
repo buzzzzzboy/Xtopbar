@@ -17,7 +17,7 @@ mkdir -p build
 
 echo "→ 生成 App 图标"
 xcrun swiftc -O -sdk "$SDK" -o "build/make-icons" scripts/make-icons.swift
-"build/make-icons" build
+"build/make-icons" build Resources/Logo.png
 
 for arch in arm64 x86_64; do
   echo "→ compiling ${arch}"
@@ -36,6 +36,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "build/${NAME}" "$APP/Contents/MacOS/${NAME}"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp "build/Xtopbar.icns" "$APP/Contents/Resources/Xtopbar.icns"
+cp Resources/Logo.png "$APP/Contents/Resources/Logo.png"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # 自签名证书是 CSSMERR_TP_NOT_TRUSTED（未加入信任链），所以不能带 -v —— 

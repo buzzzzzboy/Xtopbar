@@ -34,14 +34,25 @@ struct StartButton: View {
 
     @State private var hovering = false
 
+    /// 白色 Logo（和 App 图标同一张，Resources/Logo.png）
+    private static let logo: NSImage? = Bundle.main.image(forResource: "Logo")
+
     var body: some View {
-        Image(systemName: "square.grid.2x2.fill")
-            .font(.system(size: TTLayout.font(iconOnly ? 24 : 15), weight: .semibold))
-            .foregroundStyle(
-                LinearGradient(colors: [Color(red: 0.25, green: 0.62, blue: 1.0),
-                                        Color(red: 0.14, green: 0.42, blue: 0.95)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
+        Group {
+            if let logo = Self.logo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: TTLayout.s(iconOnly ? 24 : 17), height: TTLayout.s(iconOnly ? 24 : 17))
+                    // 白色在偏亮的玻璃上会发虚，垫一圈很淡的阴影托住轮廓
+                    .shadow(color: .black.opacity(0.28), radius: 1, y: 0.5)
+            } else {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.system(size: TTLayout.font(iconOnly ? 24 : 15), weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
             .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
             .scaleEffect(hovering && !isOpen ? 1.08 : 1.0)
             .background(
