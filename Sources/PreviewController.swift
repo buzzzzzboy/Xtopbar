@@ -9,6 +9,8 @@ struct PreviewItem: Identifiable {
     let frame: CGRect
     let isMinimized: Bool
     let image: CGImage?
+    /// 原生分页（≥2 个才有）：卡片标题处改列分页名称
+    var tabs: [WindowTab] = []
 }
 
 /// 指针落在哪张卡的哪个部位
@@ -127,15 +129,11 @@ struct PreviewCard: View {
             .animation(.easeOut(duration: 0.1), value: pressed)
             .animation(.easeOut(duration: 0.12), value: hovered)
 
-            Text(item.title)
-                // 字重固定：semibold 会让标题宽 1~2pt，截断位置跟着跳，
-                // 鼠标在几张卡之间扫过时看得见抖动。选中感交给不透明度 + 颜色。
-                .font(.system(size: TTLayout.font(10), weight: .medium))
-                .foregroundStyle(hot ? Color.primary : Color.primary.opacity(0.7))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: PreviewLayout.cardWidth)
-                .animation(.easeOut(duration: 0.1), value: hot)
+            if item.tabs.isEmpty {
+                titleText
+            } else {
+                tabList
+            }
         }
         .opacity(shown ? 1 : 0)
         .background(
@@ -154,6 +152,60 @@ struct PreviewCard: View {
                 shown = true
             }
         }
+    }
+
+    private var titleText: some View {
+        Text(item.title)
+            // 字重固定：semibold 会让标题宽 1~2pt，截断位置跟着跳，
+            // 鼠标在几张卡之间扫过时看得见抖动。选中感交给不透明度 + 颜色。
+            .font(.system(size: TTLayout.font(10), weight: .medium))
+            .foregroundStyle(hot ? Color.primary : Color.primary.opacity(0.7))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(width: PreviewLayout.cardWidth)
+            .animation(.easeOut(duration: 0.1), value: hot)
+    }
+
+    /// 多分页窗口：标题处改列分页名称，当前分页前面一个小圆点、字最亮。
+    /// 只是显示，点哪里都是切到这个窗口（当前分页）。
+    private var tabList: some View {
+        let tabs = item.tabs
+        let limit = PreviewLayout.maxTabRows
+        // 放不下就露 3 个 + 「還有 N 個」，并保证当前分页在露出来的那 3 个里
+        let shown: ArraySlice<WindowTab>
+        if tabs.count <= limit {
+            shown = tabs[...]
+        } else {
+            let current = tabs.firstIndex(where: \.selected) ?? 0
+            let start = min(max(0, current - 1), tabs.count - (limit - 1))
+            shown = tabs[start..<(start + limit - 1)]
+        }
+        let hidden = tabs.count - shown.count
+        return VStack(alignment: .leading, spacing: PreviewLayout.tabRowStep - PreviewLayout.tabRowHeight) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, tab in
+                HStack(spacing: TTLayout.s(5)) {
+                    Circle()
+                        .fill(tab.selected ? Color.accentColor : Color.clear)
+                        .frame(width: TTLayout.s(5), height: TTLayout.s(5))
+                    Text(tab.title.isEmpty ? "未命名分頁" : tab.title)
+                        .font(.system(size: TTLayout.font(10), weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(tab.selected ? (hot ? 1 : 0.85) : 0.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(height: PreviewLayout.tabRowHeight)
+            }
+            if hidden > 0 {
+                Text("還有 \(hidden) 個分頁")
+                    .font(.system(size: TTLayout.font(9)))
+                    .foregroundStyle(Color.primary.opacity(0.45))
+                    .padding(.leading, TTLayout.s(10))
+                    .frame(height: PreviewLayout.tabRowHeight)
+            }
+        }
+        .padding(.horizontal, TTLayout.s(4))
+        .frame(width: PreviewLayout.cardWidth, alignment: .leading)
+        .animation(.easeOut(duration: 0.1), value: hot)
     }
 
     /// 左上角关闭按钮。动作在窗口层处理（SwiftUI 手势在非激活浮窗里命中不稳），
@@ -210,6 +262,16 @@ enum PreviewLayout {
     static var padding: CGFloat { s(11) }
     static let maxCards = 5
 
+    /// 分页列表：每行高 14pt、行距 1pt；最多 4 行，再多就 3 个分页 + 「還有 N 個分頁」
+    static var tabRowHeight: CGFloat { s(14) }
+    static var tabRowStep: CGFloat { s(15) }
+    static let maxTabRows = 4
+
+    /// 卡片标题区占几行（整排卡片取最高的那张，面板高度按它算）
+    static func titleRows(_ items: [PreviewItem]) -> Int {
+        items.map { $0.tabs.isEmpty ? 1 : min($0.tabs.count, maxTabRows) }.max() ?? 1
+    }
+
     /// 缩略图抓取尺寸：卡片尺寸的 2 倍（Retina）
     static var thumbSize: CGSize {
         CGSize(width: cardWidth * 2, height: imageHeight * 2)
@@ -233,7 +295,8 @@ struct PreviewView: View {
     private var computedSize: CGSize {
         PreviewView.size(for: model.items.count,
                          hasOverflow: overflow > 0,
-                         hint: model.hint)
+                         hint: model.hint,
+                         titleRows: PreviewLayout.titleRows(visibleItems))
     }
 
     /// 面板尺寸。
@@ -241,7 +304,7 @@ struct PreviewView: View {
     /// 没有窗口的 App 根本不弹预览（`PreviewController.show` 里直接 return），
     /// 所以这里只需要算「有卡片」的尺寸；hint 是卡片下方那行橙色提示的高度。
     /// 内部常量一律走 PreviewLayout（已含界面缩放）。
-    static func size(for itemCount: Int, hasOverflow: Bool, hint: String) -> CGSize {
+    static func size(for itemCount: Int, hasOverflow: Bool, hint: String, titleRows: Int = 1) -> CGSize {
         let n = max(1, min(itemCount, PreviewLayout.maxCards))
         let cards = CGFloat(n) * PreviewLayout.cardWidth + CGFloat(n - 1) * PreviewLayout.spacing
         let overflowWidth: CGFloat = hasOverflow ? TTLayout.s(74) : 0
@@ -250,7 +313,8 @@ struct PreviewView: View {
         let contentWidth = cards + overflowWidth
         return CGSize(width: PreviewLayout.padding * 2 + contentWidth,
                       height: PreviewLayout.padding * 2 + TTLayout.s(16) + TTLayout.s(6)
-                              + PreviewLayout.imageHeight + TTLayout.s(5) + TTLayout.s(14) + hintHeight)
+                              + PreviewLayout.imageHeight + TTLayout.s(5) + TTLayout.s(14) + hintHeight
+                              + CGFloat(max(0, titleRows - 1)) * PreviewLayout.tabRowStep)
     }
 
     var body: some View {
@@ -294,7 +358,7 @@ struct PreviewView: View {
             }
             .padding(.horizontal, TTLayout.s(2))
 
-            HStack(spacing: PreviewLayout.spacing) {
+            HStack(alignment: .top, spacing: PreviewLayout.spacing) {
                 ForEach(Array(visibleItems.enumerated()), id: \.element.id) { offset, item in
                     PreviewCard(item: item,
                                 icon: model.icon,
@@ -525,7 +589,7 @@ final class PreviewController {
             let old = model.items[i]
             model.items[i] = PreviewItem(id: old.id, index: i, title: old.title,
                                          frame: old.frame, isMinimized: old.isMinimized,
-                                         image: old.image)
+                                         image: old.image, tabs: old.tabs)
         }
         // 下标整体左移，旧的悬停/按压态全部作废；鼠标轮询会立刻重建悬停
         model.hovered = nil
@@ -574,7 +638,7 @@ final class PreviewController {
         // 先记一笔再分流：空列表 / 无权限也是有用的信号，不能只在成功路径打日志
         TTLog("preview \(entry.name) raw=\(all.count) shown=\(windows.count) "
               + "perm=\(ScreenCaptureEngine.hasPermission) "
-              + "titles=\(all.map(\.title))")
+              + "titles=\(all.map(\.title)) tabs=\(all.map { $0.tabs.map(\.title) })")
 
         // 预览只在「需要挑选」时才有意义：单窗口的 App 点标签本身就切过去了，
         // 再弹一张预览纯属打扰。例外是被最小化的窗口 —— 点图标把它收进去之后，
@@ -593,7 +657,8 @@ final class PreviewController {
                         title: win.title.isEmpty ? "視窗 \(idx + 1)" : win.title,
                         frame: win.frame,
                         isMinimized: win.isMinimized,
-                        image: engine.cached(win.id, maxAge: 4.0))
+                        image: engine.cached(win.id, maxAge: 4.0),
+                        tabs: win.tabs)
         }
 
         present(anchorInScreen: anchorInScreen, mainPanelFrame: mainPanelFrame)
@@ -627,7 +692,7 @@ final class PreviewController {
                 self.model.items[idx] = PreviewItem(id: old.id, index: old.index,
                                                     title: old.title, frame: old.frame,
                                                     isMinimized: old.isMinimized,
-                                                    image: image.value)
+                                                    image: image.value, tabs: old.tabs)
             }
         }
     }
@@ -662,7 +727,8 @@ final class PreviewController {
             ?? NSScreen.main ?? NSScreen.screens[0]
         let size = PreviewView.size(for: model.items.count,
                                     hasOverflow: model.items.count > PreviewLayout.maxCards,
-                                    hint: model.hint)
+                                    hint: model.hint,
+                                    titleRows: PreviewLayout.titleRows(Array(model.items.prefix(PreviewLayout.maxCards))))
         let visible = screen.visibleFrame
 
         // 条在上半屏 → 主面板正下方；条停在底部（Dock）→ 主面板正上方
