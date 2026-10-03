@@ -300,6 +300,9 @@ final class StartMenuController {
     /// 返回 true = 吃掉这个按键
     private func handleKey(_ keyCode: UInt16, inPanel: Bool) -> Bool {
         guard panel.isVisible, inPanel else { return false }
+        // 输入法正在组字（注音 / 拼音的候选还没确认）：按键全归输入法 ——
+        // 回车是确认选字、Esc 是取消组字、↑↓ 是挑候选，一个都不能截
+        if let editor = panel.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
         switch keyCode {
         case 53: // Esc：有搜索词先清空，再按一次收起
             if !model.query.isEmpty {
@@ -319,9 +322,10 @@ final class StartMenuController {
             let step = keyCode == 125 ? 1 : -1
             model.selection = min(max(model.selection + step, 0), count - 1)
             return true
-        case 36, 76: // 回车
+        case 36, 76: // 回车：只在搜索时截（打开选中项），其它时候放行给文本框（如文件夹改名）
+            guard !model.query.isEmpty else { return false }
             let results = model.results
-            guard !model.query.isEmpty, results.indices.contains(model.selection) else { return true }
+            guard results.indices.contains(model.selection) else { return true }
             launch(results[model.selection])
             return true
         default:

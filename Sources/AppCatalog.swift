@@ -127,9 +127,10 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - Collection
 
-    /// 后台查一轮"哪些 App 没有窗口"（结果变了会回调 refresh）。开关关着就不查。
+    /// 后台查一轮"哪些 App 没有窗口"（结果变了会回调 refresh）。
+    /// 开关关着、开始菜单也没开（它的「背景執行」区要用）就不查。
     func scanWindows() {
-        guard Preferences.shared.onlyWindowedApps else { return }
+        guard Preferences.shared.onlyWindowedApps || startMenuOpen else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let pids = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != me }
@@ -499,13 +500,16 @@ final class AppCatalog: ObservableObject {
 
     /// 退出 App（右键菜单）。先礼貌 terminate，5 秒后还在就强杀。
     func terminate(_ entry: AppEntry) {
-        guard entry.pid > 0, let app = NSRunningApplication(processIdentifier: entry.pid) else { return }
-        TTLog("terminate \(entry.name) pid=\(entry.pid)")
+        terminate(pid: entry.pid, name: entry.name)
+    }
+
+    func terminate(pid: pid_t, name: String) {
+        guard pid > 0, let app = NSRunningApplication(processIdentifier: pid) else { return }
+        TTLog("terminate \(name) pid=\(pid)")
         app.terminate()
-        let pid = entry.pid
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             if let still = NSRunningApplication(processIdentifier: pid), !still.isTerminated {
-                TTLog("terminate timeout → forceTerminate \(entry.name)")
+                TTLog("terminate timeout → forceTerminate \(name)")
                 still.forceTerminate()
             }
         }
@@ -597,14 +601,42 @@ final class AppCatalog: ObservableObject {
         Preferences.shared.startPins.removeAll { $0.bundleID == id }
     }
 
-    /// 开始菜单里拖动排序：把 `id` 挪到 `targetID` 所在的位置（往后拖落在它后面，往前拖落在它前面）
-    func moveStartPin(_ id: String, to targetID: String) {
-        var pins = Preferences.shared.startPins
-        guard id != targetID,
-              let i = pins.firstIndex(where: { $0.bundleID == id }),
-              let j = pins.firstIndex(where: { $0.bundleID == targetID }) else { return }
-        pins.insert(pins.remove(at: i), at: j)
-        Preferences.shared.startPins = pins
+    /// 已固定网格里文件夹格子的 key
+    nonisolated static func startFolderKey(_ id: UUID) -> String { "folder:\(id.uuidString)" }
+
+    /// 已固定网格的统一顺序：App 格是 bundle id，文件夹格是 `startFolderKey`。
+    ///
+    /// `startOrder` 只决定「第几格是文件夹、第几格是 App」，App 格按 `startPins` 的顺序依次填 ——
+    /// 这样设置里给固定项排序照样生效。没记进顺序的新固定项 / 新文件夹排在最后。
+    func startGridKeys() -> [String] {
+        let prefs = Preferences.shared
+        let pinIDs = prefs.startPins.map(\.bundleID)
+        let folderKeys = prefs.startFolders.map { Self.startFolderKey($0.id) }
+        let live = Set(pinIDs).union(folderKeys)
+        let folderSet = Set(folderKeys)
+
+        var seen = Set<String>()
+        var slots: [String] = []
+        for key in prefs.startOrder + pinIDs + folderKeys where live.contains(key) && !seen.contains(key) {
+            seen.insert(key)
+            slots.append(key)
+        }
+        var pins = pinIDs.makeIterator()
+        return slots.map { folderSet.contains($0) ? $0 : (pins.next() ?? $0) }
+    }
+
+    /// 已固定网格里拖动排序（App 和文件夹混排）：把 `key` 挪到 `targetKey` 所在的位置
+    func moveStartGridItem(_ key: String, to targetKey: String) {
+        var keys = startGridKeys()
+        guard key != targetKey,
+              let i = keys.firstIndex(of: key),
+              let j = keys.firstIndex(of: targetKey) else { return }
+        keys.insert(keys.remove(at: i), at: j)
+        let prefs = Preferences.shared
+        prefs.startOrder = keys
+        // startPins 跟着排成同样的相对顺序（设置页的列表也就一致了）
+        let rank = Dictionary(keys.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        prefs.startPins.sort { (rank[$0.bundleID] ?? .max) < (rank[$1.bundleID] ?? .max) }
     }
 
     // MARK: - 开始菜单文件夹
@@ -646,7 +678,7 @@ final class AppCatalog: ObservableObject {
         Preferences.shared.startFolders[i].apps.removeAll { $0.bundleID == id }
     }
 
-    /// 文件夹里拖动排序，规则同 `moveStartPin`
+    /// 文件夹里拖动排序：把 `id` 挪到 `targetID` 所在的位置
     func moveInStartFolder(_ folderID: UUID, _ id: String, to targetID: String) {
         guard let f = Preferences.shared.startFolders.firstIndex(where: { $0.id == folderID }) else { return }
         var apps = Preferences.shared.startFolders[f].apps
