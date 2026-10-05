@@ -86,7 +86,7 @@ struct StartMenuView: View {
         )
         .onAppear { searchFocused = true }
         .onChange(of: model.openFolder) { _, id in
-            // 文件夹收起（点暗幕 / Esc）：焦点交还搜索框，打字照样能搜
+            // 文件夹收起（点外面 / Esc）：焦点交还搜索框，打字照样能搜
             if id == nil { DispatchQueue.main.async { searchFocused = true } }
         }
         .onChange(of: model.focusToken) { _, _ in
@@ -308,16 +308,16 @@ struct StartMenuView: View {
     }
 
     /// 文件夹弹窗：盖在首页上，贴着文件夹格子弹出（同 Windows 11 的文件夹）。
-    /// 后面垫一层暗幕，点暗幕 / 按 Esc 收起。
+    /// 后面垫一层透明的点击层，点外面 / 按 Esc 收起。
     private var folderPad: some View {
         GeometryReader { geo in
             let folder = model.openFolder.flatMap { id in prefs.startFolders.first { $0.id == id } }
             ZStack(alignment: .topLeading) {
                 if folder != nil {
-                    Color.black.opacity(0.18)
+                    // 透明的一层：背景不变灰，只负责"点外面收起"
+                    Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture { closeFolder() }
-                        .transition(.opacity)
                 }
                 if let folder {
                     let origin = padOrigin(folder.id, in: geo.size)
@@ -333,7 +333,7 @@ struct StartMenuView: View {
                             .combined(with: .opacity))
                 }
             }
-            // 收起时暗幕 / 弹窗还在淡出（弹簧动画收尾要一阵子），
+            // 收起时弹窗还在淡出（弹簧动画收尾要一阵子），
             // 淡出中的视图照样吃点击，会让下一次点文件夹没反应。这里一收起就整层不收点击
             .allowsHitTesting(folder != nil)
         }
@@ -358,7 +358,7 @@ struct StartMenuView: View {
         return UnitPoint(x: tile.midX / container.width, y: tile.midY / container.height)
     }
 
-    /// 弹窗本体：名字（点一下就能改）+ 删除，下面是可拖动排序的图标网格
+    /// 弹窗本体：名字（点一下就能改）+ 关闭，下面是可拖动排序的图标网格
     private func padCard(_ folder: StartFolder) -> some View {
         let apps = resolved(folder.apps)
         return VStack(spacing: TTLayout.s(8)) {
@@ -379,15 +379,13 @@ struct StartMenuView: View {
                         .fill(Color.primary.opacity(folderNameFocused ? 0.10 : 0))
                 )
 
-                Button {
-                    closeFolder()
-                    catalog.deleteStartFolder(folder.id)
-                } label: {
-                    Image(systemName: "trash")
+                // 删除文件夹改走右键菜单，这里只收起
+                Button { closeFolder() } label: {
+                    Image(systemName: "xmark")
                         .font(.system(size: TTLayout.font(11), weight: .medium))
                 }
                 .buttonStyle(PillButtonStyle())
-                .help("刪除資料夾（裡面的應用不受影響）")
+                .help("關閉")
             }
 
             if apps.isEmpty {
@@ -422,7 +420,7 @@ struct StartMenuView: View {
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.28), radius: 18, y: 6)
-        // 弹窗本体要能命中：点空白处不穿透到下面的暗幕把弹窗关掉
+        // 弹窗本体要能命中：点空白处不穿透到下面的点击层把弹窗关掉
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(12), style: .continuous))
     }
 
