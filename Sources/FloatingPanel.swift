@@ -27,6 +27,8 @@ final class FloatingPanel: NSPanel {
     /// 内容层要给按压动效时用它；`onPress` 返回 true 表示命中并接管这次点击。
     var onPress: ((NSPoint) -> Bool)?
     var onRelease: ((NSPoint) -> Void)?
+    /// 按下被 `onPress` 接管后的拖动（主面板拖标签排序用）。不设就照常往下传。
+    var onDrag: ((NSPoint) -> Void)?
 
     private var swallowNextMouseUp = false
     private var handledByPressHook = false
@@ -60,7 +62,7 @@ final class FloatingPanel: NSPanel {
         switch event.type {
         case .leftMouseDown:
             // 两段式优先：预览面板要"按下缩一下 → 抬起才切窗口"，
-            // 主面板保持按下即触发（点标签最快）
+            // 主面板要"抬起才切 App、按住拖动就排序"
             if let onPress, onPress(event.locationInWindow) {
                 handledByPressHook = true
                 swallowNextMouseUp = true
@@ -70,6 +72,10 @@ final class FloatingPanel: NSPanel {
                 swallowNextMouseUp = true
                 return
             }
+        case .leftMouseDragged where handledByPressHook && onDrag != nil:
+            // 按下在本窗口里，拖出窗口外也照样收到拖动事件
+            onDrag?(event.locationInWindow)
+            return
         case .leftMouseUp where swallowNextMouseUp:
             swallowNextMouseUp = false
             if handledByPressHook {

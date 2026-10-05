@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Combine
+import SwiftUI
 
 /// 一个可点击的标签 = 一个正在运行的 App，或一个固定到任务栏的 App（可能没在运行）
 struct AppEntry: Identifiable, Equatable {
@@ -169,6 +170,12 @@ final class AppCatalog: ObservableObject {
             }
         }
 
+        // 退出了的 App 从拖动排序里剔掉：再开时回到最右边，而不是"记得"旧位置
+        let runningIDs = Set(running.map(\.id))
+        if prefs.runningOrder.contains(where: { !runningIDs.contains($0) }) {
+            prefs.runningOrder.removeAll { !runningIDs.contains($0) }
+        }
+
         let hidden = prefs.hiddenApps
         // 「只显示有窗口的 App」：没窗口的运行中 App 不上条（固定项上面已经收走了，不受影响）
         let windowless: Set<pid_t> = prefs.onlyWindowedApps ? WindowPresence.shared.windowless : []
@@ -230,10 +237,19 @@ final class AppCatalog: ObservableObject {
     }
 
     /// 按打开时间排：先开的在左，新开的接在最右边（同 Windows 任务栏）。
-    /// 顺序只在启动 / 退出时变，点标签切换不会挪位，不会误点。
+    /// 顺序只在启动 / 退出 / 拖动时变，点标签切换不会挪位，不会误点。
+    /// 用户拖动排过的（`runningOrder`）排在前面按排好的先后，其余接在后面按打开时间。
     /// 拿不到启动时间的（极少见）排最后，再按 pid 兜底保证稳定。
     private func sorted(_ entries: [AppEntry]) -> [AppEntry] {
-        entries.sorted { a, b in
+        var rank: [String: Int] = [:]
+        for (i, id) in Preferences.shared.runningOrder.enumerated() where rank[id] == nil { rank[id] = i }
+        return entries.sorted { a, b in
+            switch (rank[a.id], rank[b.id]) {
+            case let (x?, y?) where x != y: return x < y
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: break
+            }
             switch (a.launchDate, b.launchDate) {
             case let (x?, y?) where x != y: return x < y
             case (.some, nil): return true
@@ -263,7 +279,8 @@ final class AppCatalog: ObservableObject {
     var menuTracking = false
 
     func refresh() {
-        guard !menuTracking else { return }
+        // 拖动排序中也不重采：开拖时拍的快照要和条上的标签对得上，松手会补一次
+        guard !menuTracking, drag == nil else { return }
         let frontmost = NSWorkspace.shared.frontmostApplication
         let frontPID = frontmost?.processIdentifier ?? -1
 
@@ -289,33 +306,117 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - Actions
 
-    /// 窗口层命中测试入口：point 使用「原点在左上」的坐标系
-    func handleTap(at point: NSPoint) -> Bool {
+    /// 按住的标签：抬起时没拖动 = 点击，拖动超过阈值 = 拖动排序
+    private var pressedEntry: AppEntry?
+    private var pressPoint: NSPoint = .zero
+
+    /// 拖动多远才算拖（pt）。小于它的手抖仍然算点击。
+    private static let dragThreshold: CGFloat = 4
+
+    /// 鼠标按住标签中（按下还没抬起 / 正在拖）：控制器据此暂停自动隐藏
+    var isPressing: Bool { pressedEntry != nil }
+
+    /// 窗口层命中测试入口（point 使用「原点在左上」的坐标系）。
+    /// 按下：开始按钮当场开关；标签先记下来，等抬起或拖动再决定是点击还是排序。
+    /// 点击在抬起时才执行（同系统 Dock / Windows 任务栏）—— 按下就切 App 的话没法拖。
+    func handlePress(at point: NSPoint) -> Bool {
+        pressedEntry = nil
+        if drag != nil { drag = nil }
         if let rect = tabFrames[Self.startButtonID], rect.contains(point) {
             if keyboardSession { endKeyboardSession() }
             host?.toggleStartMenu()
             return true
         }
-        var hit: AppEntry?
+        guard let hit = entry(at: point) else { return false }
+        pressedEntry = hit
+        pressPoint = point
+        return true
+    }
+
+    /// 按住拖动：过了阈值就进入拖动排序，被拖的标签跟着指针走，同组其它标签让位
+    func handleDrag(to point: NSPoint) {
+        guard let pressed = pressedEntry else { return }
+        if drag == nil {
+            // ⌘Tab 会话里条是键盘驱动的，不在这时候排序
+            guard !keyboardSession,
+                  max(abs(point.x - pressPoint.x), abs(point.y - pressPoint.y)) > Self.dragThreshold,
+                  let started = TabDrag(entry: pressed, startX: pressPoint.x, groups: groups, frames: tabFrames)
+            else { return }
+            host?.dismissPreview()
+            drag = started
+        }
+        drag?.move(to: point.x)
+    }
+
+    /// 抬起：拖过就落位，没拖就当一次点击
+    func handleRelease(at point: NSPoint) {
+        let pressed = pressedEntry
+        pressedEntry = nil
+        if let finished = drag {
+            commit(finished)
+            return
+        }
+        guard let pressed else { return }
+        // ⌘Tab 会话中用鼠标点了标签：点击本身就是选择，
+        // 结束会话避免松 ⌘ 时再提交一次高亮（可能不是点中的这个）
+        if keyboardSession { endKeyboardSession() }
+        activate(pressed, fromClick: true)
+        // 这次如果条是 ⌘Tab 呼出来的，选完立刻消失，不等鼠标离开的倒计时
+        host?.dismissQuickSwitch()
+    }
+
+    /// 兜底：鼠标键其实早就放开了却没收到 mouseUp（面板中途被收起之类），
+    /// 按住状态不清掉的话自动隐藏和重采会一直停着。拖到一半的不落位，原样弹回。
+    func cancelPress() {
+        pressedEntry = nil
+        guard drag != nil else { return }
+        withAnimation(Preferences.shared.animationsEnabled ? TabDrag.settle : nil) { drag = nil }
+        refresh()
+    }
+
+    private func entry(at point: NSPoint) -> AppEntry? {
         for group in groups {
             for entry in group.entries {
-                if let rect = tabFrames[entry.id], rect.contains(point) {
-                    hit = entry
-                    break
-                }
+                if let rect = tabFrames[entry.id], rect.contains(point) { return entry }
             }
-            if hit != nil { break }
         }
-        if let hit {
-            // ⌘Tab 会话中用鼠标点了标签：点击本身就是选择，
-            // 结束会话避免松 ⌘ 时再提交一次高亮（可能不是点中的这个）
-            if keyboardSession { endKeyboardSession() }
-            activate(hit, fromClick: true)
-            // 这次如果条是 ⌘Tab 呼出来的，选完立刻消失，不等鼠标离开的倒计时
-            host?.dismissQuickSwitch()
-            return true
+        return nil
+    }
+
+    // MARK: - 拖动排序
+
+    /// 正在拖的标签（视图据此画位移）
+    @Published private(set) var drag: TabDrag?
+
+    /// 某个标签此刻该画的水平位移：被拖的跟着指针，其它的给它让出一格
+    func dragOffset(for id: String) -> CGFloat {
+        drag?.offset(for: id) ?? 0
+    }
+
+    /// 松手落位：固定组改 dockPins，运行中组改 runningOrder，然后带动画重排
+    private func commit(_ finished: TabDrag) {
+        let ids = finished.reorderedIDs
+        let prefs = Preferences.shared
+        if finished.target != finished.source {
+            if finished.groupID == AppCategory.pinned.rawValue {
+                var rest = prefs.dockPins
+                var pins: [PinnedApp] = []
+                for id in ids {
+                    if let i = rest.firstIndex(where: { $0.bundleID == id }) { pins.append(rest.remove(at: i)) }
+                }
+                prefs.dockPins = pins + rest
+            } else {
+                // 不在条上的（没窗口 / 已隐藏）保留原来的相对顺序，接在后面
+                prefs.runningOrder = ids + prefs.runningOrder.filter { !ids.contains($0) }
+            }
+            TTLog("drag reorder \(finished.groupID): \(ids)")
         }
-        return false
+        withAnimation(prefs.animationsEnabled ? TabDrag.settle : nil) {
+            drag = nil
+            // 先排好再撤位移：同一个事务里重排，标签从拖动时的位置滑进新格子
+            lastSignature = ""
+            refresh()
+        }
     }
 
     /// - fromClick: 鼠标点标签（Windows 任务栏语义：前台 App 再点一下 = 最小化）。
@@ -741,5 +842,73 @@ enum SessionCycle {
     static func next(_ index: Int, count: Int) -> Int {
         guard count > 0 else { return 0 }
         return ((index % count) + 1) % count
+    }
+}
+
+/// 一次拖动排序的状态。开拖那一刻把同组标签的位置拍个快照，之后全按快照算 ——
+/// 拖动中标签带着位移，实时上报的命中区域会跟着动，拿它算落点会自己追自己。
+/// 只在组内排：固定组和运行中组之间不互相拖（跨组 = 固定 / 取消固定，交给右键菜单）。
+struct TabDrag: Equatable {
+    let id: String
+    let groupID: String
+    /// 同组标签开拖时的顺序与位置（窗口坐标，原点上左）
+    let ids: [String]
+    let frames: [CGRect]
+    let source: Int
+    let startX: CGFloat
+    /// 被拖标签跟着指针的位移（已夹在组的两端之内）
+    private(set) var dx: CGFloat = 0
+    /// 松手会落到的下标
+    private(set) var target: Int
+
+    /// 让位 / 落位共用一条弹簧：重排时布局位移和 offset 归零同步走，被让位的标签才不会抖
+    static let settle = Animation.spring(response: 0.26, dampingFraction: 0.82)
+
+    init?(entry: AppEntry, startX: CGFloat, groups: [AppGroup], frames: [String: CGRect]) {
+        guard let group = groups.first(where: { $0.entries.contains { $0.id == entry.id } }) else { return nil }
+        let ids = group.entries.map(\.id)
+        let rects = ids.compactMap { frames[$0] }
+        guard rects.count == ids.count, let source = ids.firstIndex(of: entry.id) else { return nil }
+        self.id = entry.id
+        self.groupID = group.id
+        self.ids = ids
+        self.frames = rects
+        self.source = source
+        self.startX = startX
+        self.target = source
+    }
+
+    /// 被拖标签占的一格（自身宽度 + 到邻居的间隙 / 分隔线）：其它标签让位就挪这么多
+    var step: CGFloat {
+        let f = frames[source]
+        if source + 1 < frames.count { return frames[source + 1].minX - f.minX }
+        if source > 0 { return f.maxX - frames[source - 1].maxX }
+        return f.width
+    }
+
+    mutating func move(to x: CGFloat) {
+        guard let first = frames.first, let last = frames.last else { return }
+        let f = frames[source]
+        dx = min(max(x - startX, first.minX - f.minX), last.maxX - f.maxX)
+        // 落点 = 被拖标签的前沿越过了几个邻居的中线（往右看右边沿，往左看左边沿）。
+        // 不能拿中心比：位移夹在组两端之内，宽标签拖到头中心也过不了窄标签的中线，到不了末位。
+        let passedRight = frames.indices.filter { $0 > source && f.maxX + dx > frames[$0].midX }.count
+        let passedLeft = frames.indices.filter { $0 < source && f.minX + dx < frames[$0].midX }.count
+        target = source + passedRight - passedLeft
+    }
+
+    func offset(for id: String) -> CGFloat {
+        if id == self.id { return dx }
+        guard let i = ids.firstIndex(of: id) else { return 0 }
+        if source < i && i <= target { return -step }
+        if target <= i && i < source { return step }
+        return 0
+    }
+
+    var reorderedIDs: [String] {
+        var result = ids
+        result.remove(at: source)
+        result.insert(id, at: target)
+        return result
     }
 }

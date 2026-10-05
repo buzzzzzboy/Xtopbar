@@ -18,6 +18,8 @@ protocol TabBarHost: AnyObject {
     func dismissQuickSwitch() -> Bool
     /// 开始按钮 / 右键菜单 / 状态栏菜单：开关开始菜单
     func toggleStartMenu()
+    /// 收起窗口预览（开始拖标签时）
+    func dismissPreview()
 }
 
 /// 停靠边相关的几何：纯矩形运算，不碰 NSScreen / 面板，
@@ -124,6 +126,8 @@ final class TabBarController: TabBarHost {
     private var lastInteraction = Date.distantPast
     private var mouseTimer: Timer?
     private var isHoveringBar = false
+    /// 按住标签期间连续几拍看到左键已放开（mouseUp 丢失的兜底，见 tick）
+    private var releasedWhilePressing = 0
 
     /// 有 NSMenu 正在跟踪（右键菜单 / 状态栏菜单）。菜单是面板的子窗口，
     /// 菜单一开就必须暂停自动隐藏：用户从标签移到"退出 App"那一项时
@@ -212,12 +216,21 @@ final class TabBarController: TabBarHost {
         panel.contentView = host
         self.hostingView = host
 
-        // 点击命中：AppKit 窗口坐标（原点左下）→ SwiftUI 坐标（原点上左）
-        panel.onTap = { [weak self] locationInWindow in
+        // 点击命中：AppKit 窗口坐标（原点左下）→ SwiftUI 坐标（原点上左）。
+        // 两段式：按下记住标签，抬起才切 App；中间拖过阈值就变成拖动排序。
+        panel.onPress = { [weak self] locationInWindow in
             guard let self else { return false }
-            let height = self.panel.contentView?.bounds.height ?? self.barHeight
-            let point = NSPoint(x: locationInWindow.x, y: height - locationInWindow.y)
-            return self.catalog.handleTap(at: point)
+            return self.catalog.handlePress(at: self.viewPoint(fromWindow: locationInWindow))
+        }
+        panel.onDrag = { [weak self] locationInWindow in
+            guard let self else { return }
+            self.catalog.handleDrag(to: self.viewPoint(fromWindow: locationInWindow))
+        }
+        panel.onRelease = { [weak self] locationInWindow in
+            guard let self else { return }
+            self.catalog.handleRelease(at: self.viewPoint(fromWindow: locationInWindow))
+            // 拖着拖着指针可能已经离开条了，从松手这一刻重新计时
+            self.lastInteraction = Date()
         }
 
         catalog.onLayoutNeeded = { [weak self] in self?.relayout() }
@@ -225,6 +238,8 @@ final class TabBarController: TabBarHost {
 
         // 标签悬停 → 延迟弹出窗口预览
         catalog.onTabHover = { [weak self] entry in
+            // 拖动排序中指针扫过的标签不弹预览、不抢高亮
+            guard self?.catalog.drag == nil else { return }
             self?.hoverEndTime = nil
             // ⌘Tab 会话中指针接管高亮（AppRing 同款：扫到哪个，松 ⌘ 选哪个）
             self?.catalog.setKeyboardHighlight(entry.pid)
@@ -505,6 +520,33 @@ final class TabBarController: TabBarHost {
         }
     }
 
+    /// 拖动排序的落点 / 让位算法（纯几何，不碰真实标签）：三个宽窄不一的标签
+    /// A[0,100] B[110,150] C[160,260]，期望值写在日志里对照
+    private func diagnoseTabDrag() {
+        let icon = NSImage()
+        let entries = ["A", "B", "C"].map {
+            AppEntry(id: $0, pid: 0, name: $0, icon: icon, category: .other)
+        }
+        let groups = [AppGroup(id: "g", category: .other, entries: entries)]
+        let frames: [String: CGRect] = [
+            "A": CGRect(x: 0, y: 0, width: 100, height: 30),
+            "B": CGRect(x: 110, y: 0, width: 40, height: 30),
+            "C": CGRect(x: 160, y: 0, width: 100, height: 30)
+        ]
+        func run(_ id: String, by dx: CGFloat, expect: String) {
+            guard let entry = entries.first(where: { $0.id == id }),
+                  var drag = TabDrag(entry: entry, startX: 0, groups: groups, frames: frames) else { return }
+            drag.move(to: dx)
+            let offsets = drag.ids.map { "\($0)=\(drag.offset(for: $0))" }.joined(separator: " ")
+            TTLog("  拖動 \(id) \(dx)：順序 \(drag.reorderedIDs.joined()) 位移 \(offsets)（期望 \(expect)）")
+        }
+        run("A", by: 20, expect: "ABC，A=20")
+        run("A", by: 40, expect: "BAC，B=-110")
+        run("A", by: 999, expect: "BCA，A 夾到 160，B=C=-110")
+        run("C", by: -60, expect: "ACB，B=110")
+        run("C", by: -999, expect: "CAB，C 夾到 -160，A=B=110")
+    }
+
     /// 调试自检：`--test-pins`
     /// 把固定 / 运行分组、两种停靠边下的面板位置与唤出区、以及一次应用搜索写进日志，
     /// 用来核对"固定项排最前、没运行的 pid=0"和底部停靠的几何是不是对的。
@@ -516,6 +558,7 @@ final class TabBarController: TabBarHost {
                 "\($0.name)[pid=\($0.pid) running=\($0.isRunning) pinned=\($0.isPinned)]"
             }.joined(separator: ", "))
         }
+        diagnoseTabDrag()
         guard let screen = anchorScreen else { return }
         for edge in DockEdge.allCases {
             let bar = DockGeometry.barFrame(edge: edge, visible: screen.visibleFrame,
@@ -1031,6 +1074,16 @@ final class TabBarController: TabBarHost {
         let now = Date()
         let delay = effectiveHideDelay
 
+        // 按住标签期间 mouseUp 丢了（左键其实已经放开）：清掉按住 / 拖动状态。
+        // 连续两拍都是放开才算 —— 快速单击时键刚放开、mouseUp 还排在队列里，
+        // 只看一拍会把这次点击吞掉。
+        if catalog.isPressing, NSEvent.pressedMouseButtons & 1 == 0 {
+            releasedWhilePressing += 1
+            if releasedWhilePressing >= 2 { catalog.cancelPress() }
+        } else {
+            releasedWhilePressing = 0
+        }
+
         let panelZone = panel.frame.insetBy(dx: -1, dy: -1)
         let inPanel = isRevealed && panelZone.contains(mouse)
         let inPreview = preview.isVisible && preview.frame.insetBy(dx: -1, dy: -1).contains(mouse)
@@ -1057,10 +1110,11 @@ final class TabBarController: TabBarHost {
             catalog.pointerOverBar = pointerNear
         }
 
-        if menuTracking || catalog.keyboardSession || startMenu.isVisible {
+        if menuTracking || catalog.keyboardSession || startMenu.isVisible || catalog.isPressing {
             // 菜单开着：指针在菜单上（面板的子窗口），条不能收。
             // ⌘Tab 会话中：面板是键盘驱动的，条必须一直待到松 ⌘ 提交为止。
             // 开始菜单开着：它是贴着条弹出的，条收了菜单就悬空了。
+            // 按住标签 / 拖动排序中：拖出条外也不能收，松手后再按正常延迟。
             // 持续续期，关菜单/会话结束后按正常延迟收起。
             lastInteraction = now
         } else if inPanel || inPreview || inHot {
@@ -1109,6 +1163,12 @@ final class TabBarController: TabBarHost {
         if prefs.previewEnabled, now.timeIntervalSince(lastWarmup) > 3.0 {
             warmup()
         }
+    }
+
+    /// AppKit 窗口坐标（原点左下）→ SwiftUI 坐标（原点上左）
+    private func viewPoint(fromWindow location: NSPoint) -> NSPoint {
+        let height = panel.contentView?.bounds.height ?? barHeight
+        return NSPoint(x: location.x, y: height - location.y)
     }
 
     @objc private func screenChanged() {

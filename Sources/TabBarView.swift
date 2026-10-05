@@ -95,6 +95,8 @@ struct AppTab: View {
     /// 指针是否还在整条悬浮条上。窗口被 orderOut 时 onHover 可能收不到
     /// false，用外层信号兜底，免得下次唤出时残留高亮
     var barHovered: Bool = true
+    /// 正被拖动排序：抬起一点（淡底 + 阴影），看得出"拿在手上"
+    var dragging: Bool = false
     var onHoverChange: (Bool) -> Void = { _ in }
     /// 右键菜单动作的去处
     var catalog: AppCatalog?
@@ -111,6 +113,7 @@ struct AppTab: View {
         .background(
             RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
                 .fill(backgroundColor)
+                .shadow(color: .black.opacity(dragging ? 0.22 : 0), radius: 5, y: 1.5)
         )
         .overlay(
             RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
@@ -234,6 +237,7 @@ struct AppTab: View {
     }
 
     private var backgroundColor: Color {
+        if dragging { return Color.primary.opacity(0.16) }
         if isActive { return Color.accentColor.opacity(0.32) }
         if hot { return Color.primary.opacity(0.12) }
         // 用中性灰而不是 primary：深色模式下 primary 是白色，
@@ -325,9 +329,12 @@ struct TabBarView: View {
             }
             ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
                 if index > 0 { divider }
+                // 拖动排序中：这组的组内分隔线先藏起来，标签让位滑动时不会压着线走
+                let reordering = catalog.drag?.groupID == group.id
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
                     // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
-                    if i > 0, !prefs.iconOnly { divider }
+                    if i > 0, !prefs.iconOnly { divider.opacity(reordering ? 0 : 1) }
+                    let dragged = catalog.drag?.id == entry.id
                     AppTab(entry: entry,
                                // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
                                isActive: catalog.pointerOverBar && entry.pid > 0
@@ -338,7 +345,9 @@ struct TabBarView: View {
                                iconOnly: prefs.iconOnly,
                                startPinned: prefs.startPins.contains { $0.bundleID == entry.id },
                                startMenuEnabled: prefs.showStartButton,
-                               barHovered: catalog.pointerOverBar,
+                               // 拖动中指针扫过的标签不亮悬停底
+                               barHovered: catalog.pointerOverBar && catalog.drag == nil,
+                               dragging: dragged,
                                onHoverChange: { hovering in
                                    if hovering {
                                        catalog.onTabHover?(entry)
@@ -348,6 +357,11 @@ struct TabBarView: View {
                                },
                                catalog: catalog)
                     .padding(.horizontal, TTLayout.s(1))
+                    // 被拖的跟手（不加动画），其它的让位 / 落位用弹簧滑过去
+                    .offset(x: catalog.dragOffset(for: entry.id))
+                    .zIndex(dragged ? 1 : 0)
+                    .animation(dragged || !prefs.animationsEnabled ? nil : TabDrag.settle,
+                               value: catalog.dragOffset(for: entry.id))
                 }
             }
         }

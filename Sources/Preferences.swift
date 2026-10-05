@@ -174,6 +174,7 @@ final class Preferences: ObservableObject {
         static let startPins     = "startPins"
         static let startFolders  = "startFolders"
         static let startOrder    = "startOrder"
+        static let runningOrder  = "runningTabOrder"
         static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let iconOnly      = "iconOnly"
@@ -304,6 +305,13 @@ final class Preferences: ObservableObject {
     /// 见 `AppCatalog.startGridKeys`
     @Published var startOrder: [String] = [] {
         didSet { d.set(startOrder, forKey: Key.startOrder) }
+    }
+
+    /// 条上「运行中」那组被用户拖动排过的顺序（bundle id）。
+    /// 排过的按这里的先后，没排过的（新开的）接在后面按打开时间排；
+    /// App 退出后从这里剔掉，再开时回到最右边（同 Windows 任务栏）。
+    @Published var runningOrder: [String] = [] {
+        didSet { d.set(runningOrder, forKey: Key.runningOrder) }
     }
 
     /// 开始菜单「已固定」网格里的文件夹
@@ -442,6 +450,7 @@ final class Preferences: ObservableObject {
            let s = NowPlayingSource(rawValue: raw) { nowPlayingSource = s }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
         if let list = d.stringArray(forKey: Key.startOrder) { startOrder = list }
+        if let list = d.stringArray(forKey: Key.runningOrder) { runningOrder = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
