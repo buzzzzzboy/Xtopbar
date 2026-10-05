@@ -333,6 +333,9 @@ struct StartMenuView: View {
                             .combined(with: .opacity))
                 }
             }
+            // 收起时暗幕 / 弹窗还在淡出（弹簧动画收尾要一阵子），
+            // 淡出中的视图照样吃点击，会让下一次点文件夹没反应。这里一收起就整层不收点击
+            .allowsHitTesting(folder != nil)
         }
         .onPreferenceChange(PadSizeKey.self) { if $0 != .zero { padSize = $0 } }
         .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.86), value: model.openFolder)
