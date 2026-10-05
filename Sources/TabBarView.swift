@@ -80,10 +80,8 @@ struct StartButton: View {
 /// 单个 App 标签（纯视觉，点击由窗口层命中测试处理）
 struct AppTab: View {
     let entry: AppEntry
-    /// 前台 App 且指针在条上：蓝底 + 描边
+    /// 前台 App：蓝底 + 描边（不论指针在不在条上，一眼看出谁在前台）
     let isActive: Bool
-    /// 前台 App（不论指针在不在条上）：平时垫一层灰底，一眼看出谁在前台
-    var isFront: Bool = false
     /// ⌘Tab 会话中被键盘选中的标签：画描边环（和前台蓝底区分开）
     var keyboardSelected: Bool = false
     var animated: Bool = true
@@ -137,7 +135,6 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
-        .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isFront)
         .help(entry.isRunning ? entry.name : "\(entry.name)（未執行，點選開啟）")
         // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
@@ -241,10 +238,6 @@ struct AppTab: View {
         if dragging { return Color.primary.opacity(0.16) }
         if isActive { return Color.accentColor.opacity(0.32) }
         if hot { return Color.primary.opacity(0.12) }
-        // 用中性灰而不是 primary：深色模式下 primary 是白色，
-        // 叠在偏亮的玻璃上几乎看不见；中灰在亮/暗玻璃上都读得出来，
-        // 也比悬停的淡底重一点，和"指针扫过别的标签"区分开
-        if isFront { return Color.gray.opacity(0.38) }
         return Color.clear
     }
 }
@@ -340,9 +333,7 @@ struct TabBarView: View {
                     let dragged = catalog.drag?.id == entry.id
                     AppTab(entry: entry,
                                // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
-                               isActive: catalog.pointerOverBar && entry.pid > 0
-                                   && entry.pid == catalog.activePID,
-                               isFront: entry.pid > 0 && entry.pid == catalog.activePID,
+                               isActive: entry.pid > 0 && entry.pid == catalog.activePID,
                                keyboardSelected: entry.pid > 0 && entry.pid == catalog.keyboardHighlightPID,
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
