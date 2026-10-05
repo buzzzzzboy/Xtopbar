@@ -34,23 +34,24 @@ struct StartButton: View {
 
     @State private var hovering = false
 
-    /// 白色 Logo（和 App 图标同一张，Resources/Logo.png）
+    /// Logo（和 App 图标同一张，Resources/Logo.png）。原图是白色，
+    /// 这里当 template 只取形状，颜色跟系统外观走：浅色黑、深色白。
     private static let logo: NSImage? = Bundle.main.image(forResource: "Logo")
 
     var body: some View {
         Group {
             if let logo = Self.logo {
                 Image(nsImage: logo)
+                    .renderingMode(.template)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: TTLayout.s(iconOnly ? 24 : 17), height: TTLayout.s(iconOnly ? 24 : 17))
-                    // 白色在偏亮的玻璃上会发虚，垫一圈很淡的阴影托住轮廓
-                    .shadow(color: .black.opacity(0.28), radius: 1, y: 0.5)
+                    .foregroundStyle(Color.primary)
             } else {
                 Image(systemName: "square.grid.2x2.fill")
                     .font(.system(size: TTLayout.font(iconOnly ? 24 : 15), weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.primary)
             }
         }
             .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
@@ -265,7 +266,9 @@ struct TabBarView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
+            // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
             content
+                .frame(minWidth: catalog.barWidth)
         }
         .frame(width: catalog.barWidth, height: TTLayout.barHeight)
         // 溢出时两端渐隐。顺序很关键：fade 打在滚动内容上并立刻

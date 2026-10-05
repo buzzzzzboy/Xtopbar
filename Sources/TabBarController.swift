@@ -27,10 +27,14 @@ protocol TabBarHost: AnyObject {
 enum DockGeometry {
     /// 面板落位：顶部 = 菜单栏正下方 inset；底部 = 可用区底边往上 inset
     /// （系统 Dock 常驻时 visibleFrame 已经把它让出去了，不会叠在一起）。
+    /// 面板最小宽度只兜一个底（防止实测前宽度为 0）。
+    /// 以前是 220：只剩一两个 App 时内容比 220 窄，内容靠左，右边就空出一截。
+    static let minBarWidth: CGFloat = 48
+
     static func barFrame(edge: DockEdge, visible: CGRect,
                          width: CGFloat, height: CGFloat, inset: CGFloat) -> CGRect {
         let maxWidth = visible.width - 24
-        let w = max(220, min(width, maxWidth))
+        let w = max(minBarWidth, min(width, maxWidth))
         let x = visible.midX - w / 2
         let y = edge == .top
             ? visible.maxY - inset - height   // visibleFrame 已排除菜单栏，maxY 即菜单栏正下方
@@ -1307,7 +1311,7 @@ final class TabBarController: TabBarHost {
                                    mouse: NSPoint) -> NSRect {
         let visible = screen.visibleFrame
         let maxWidth = visible.width - 24
-        let w = max(220, min(width, maxWidth))
+        let w = max(DockGeometry.minBarWidth, min(width, maxWidth))
         let x = min(max(mouse.x - w / 2, visible.minX + 12), visible.maxX - w - 12)
         let gap: CGFloat = 18
         var y = mouse.y + gap
