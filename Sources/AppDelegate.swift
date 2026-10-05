@@ -102,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // 在线更新：启动 3 秒后静默看一眼 GitHub Releases（不需要任何自建服务器）。
-        // 没有新版本就什么都不做，有新版本才弹窗。
+        // 在线更新：启动 3 秒后静默看一眼 GitHub Releases（不需要任何自建服务器），
+        // 之后常驻期间每小时、睡眠唤醒后各再看一次。没有新版本就什么都不做，有新版本才弹窗。
         if CommandLine.arguments.contains("--update-install") {
             // 调试用：跳过弹窗，直接把新版本装上，验证整条更新链路
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -113,10 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 Updater.shared.check(silent: false)
             }
-        } else if Preferences.shared.autoCheckUpdates {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                Updater.shared.check(silent: true)
-            }
+        } else {
+            Updater.shared.startAutomaticChecks()
         }
     }
 

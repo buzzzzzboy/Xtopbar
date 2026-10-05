@@ -363,7 +363,7 @@ struct SettingsView: View {
                 EmptyView()
             }
 
-            Toggle("啟動後自動檢查更新", isOn: $prefs.autoCheckUpdates)
+            Toggle("自動檢查更新（啟動時及每小時）", isOn: $prefs.autoCheckUpdates)
                 .toggleStyle(.switch)
         }
     }

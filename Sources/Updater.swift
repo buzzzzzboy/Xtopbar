@@ -70,6 +70,16 @@ final class Updater: ObservableObject {
     /// 上次检查时间，用于「静默检查」的频率限制
     private var lastCheck: Date?
 
+    /// 本次运行里已经主动弹过框的版本：定时检查每小时都会再发现它，
+    /// 用户点了「稍后」就别每小时再弹一次，菜单栏里那行「有新版本」足够提醒
+    private var promptedVersion: String?
+
+    private var periodicTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
+
+    /// 常驻期间多久看一眼 GitHub。未认证的 API 限额是每 IP 每小时 60 次，一小时一次绰绰有余
+    static let checkInterval: TimeInterval = 3600
+
     private init() {}
 
     // MARK: - 版本号
@@ -157,6 +167,39 @@ final class Updater: ObservableObject {
 
     // MARK: - 检查
 
+    /// 自动检查：启动后一次，之后常驻期间每小时一次，睡眠唤醒后再补一次。
+    /// Xtopbar 是常驻 App，一开就是好几天 —— 只在启动时检查的话，
+    /// GitHub 上发了新版要等下次重启才会知道。
+    /// 每次触发时才读开关，所以设置里关掉「自动检查」立即生效，不用重建计时器。
+    func startAutomaticChecks(initialDelay: TimeInterval = 3) {
+        guard periodicTimer == nil else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + initialDelay) { [weak self] in
+            self?.automaticCheck()
+        }
+
+        let timer = Timer(timeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.automaticCheck() }
+        }
+        timer.tolerance = 300
+        RunLoop.main.add(timer, forMode: .common)
+        periodicTimer = timer
+
+        // 合盖一夜后计时器的进度不可靠，醒来等网络恢复再看一眼（仍受 1 小时频率限制）
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                self?.automaticCheck()
+            }
+        }
+    }
+
+    private func automaticCheck() {
+        guard Preferences.shared.autoCheckUpdates else { return }
+        check(silent: true)
+    }
+
     /// 菜单里点「检查更新…」：有新版本就直接弹更新框，没有就明确告诉用户
     func checkInteractively() {
         if case .available(let release) = phase {
@@ -171,6 +214,8 @@ final class Updater: ObservableObject {
         if silent, let last = lastCheck, Date().timeIntervalSince(last) < 3600 { return }
         lastCheck = Date()
 
+        // 静默检查失败时要能退回去：已经发现的新版本不能因为一次断网就从菜单里消失
+        let previous = phase
         phase = .checking
         Task {
             do {
@@ -179,8 +224,13 @@ final class Updater: ObservableObject {
                     phase = .available(release)
                     TTLog("updater: 發現新版本 \(release.version)（目前 \(Self.currentVersion)）"
                           + " zip=\(release.zipURL ?? "無")")
-                    // 静默检查时，用户已经点过「跳过这个版本」就不再打扰
-                    if silent, Preferences.shared.ignoredVersion == release.version { return }
+                    if silent {
+                        // 用户已经点过「跳过这个版本」就不再打扰
+                        if Preferences.shared.ignoredVersion == release.version { return }
+                        // 定时检查每小时都会再碰到同一个版本，一次运行只主动弹一次
+                        if promptedVersion == release.version { return }
+                    }
+                    promptedVersion = release.version
                     presentUpdateAlert(release)
                 } else {
                     phase = .upToDate
@@ -192,9 +242,14 @@ final class Updater: ObservableObject {
                 }
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-                phase = .failed(message)
                 TTLog("updater: 檢查失敗 \(message)")
-                if !silent { presentInfo("檢查更新失敗", message) }
+                if silent {
+                    // 后台检查失败（断网、限额）不打扰用户，也不覆盖之前的结果
+                    if case .available = previous { phase = previous } else { phase = .failed(message) }
+                } else {
+                    phase = .failed(message)
+                    presentInfo("檢查更新失敗", message)
+                }
             }
         }
     }
