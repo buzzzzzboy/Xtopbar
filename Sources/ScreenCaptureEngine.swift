@@ -406,6 +406,23 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         return SendableImage(value: image)
     }
 
+    /// 把当前桌面上所有在屏窗口的 SC 句柄并进来（视窗切换器用）。
+    ///
+    /// `refresh` 只为条上的 App 做 AX 精确化、而且有节流，切换器要的是「此刻屏上
+    /// 每一个窗口」—— 句柄缺了就抓不到图。这里只补句柄、不动 `byPID`，
+    /// 下一次 `refresh` 整体替换时这些在屏窗口自然还在里面。
+    func adoptOnScreenWindows() async {
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(
+            true, onScreenWindowsOnly: true
+        ) else { return }
+        mergeHandles(content.windows.filter { $0.windowLayer == 0 })
+    }
+
+    private func mergeHandles(_ windows: [SCWindow]) {
+        lock.lock(); defer { lock.unlock() }
+        for win in windows { windowsByID[win.windowID] = win }
+    }
+
     /// 后台预热：并发抓取，单个失败不影响其它。
     func prewarm(_ windowIDs: [UInt32], maxSize: CGSize, maxConcurrency: Int = 6) {
         let todo = windowIDs.filter { cached($0, maxAge: 3.0) == nil }

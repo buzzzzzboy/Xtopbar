@@ -165,6 +165,7 @@ final class Preferences: ObservableObject {
         static let hotZoneWidth  = "hotZoneWidth"
         static let hotZoneScreen = "hotZoneScreen"
         static let cmdTabEnabled = "cmdTabEnabled"
+        static let windowSwitcherEnabled = "windowSwitcherEnabled"
         static let hiddenApps    = "hiddenApps"
         static let uiScale       = "uiScale"
         static let autoCheckUpdates = "autoCheckUpdates"
@@ -252,6 +253,12 @@ final class Preferences: ObservableObject {
     /// 靠 CGEventTap 实现，需要辅助功能权限。
     @Published var cmdTabEnabled: Bool = false {
         didSet { d.set(cmdTabEnabled, forKey: Key.cmdTabEnabled) }
+    }
+
+    /// ⌥Tab 视窗切换器：屏幕中央铺开当前桌面所有窗口的缩略图（Windows Alt+Tab 同款）。
+    /// 和悬浮条无关，条关了也能用；同样靠 CGEventTap，需要辅助功能权限。
+    @Published var windowSwitcherEnabled: Bool = true {
+        didSet { d.set(windowSwitcherEnabled, forKey: Key.windowSwitcherEnabled) }
     }
 
     /// 从悬浮条隐藏的 App（bundle id → 显示名）。只是不出现在标签里，
@@ -437,6 +444,9 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.hotZoneWidth) != nil { hotZoneWidth = d.double(forKey: Key.hotZoneWidth) }
         if let raw = d.string(forKey: Key.hotZoneScreen), let s = HotZoneScreen(rawValue: raw) { hotZoneScreen = s }
         if d.object(forKey: Key.cmdTabEnabled) != nil { cmdTabEnabled = d.bool(forKey: Key.cmdTabEnabled) }
+        if d.object(forKey: Key.windowSwitcherEnabled) != nil {
+            windowSwitcherEnabled = d.bool(forKey: Key.windowSwitcherEnabled)
+        }
         if let map = d.dictionary(forKey: Key.hiddenApps) as? [String: String] { hiddenApps = map }
         if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
         if d.object(forKey: Key.autoCheckUpdates) != nil { autoCheckUpdates = d.bool(forKey: Key.autoCheckUpdates) }
