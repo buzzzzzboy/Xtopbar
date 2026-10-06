@@ -3,29 +3,44 @@ import SwiftUI
 import Combine
 import ApplicationServices
 
+/// AX 窗口元素 → 窗口服务器编号。私有但稳定的 HIServices 符号（AltTab / yabai 都靠它），
+/// 最小化窗口不在屏上，只有这条路能拿到它确切的 CG 编号（抓缩略图、提窗定位都要用）。
+@_silgen_name("_AXUIElementGetWindow")
+@discardableResult
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: inout CGWindowID) -> AXError
+
 // MARK: - 窗口列表
 
 /// 切换器里的一个窗口（值类型，可跨并发域）
 struct SwitcherWindow: Identifiable, Sendable, Equatable {
-    /// 窗口服务器编号：缩略图像素的来源，也是切过去时最可靠的定位锚点
+    /// 窗口服务器编号：缩略图像素的来源，也是切过去时最可靠的定位锚点。
+    /// 最小化窗口万一拿不到编号，用 `SwitcherWindows.syntheticBase` 起的合成编号（没有缩略图）
     let id: UInt32
     let pid: pid_t
     var title: String
     /// CG 坐标（原点左上），和 AX 的窗口坐标同一个坐标系
     let frame: CGRect
+    var isMinimized: Bool = false
 }
 
-/// 「当前桌面上看得到的窗口」：视窗切换器的取数逻辑。
+/// 视窗切换器的取数逻辑：当前桌面在屏的窗口 + 所有最小化的窗口。
 ///
-/// 只要当前桌面（Space）在屏的窗口：最小化的、隐藏的 App、其它桌面上的都不列。
-/// 这正好就是窗口服务器 `optionOnScreenOnly` 给的集合，而且它的顺序是**前→后的层级**，
-/// 也就是「最近用过」的顺序 —— Windows Alt+Tab 要的正是这个，不用自己记 MRU。
-///
-/// 层级列表里会混进辅助表面（输入法候选框、状态气泡、透明遮罩），所以：
+/// **在屏窗口**正好就是窗口服务器 `optionOnScreenOnly` 给的集合（隐藏的 App、其它桌面上的
+/// 都不在里面），而且它的顺序是**前→后的层级**，也就是「最近用过」的顺序 ——
+/// Windows Alt+Tab 要的正是这个，不用自己记 MRU。层级列表里会混进辅助表面
+/// （输入法候选框、状态气泡、透明遮罩），所以：
 /// 1. 同步粗筛：layer 0、不透明、够大、属于普通 App（`.regular`），立刻就能出面板；
-/// 2. 异步精筛（`validated`）：拿 AX 窗口列表对一遍，AX 里对不上的表面丢掉，
+/// 2. 异步精筛（`refine`）：拿 AX 窗口列表对一遍，AX 里对不上的表面丢掉，
 ///    顺便换上 AX 的完整标题（CG 的窗口名常被截断，没有录屏权限时干脆是空的）。
+///
+/// **最小化窗口**窗口服务器的在屏列表里没有，只能问 AX（`AXMinimized`）。AX 是同步阻塞的、
+/// 每个 App 都要问一遍，不能卡在按下 ⌥Tab 的那一刻 —— 所以面板先用上一次问到的结果顶上，
+/// `refine` 回来再校正（排在在屏窗口后面，同 Windows）。
 enum SwitcherWindows {
+
+    /// 拿不到 CG 编号的最小化窗口用的合成编号起点（与 ScreenCaptureEngine 的约定一致：
+    /// `WindowBridge.focusWindow` 见到 ≥ 这个值的编号就不按编号定位）
+    static let syntheticBase: UInt32 = 0xF000_0000
 
     static func onScreen(excluding ownPID: pid_t) -> [SwitcherWindow] {
         let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
@@ -60,20 +75,38 @@ enum SwitcherWindows {
         return out
     }
 
+    /// 要问最小化窗口的 App：普通 App、没被 ⌘H 隐藏、不是自己
+    @MainActor
+    static func candidatePIDs(excluding ownPID: pid_t) -> [pid_t] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && !$0.isHidden && $0.processIdentifier != ownPID }
+            .map(\.processIdentifier)
+    }
+
     struct AXSnap: Sendable {
         let frame: CGRect
         let title: String
+        let minimized: Bool
+        /// 用户认知里的窗口（role / subrole / 尺寸三重判定，同预览）
+        let real: Bool
+        /// 窗口服务器编号；私有接口没给就是 nil
+        let windowID: UInt32?
     }
 
-    /// 用 AX 窗口列表精筛：每个 CG 窗口都要在同一个 App 的 AX 窗口里领到一个
-    /// 几何一致的座位（同几何的多个窗口按个数领，Chrome 多窗口常常完全重叠），
-    /// 领不到的是辅助表面，丢掉。
+    /// AX 精筛在屏窗口 + 重新列一遍最小化窗口。
     ///
+    /// 在屏：每个 CG 窗口都要在同一个 App 的**未最小化** AX 窗口里领到一个几何一致的座位
+    /// （同几何的多个窗口按个数领，Chrome 多窗口常常完全重叠），领不到的是辅助表面，丢掉。
     /// AX 问不出来（超时 / 没权限）或回空（Electron 系偶发「success + 空数组」）时
     /// 不精筛、原样保留 —— 宁可多一张卡，也不能把真窗口藏掉。
-    static func validated(_ windows: [SwitcherWindow]) async -> [SwitcherWindow] {
-        guard AXIsProcessTrusted() else { return windows }
-        let pids = Array(Set(windows.map(\.pid)))
+    ///
+    /// 最小化：`pids`（按传入顺序）里每个 App 的 AXMinimized 真窗口。
+    /// 返回 nil = 没有辅助功能权限，什么都没问。
+    static func refine(onScreen windows: [SwitcherWindow],
+                       pids candidates: [pid_t]) async -> (visible: [SwitcherWindow], minimized: [SwitcherWindow])? {
+        guard AXIsProcessTrusted() else { return nil }
+        var pids = candidates
+        for win in windows where !pids.contains(win.pid) { pids.append(win.pid) }
         var axByPID: [pid_t: [AXSnap]] = [:]
         await withTaskGroup(of: (pid_t, [AXSnap]?).self) { group in
             for pid in pids { group.addTask { (pid, axWindows(pid)) } }
@@ -81,9 +114,11 @@ enum SwitcherWindows {
                 if let list, !list.isEmpty { axByPID[pid] = list }
             }
         }
-        var pools = axByPID
-        return windows.compactMap { (win: SwitcherWindow) -> SwitcherWindow? in
-            guard var pool = pools[win.pid] else { return win }
+
+        let axVisible = axByPID.mapValues { list in list.filter { !$0.minimized } }
+        var pools = axVisible
+        let visible = windows.compactMap { (win: SwitcherWindow) -> SwitcherWindow? in
+            guard axVisible[win.pid]?.isEmpty == false, var pool = pools[win.pid] else { return win }
             guard let index = pool.firstIndex(where: { sameFrame($0.frame, win.frame) }) else {
                 TTLog("switcher drop surface pid=\(win.pid) id=\(win.id) frame=\(win.frame)")
                 return nil
@@ -94,6 +129,27 @@ enum SwitcherWindows {
             if !snap.title.isEmpty { out.title = snap.title }
             return out
         }
+
+        var minimized: [SwitcherWindow] = []
+        var synthetic = syntheticBase
+        for pid in candidates {
+            guard let snaps = axByPID[pid] else { continue }
+            var offscreen = OffscreenPool(pid: pid)
+            for snap in snaps where snap.minimized && snap.real {
+                let id: UInt32
+                if let known = snap.windowID {
+                    id = known
+                } else if let matched = offscreen.take(near: snap.frame) {
+                    id = matched
+                } else {
+                    id = synthetic
+                    synthetic &+= 1
+                }
+                minimized.append(SwitcherWindow(id: id, pid: pid, title: snap.title,
+                                                frame: snap.frame, isMinimized: true))
+            }
+        }
+        return (visible, minimized)
     }
 
     /// 一个 App 的 AX 窗口（只要 role = AXWindow 的；nil = 没问出来）
@@ -106,15 +162,58 @@ enum SwitcherWindows {
             guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
                   let list = value as? [AXUIElement] else { return nil }
             return list.compactMap { (win: AXUIElement) -> AXSnap? in
-                guard ScreenCaptureEngine.stringAttr(win, kAXRoleAttribute as CFString) == "AXWindow",
+                guard let role = ScreenCaptureEngine.stringAttr(win, kAXRoleAttribute as CFString),
+                      role == "AXWindow",
                       let frame = ScreenCaptureEngine.axFrame(of: win) else { return nil }
+                let subrole = ScreenCaptureEngine.stringAttr(win, kAXSubroleAttribute as CFString) ?? ""
+                var minimizedValue: CFTypeRef?
+                AXUIElementCopyAttributeValue(win, kAXMinimizedAttribute as CFString, &minimizedValue)
+                let minimized = (minimizedValue as? Bool) ?? (minimizedValue as? NSNumber)?.boolValue ?? false
+                var cgID: CGWindowID = 0
+                let gotID = _AXUIElementGetWindow(win, &cgID) == .success && cgID != 0
                 return AXSnap(frame: frame,
-                              title: ScreenCaptureEngine.stringAttr(win, kAXTitleAttribute as CFString) ?? "")
+                              title: ScreenCaptureEngine.stringAttr(win, kAXTitleAttribute as CFString) ?? "",
+                              minimized: minimized,
+                              real: ScreenCaptureEngine.isRealWindow(role: role, subrole: subrole,
+                                                                     size: frame.size),
+                              windowID: gotID ? cgID : nil)
             }
         }
     }
 
-    private static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+    /// 私有接口拿不到编号时的兜底：该 pid 不在屏的 layer-0 表面里按几何配一个
+    private struct OffscreenPool {
+        private var seats: [(id: UInt32, frame: CGRect)]
+
+        init(pid: pid_t) {
+            guard let list = CGWindowListCopyWindowInfo(
+                [.optionAll, .excludeDesktopElements], kCGNullWindowID
+            ) as? [[String: Any]] else {
+                seats = []
+                return
+            }
+            seats = list.compactMap { (info: [String: Any]) -> (id: UInt32, frame: CGRect)? in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                      (info[kCGWindowLayer as String] as? Int) == 0,
+                      (info[kCGWindowIsOnscreen as String] as? Bool) != true,
+                      let id = info[kCGWindowNumber as String] as? UInt32,
+                      let b = info[kCGWindowBounds as String] as? [String: NSNumber] else { return nil }
+                let frame = CGRect(x: b["X"]?.doubleValue ?? 0, y: b["Y"]?.doubleValue ?? 0,
+                                   width: b["Width"]?.doubleValue ?? 0,
+                                   height: b["Height"]?.doubleValue ?? 0)
+                return (id: id, frame: frame)
+            }
+        }
+
+        mutating func take(near frame: CGRect) -> UInt32? {
+            guard let index = seats.firstIndex(where: { SwitcherWindows.sameFrame($0.frame, frame) }) else {
+                return nil
+            }
+            return seats.remove(at: index).id
+        }
+    }
+
+    fileprivate static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
         abs(a.minX - b.minX) <= 8 && abs(a.minY - b.minY) <= 8
             && abs(a.width - b.width) <= 8 && abs(a.height - b.height) <= 8
     }
@@ -191,6 +290,7 @@ struct SwitcherCard: Identifiable {
     let title: String
     let icon: NSImage?
     var image: CGImage?
+    var isMinimized: Bool = false
 }
 
 @MainActor
@@ -282,6 +382,17 @@ struct SwitcherCardView: View {
             }
             .frame(width: SwitcherLayout.thumbWidth * scale, height: SwitcherLayout.thumbHeight * scale)
             .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(6) * scale, style: .continuous))
+            .overlay(alignment: .bottomLeading) {
+                if card.isMinimized {
+                    Text("已最小化")
+                        .font(.system(size: TTLayout.font(9) * scale, weight: .medium))
+                        .padding(.horizontal, TTLayout.s(5) * scale)
+                        .padding(.vertical, TTLayout.s(1.5) * scale)
+                        .background(.thinMaterial, in: Capsule())
+                        .foregroundStyle(Color.primary.opacity(0.7))
+                        .padding(TTLayout.s(5) * scale)
+                }
+            }
             .animation(.easeOut(duration: 0.14), value: card.image == nil)
         }
         .padding(SwitcherLayout.cardPadding * scale)
@@ -362,8 +473,11 @@ final class WindowSwitcherController {
     private var hosting: FirstMouseHostingView<SwitcherView>?
     private var cancellables = Set<AnyCancellable>()
 
-    /// 当前会话的窗口（下标 = 卡片下标）
+    /// 当前会话的窗口（下标 = 卡片下标）：在屏的在前（层级顺序），最小化的在后
     private var windows: [SwitcherWindow] = []
+    /// 上一次 AX 问到的最小化窗口。按下 ⌥Tab 时先拿它顶上（AX 慢，不能现问），
+    /// 这次会话的 `refine` 回来再校正并刷新它
+    private var minimizedCache: [SwitcherWindow] = []
     private var cardFrames: [Int: CGRect] = [:]
     private var active = false
     /// 会话编号：会话结束 / 重开后，旧会话的异步回包（缩略图、精筛）要能认出来丢掉
@@ -437,6 +551,33 @@ final class WindowSwitcherController {
         // 启动时装不上（权限还没给）不弹窗：默认就是开的，首次启动的授权提示由悬浮条负责，
         // 这里只在后台重试，授权后自动生效
         apply()
+        // 先把最小化窗口问一遍，第一次按 ⌥Tab 就能列出来
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.refreshMinimizedCache()
+        }
+    }
+
+    /// 后台重问一遍最小化窗口（不在会话中时用）
+    private func refreshMinimizedCache() {
+        guard prefs.windowSwitcherEnabled, WindowBridge.isTrusted else { return }
+        let pids = SwitcherWindows.candidatePIDs(excluding: getpid())
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                await SwitcherWindows.refine(onScreen: [], pids: pids)
+            }.value
+            guard let self, let result else { return }
+            self.minimizedCache = result.minimized
+        }
+    }
+
+    /// 缓存里还作数的最小化窗口：App 还在、没被隐藏，而且没有已经回到屏上
+    private func cachedMinimized(besides onScreen: [SwitcherWindow]) -> [SwitcherWindow] {
+        let live = Set(SwitcherWindows.candidatePIDs(excluding: getpid()))
+        let shownIDs = Set(onScreen.map(\.id))
+        return minimizedCache.filter { win in
+            live.contains(win.pid) && !shownIDs.contains(win.id)
+                && !onScreen.contains { $0.pid == win.pid && SwitcherWindows.sameFrame($0.frame, win.frame) }
+        }
     }
 
     /// 开关收敛点。返回 false = 开着但钩子没装上。
@@ -500,9 +641,15 @@ final class WindowSwitcherController {
             handle(.tab(reverse: reverse))
             return
         }
-        let list = SwitcherWindows.onScreen(excluding: getpid())
-        TTLog("switcher open \(list.count) windows: \(list.map { "\($0.pid):\($0.title)" })")
-        guard !list.isEmpty else { return }
+        let onScreen = SwitcherWindows.onScreen(excluding: getpid())
+        let list = onScreen + cachedMinimized(besides: onScreen)
+        TTLog("switcher open \(onScreen.count) on screen + \(list.count - onScreen.count) minimized: "
+              + "\(list.map { "\($0.pid):\($0.title)\($0.isMinimized ? "(min)" : "")" })")
+        guard !list.isEmpty else {
+            // 屏上什么都没有：也许只是缓存还没有最小化窗口，补问一遍，下次就有了
+            refreshMinimizedCache()
+            return
+        }
 
         session &+= 1
         active = true
@@ -529,8 +676,8 @@ final class WindowSwitcherController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: work)
 
         startPointerTracking()
-        fetchThumbnails(session: mySession)
-        validate(session: mySession)
+        fetchThumbnails(list.map(\.id), session: mySession)
+        refine(onScreen: onScreen, session: mySession)
     }
 
     private func handle(_ key: WindowSwitcherTap.Key) {
@@ -607,7 +754,8 @@ final class WindowSwitcherController {
                                 title: win.title.isEmpty ? app.name : win.title,
                                 icon: app.icon,
                                 // 缓存里有就先顶上（不管多旧），新图回来再换
-                                image: images[win.id] ?? engine.cached(win.id, maxAge: 0))
+                                image: images[win.id] ?? engine.cached(win.id, maxAge: 0),
+                                isMinimized: win.isMinimized)
         }
     }
 
@@ -629,17 +777,20 @@ final class WindowSwitcherController {
         panel.setFrame(frame, display: true)
     }
 
-    /// 抓缩略图：先把当前桌面的 SC 句柄补齐，再每个窗口各抓一张，谁先回来先换上
-    private func fetchThumbnails(session mySession: Int) {
+    /// 抓缩略图：先把 SC 句柄补齐（有最小化窗口时连不在屏的一起），再每个窗口各抓一张，
+    /// 谁先回来先换上。最小化窗口 SC 也抓得到（抓的是最小化前的内容）
+    private func fetchThumbnails(_ wanted: [UInt32], session mySession: Int) {
         guard ScreenCaptureEngine.hasPermission else {
             ScreenCaptureEngine.requestPermissionIfNeeded()
             return
         }
-        let ids = windows.map(\.id)
+        let ids = wanted.filter { $0 < SwitcherWindows.syntheticBase }
+        guard !ids.isEmpty else { return }
+        let includeOffscreen = windows.contains { $0.isMinimized && ids.contains($0.id) }
         let size = SwitcherLayout.thumbSize
         let engine = self.engine
         Task { [weak self] in
-            await engine.adoptOnScreenWindows()
+            await engine.adoptWindows(includeOffscreen: includeOffscreen)
             guard let self, self.session == mySession else { return }
             for id in ids where engine.cached(id, maxAge: 1.0) == nil {
                 Task { [weak self] in
@@ -652,26 +803,32 @@ final class WindowSwitcherController {
         }
     }
 
-    /// AX 精筛回来后：丢掉辅助表面、换上完整标题，选中尽量留在原来那个窗口上
-    private func validate(session mySession: Int) {
-        let snapshot = windows
+    /// AX 回来后：丢掉辅助表面、换上完整标题、换上这次问到的最小化窗口；
+    /// 选中尽量留在原来那个窗口上，新冒出来的卡片补抓缩略图
+    private func refine(onScreen: [SwitcherWindow], session mySession: Int) {
+        let pids = SwitcherWindows.candidatePIDs(excluding: getpid())
         Task { [weak self] in
-            let kept = await Task.detached(priority: .userInitiated) {
-                await SwitcherWindows.validated(snapshot)
+            let result = await Task.detached(priority: .userInitiated) {
+                await SwitcherWindows.refine(onScreen: onScreen, pids: pids)
             }.value
-            guard let self, self.active, self.session == mySession else { return }
-            guard kept != self.windows else { return }
+            guard let self, let result else { return }
+            self.minimizedCache = result.minimized
+            guard self.active, self.session == mySession else { return }
+            let fresh = result.visible + result.minimized
+            guard fresh != self.windows else { return }
             let selectedID = self.windows.indices.contains(self.model.selected)
                 ? self.windows[self.model.selected].id : nil
-            guard !kept.isEmpty else {
+            guard !fresh.isEmpty else {
                 self.end()
                 return
             }
-            self.windows = kept
-            self.model.selected = kept.firstIndex { $0.id == selectedID }
-                ?? min(self.model.selected, kept.count - 1)
+            let known = Set(self.windows.map(\.id))
+            self.windows = fresh
+            self.model.selected = fresh.firstIndex { $0.id == selectedID }
+                ?? min(self.model.selected, fresh.count - 1)
             self.rebuildCards()
             self.layoutPanel()
+            self.fetchThumbnails(fresh.map(\.id).filter { !known.contains($0) }, session: mySession)
         }
     }
 
@@ -743,5 +900,6 @@ final class WindowSwitcherController {
         TTLog("switcher nav 7 張 4 列：↓ \(down)  ↑ \(up)  ← 0→\(SwitcherNav.step(0, by: -1, count: 7))")
         let list = SwitcherWindows.onScreen(excluding: getpid())
         TTLog("switcher 目前桌面 \(list.count) 個視窗：\(list.map { "\($0.pid) \"\($0.title)\" \($0.frame)" })")
+        TTLog("switcher 最小化（快取）\(minimizedCache.count) 個：\(minimizedCache.map { "\($0.pid) #\($0.id) \"\($0.title)\"" })")
     }
 }

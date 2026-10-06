@@ -254,7 +254,7 @@ struct SettingsView: View {
             Toggle("⌥Tab 視窗切換器（所有視窗縮圖）", isOn: $prefs.windowSwitcherEnabled)
                 .toggleStyle(.switch)
 
-            Text("同 Windows Alt+Tab：按住 ⌥ 按 Tab，螢幕中央鋪開目前桌面所有視窗的縮圖，預選上一個視窗 —— 快按快放即切回上一個視窗；繼續按 Tab（⇧Tab 反向）或用方向鍵挑選，鬆開 ⌥ 切過去；滑鼠移到哪張選哪張、點一下直接切；Return 立刻切換，Esc 取消。不列最小化、已隱藏和其它桌面的視窗。和懸浮條互不影響，需要輔助使用權限（縮圖需要螢幕錄製）。")
+            Text("同 Windows Alt+Tab：按住 ⌥ 按 Tab，螢幕中央鋪開目前桌面所有視窗的縮圖，預選上一個視窗 —— 快按快放即切回上一個視窗；繼續按 Tab（⇧Tab 反向）或用方向鍵挑選，鬆開 ⌥ 切過去；滑鼠移到哪張選哪張、點一下直接切；Return 立刻切換，Esc 取消。最小化的視窗排在最後（標「已最小化」，選了會還原）；不列已隱藏的 App 和其它桌面的視窗。和懸浮條互不影響，需要輔助使用權限（縮圖需要螢幕錄製）。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }

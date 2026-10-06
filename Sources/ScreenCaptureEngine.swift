@@ -406,14 +406,15 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         return SendableImage(value: image)
     }
 
-    /// 把当前桌面上所有在屏窗口的 SC 句柄并进来（视窗切换器用）。
+    /// 把窗口的 SC 句柄并进来（视窗切换器用）：当前桌面在屏的全部窗口，
+    /// `includeOffscreen` 时连不在屏的（最小化窗口）一起。
     ///
-    /// `refresh` 只为条上的 App 做 AX 精确化、而且有节流，切换器要的是「此刻屏上
+    /// `refresh` 只为条上的 App 做 AX 精确化、而且有节流，切换器要的是「此刻
     /// 每一个窗口」—— 句柄缺了就抓不到图。这里只补句柄、不动 `byPID`，
-    /// 下一次 `refresh` 整体替换时这些在屏窗口自然还在里面。
-    func adoptOnScreenWindows() async {
+    /// 下一次 `refresh` 整体替换掉也无妨，切换器每次打开都会重新补。
+    func adoptWindows(includeOffscreen: Bool) async {
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
-            true, onScreenWindowsOnly: true
+            true, onScreenWindowsOnly: !includeOffscreen
         ) else { return }
         mergeHandles(content.windows.filter { $0.windowLayer == 0 })
     }

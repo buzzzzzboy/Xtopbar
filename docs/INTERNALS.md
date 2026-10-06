@@ -272,8 +272,9 @@ Google Chrome          2              7
 **9. ⌥Tab 視窗切換器** — `WindowSwitcherController`，和悬浮條完全獨立（`AppDelegate` 直接建，條關了照樣能用），DockDoor / Windows Alt+Tab 的形態：螢幕中央一塊格狀面板，一張卡片 = 一個視窗。
 
 - **取數不走預覽那套 AX 定集合**：要的只是「目前桌面看得到的視窗」，正好就是 `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 的集合，而且它按**前→後層級**排 —— 層級就是最近使用順序，不用自己記 MRU。第 0 個是目前最前面的視窗，所以預選第 1 個（快按快放 = 切回上一個視窗）
-- 同步粗篩（不到 1ms，按下就能出面板）：layer 0、alpha > 0、≥150×110、擁有者是 `.regular` App、不是自己。異步精篩（`SwitcherWindows.validated`）：同一個 App 的 AX 視窗裡按幾何領座位（容差 8pt，同幾何按個數領 —— Chrome 多視窗常完全重疊），領不到的是輔助表面，從面板上摘掉；順手換上 AX 的完整標題（CG 視窗名會被截斷，沒錄屏權限時是空的）。AX 問不出來或回空就不篩，寧多勿漏。AX 查詢照樣走 `axGate`
-- **縮圖**：`ScreenCaptureEngine.adoptOnScreenWindows()` 把目前桌面在屏視窗的 SC 句柄併進引擎（`refresh` 只為條上的 App 精確化、還有節流，句柄缺了就抓不到），再逐個 `capture`。快取裡有圖先頂上（不管多舊），新圖回來再換，共用預覽的 `NSCache`
+- **最小化視窗**在屏列表裡沒有，只能問 AX（`AXMinimized`，普通 App、沒被 ⌘H 隱藏的都問）。AX 同步阻塞、要逐個 App 問，不能卡在按下 ⌥Tab 那一刻：面板先拿上一次問到的結果（`minimizedCache`，啟動 2 秒後先問一輪）頂上，排在在屏視窗後面；已經回到屏上的（同編號或同 pid 同幾何）先濾掉。這次會話的 AX 回來再校正並刷新快取。CG 編號用私有的 `_AXUIElementGetWindow`（AltTab / yabai 同款）拿，拿不到就在該 pid 不在屏的 layer-0 表面裡按幾何配，再不行用合成編號（沒縮圖，`focusWindow` 見到合成編號就改按標題 / 幾何定位）。最小化窗只收 `isRealWindow` 判定的真視窗
+- 同步粗篩（不到 1ms，按下就能出面板）：layer 0、alpha > 0、≥150×110、擁有者是 `.regular` App、不是自己。異步精篩（`SwitcherWindows.refine`）：同一個 App 的**未最小化** AX 視窗裡按幾何領座位（容差 8pt，同幾何按個數領 —— Chrome 多視窗常完全重疊），領不到的是輔助表面，從面板上摘掉；順手換上 AX 的完整標題（CG 視窗名會被截斷，沒錄屏權限時是空的）。AX 問不出來或回空就不篩，寧多勿漏。AX 查詢照樣走 `axGate`
+- **縮圖**：`ScreenCaptureEngine.adoptWindows(includeOffscreen:)` 把目前桌面在屏視窗（有最小化視窗時連不在屏的一起）的 SC 句柄併進引擎（`refresh` 只為條上的 App 精確化、還有節流，句柄缺了就抓不到），再逐個 `capture`。快取裡有圖先頂上（不管多舊），新圖回來再換，共用預覽的 `NSCache`
 - **排版**（`SwitcherGrid`，純運算，`--test-switcher` 會打幾組樣例）：先按原尺寸能塞幾列算行數，高過可用區（螢幕 visibleFrame 的 88%）就整塊 ×0.9 縮，最小 0.45；列數最後按行數均分（7 張 → 4 + 3，不是 6 + 1），最後一行置中。縮放乘在布局常量上（同預覽，命中區域才對得上）
 - **鍵盤**：`WindowSwitcherTap` 只認「⌥ 按著、⌘ / ⌃ 沒按」的 Tab，⌘Tab 留給 `CmdTabTap`。會話中整個鍵盤歸它 —— 方向鍵、Return、Esc 轉成動作，其它鍵一律吞掉（按住 ⌥ 誤按字母會在前台 App 打出 ∑ ø）；keyUp 只吞吞過 keyDown 的那幾顆。上下移動見 `SwitcherNav.vertical`：下一行不夠長落到最後一張，最後一行再往下回到第一行同一列
 - **松 ⌥ 的兜底**：除了 flagsChanged 事件，30Hz 指標輪詢裡也用 `CGEventSource.flagsState` 看一眼 ⌥ 還在不在 —— 安全輸入框或鉤子被系統臨時停用時會漏掉松鍵事件，不兜的話面板一直掛著、鍵盤一直被吞
