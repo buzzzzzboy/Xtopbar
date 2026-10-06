@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let catalog = AppCatalog()
     private var fleet: TabBarFleet?
     private var statusItem: StatusItemController?
+    private var windowSwitcher: WindowSwitcherController?
     private var cancellables = Set<AnyCancellable>()
     /// 用户在确认框里点了取消、把开关弹回去时置位，免得弹回本身又触发一次确认
     private var revertingDockToggle = false
@@ -25,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.fleet = fleet
         fleet.start()
         let controller = fleet.primary
+
+        // ⌥Tab 视窗切换器：和悬浮条互不依赖，自己装钩子
+        let switcher = WindowSwitcherController()
+        windowSwitcher = switcher
+        switcher.start()
 
         // 菜单栏图标。由 Preferences.showStatusItem 控制显隐。
         statusItem = StatusItemController(prefs: .shared, fleet: fleet)
@@ -93,6 +99,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let presses = Int(arg.split(separator: "=").last ?? "6") ?? 6
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 controller.diagnoseCycle(presses: presses)
+            }
+        }
+
+        // 调试用：`--test-switcher` 把 ⌥Tab 切换器的格子排版 / 键盘移动样例和当前窗口写进日志
+        if CommandLine.arguments.contains("--test-switcher") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                switcher.diagnose()
             }
         }
 

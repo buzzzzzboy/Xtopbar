@@ -27,6 +27,8 @@ Sources/
   SystemDock.swift           隱藏 / 還原系統 Dock（defaults + killall Dock）
   WindowPresence.swift       哪些執行中的 App 沒有視窗（「只顯示有視窗的 App」）
   PreviewController.swift    視窗預覽浮層（模型 + 檢視 + 面板 + 點選切視窗）
+  WindowSwitcher.swift       ⌥Tab 視窗切換器（取窗口 + 格狀排版 + 檢視 + 會話控制）
+  WindowSwitcherTap.swift    ⌥Tab 鍵盤鉤子（CGEventTap，會話中接管整個鍵盤）
   FloatingPanel.swift        懸浮面板 + 視窗層命中測試 + 除錯日誌
   Updater.swift              線上更新（檢查 GitHub Releases + 下載替換自身）
 Resources/Info.plist
@@ -300,6 +302,21 @@ Google Chrome          2              7
 **點選動效刻意做"小"**：卡片互動是高頻動作，用 spring 會拖出尾巴、看著"黏"；按下幅度 0.955→0.975、曲線從 spring 換成 easeOut，動作本身在 mouseUp 那一刻就發生。早先為了讓"有沒有點到"看得見，點中後先彈 0.1s 再切視窗 —— 每次切換白等 100ms，正是"不夠乾脆"的來源，已去掉。
 
 兩個刻意的約束：**縮放只作用在圖示或整塊預覽上，絕不做在標籤上** —— 標籤的命中區域是 `GeometryReader` 上報的，縮放會讓點選判定和視覺錯位；懸停 / 選中一律用顏色過渡而不是位移。佈局上：位置錨定螢幕（預設系統主顯示器，見 5b）可見區域頂部居中，距選單列 6pt（⌘Tab 叫出時釘在滑鼠位置，預設在指標上方，貼頂則翻到下方）；寬度隨 App 數量自適應，上限為螢幕寬 −24pt（超出可橫向捲動，兩端漸隱）；分隔線每兩個標籤之間都是同一條淡豎線（1×16pt，opacity 0.14）；左右留白各 12pt，標籤自身 9pt 內邊距 —— 內邊距太小（8pt）時最右那個標籤看起來像"貼邊"。前景 App 反白**只在指標夠得著的時候亮**：指標在喚出熱點區或標籤條上時亮起，離開即撤下。反白表達的是"這個可以點"，不是"它是前景" —— 讓它常駐的話，切走 App 之後反白還掛在舊標籤上，看起來像選中了它，很容易誤讀。
+
+**9. ⌥Tab 視窗切換器** — `WindowSwitcherController`，和悬浮條完全獨立（`AppDelegate` 直接建，條關了照樣能用），DockDoor / Windows Alt+Tab 的形態：螢幕中央一塊格狀面板，一張卡片 = 一個視窗。
+
+- **取數不走預覽那套 AX 定集合**：要的只是「目前桌面看得到的視窗」，正好就是 `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 的集合，而且它按**前→後層級**排 —— 層級就是最近使用順序，不用自己記 MRU。第 0 個是目前最前面的視窗，所以預選第 1 個（快按快放 = 切回上一個視窗）
+- **最小化視窗**在屏列表裡沒有，只能問 AX（`AXMinimized`，普通 App、沒被 ⌘H 隱藏的都問）。AX 同步阻塞、要逐個 App 問，不能卡在按下 ⌥Tab 那一刻：面板先拿上一次問到的結果（`minimizedCache`，啟動 2 秒後先問一輪）頂上，排在在屏視窗後面；已經回到屏上的（同編號或同 pid 同幾何）先濾掉。這次會話的 AX 回來再校正並刷新快取。CG 編號用私有的 `_AXUIElementGetWindow`（AltTab / yabai 同款）拿，拿不到就在該 pid 不在屏的 layer-0 表面裡按幾何配，再不行用合成編號（沒縮圖，`focusWindow` 見到合成編號就改按標題 / 幾何定位）。最小化窗只收 `isRealWindow` 判定的真視窗
+- 同步粗篩（不到 1ms，按下就能出面板）：layer 0、alpha > 0、≥150×110、擁有者是 `.regular` App、不是自己。異步精篩（`SwitcherWindows.refine`）：同一個 App 的**未最小化** AX 視窗裡按幾何領座位（容差 8pt，同幾何按個數領 —— Chrome 多視窗常完全重疊），領不到的是輔助表面，從面板上摘掉；順手換上 AX 的完整標題（CG 視窗名會被截斷，沒錄屏權限時是空的）。AX 問不出來或回空就不篩，寧多勿漏。AX 查詢照樣走 `axGate`
+- **縮圖**：`ScreenCaptureEngine.adoptWindows(includeOffscreen:)` 把目前桌面在屏視窗（有最小化視窗時連不在屏的一起）的 SC 句柄併進引擎（`refresh` 只為條上的 App 精確化、還有節流，句柄缺了就抓不到），再逐個 `capture`。快取裡有圖先頂上（不管多舊），新圖回來再換，共用預覽的 `NSCache`
+- **排版**（`SwitcherGrid`，純運算，`--test-switcher` 會打幾組樣例）：先按原尺寸能塞幾列算行數，高過可用區（螢幕 visibleFrame 的 88%）就整塊 ×0.9 縮，最小 0.45；列數最後按行數均分（7 張 → 4 + 3，不是 6 + 1），最後一行置中。縮放乘在布局常量上（同預覽，命中區域才對得上）
+- **鍵盤**：`WindowSwitcherTap` 只認「⌥ 按著、⌘ / ⌃ 沒按」的 Tab，⌘Tab 留給 `CmdTabTap`。會話中整個鍵盤歸它 —— 方向鍵、Return、Esc 轉成動作，其它鍵一律吞掉（按住 ⌥ 誤按字母會在前台 App 打出 ∑ ø）；keyUp 只吞吞過 keyDown 的那幾顆。上下移動見 `SwitcherNav.vertical`：下一行不夠長落到最後一張，最後一行再往下回到第一行同一列
+- **松 ⌥ 的兜底**：除了 flagsChanged 事件，30Hz 指標輪詢裡也用 `CGEventSource.flagsState` 看一眼 ⌥ 還在不在 —— 安全輸入框或鉤子被系統臨時停用時會漏掉松鍵事件，不兜的話面板一直掛著、鍵盤一直被吞
+- **快按快放不閃**：面板延後 60ms 才上屏，期間松了 ⌥ 就直接切、面板根本不出現。收場同 ⌘Tab：立刻 `orderOut`，不做出場動畫
+- **滑鼠**：指針真的動過（>3pt）才接管選取，免得面板彈出時剛好壓在某張卡上把鍵盤預選搶走；而且只在指針換到另一張卡時才改選取，指針停著時鍵盤照樣能走。點選走 `FloatingPanel` 的兩段式（按下選中、抬起在同一張卡上才切）
+- 切過去用 `WindowBridge.focusWindow(cgID:)`（卡片的 CG 編號就是縮圖像素來源，是最不會錯位的錨點），丟到背景執行緒 —— 它裡面有等激活重排落地的幾百毫秒
+- 面板 level 是 `.popUpMenu`，比條和預覽（`.statusBar`）高一層
+- 預設開；開著但鉤子裝不上（還沒授權輔助使用）時每 3 秒重試，授權後不用重啟。使用者在設定裡手動打開卻裝不上，才彈窗並把開關彈回去
 
 ## Dock 化：停靠邊、固定、開始選單
 
