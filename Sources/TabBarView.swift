@@ -404,6 +404,9 @@ struct TabBarView: View {
         Toggle("只顯示圖示", isOn: $prefs.iconOnly)
         Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
         Toggle("不擋視窗", isOn: $prefs.avoidWindows)
+        if NSScreen.screens.count > 1 {
+            Toggle("在所有螢幕上顯示", isOn: $prefs.allScreens)
+        }
 
         Menu("自動隱藏") {
             ForEach(Preferences.delayOptions, id: \.value) { item in

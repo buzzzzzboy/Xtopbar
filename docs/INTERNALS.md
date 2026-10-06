@@ -20,6 +20,7 @@ Sources/
   WindowBridge.swift         AX 視窗聚焦（下標優先，標題/幾何回退）
   TabBarView.swift           SwiftUI 標籤條 + 開始按鈕 + 命中區域上報 + 分隔線 + 右鍵選單
   TabBarController.swift     面板定位（DockGeometry）、自動隱藏、熱點喚出、預覽排程、預熱、開始選單開關
+  ScreenBars.swift           多螢幕：TabBarFleet（每塊螢幕一條）+ 視窗歸屬螢幕的純邏輯（ScreenAssign / ScreenScope / ScreenRegion）
   AppLibrary.swift           已安裝 App 索引（掃 Applications 目錄）+ 搜尋
   StartMenuController.swift  開始選單浮層（定位 / key 視窗 / 鍵盤與點外面收起）
   StartMenuView.swift        開始選單檢視（搜尋 / 已固定 / 最近使用 / 所有應用 A–Z）
@@ -169,6 +170,35 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 > 三處一起改：① 熱區與預設停靠位改看 `anchorScreen`（不再看 `panel.screen`）；② 收起後 `parkOnAnchorScreen()` 把面板 frame 挪回錨定螢幕，不留舊位置；③ 常駐模式（不自動隱藏）下 ⌘Tab 提交後主動歸位，否則會一直釘在滑鼠那處。
 
 **⌘Tab 叫出刻意不走這套** —— 它永遠在滑鼠位置彈出（`revealAtMouse` / `pinnedAnchor`），那才是這個功能的意義。錨定螢幕只約束"頂部喚出"。
+
+**5b'. 多螢幕：每塊螢幕一條（`TabBarFleet`）**
+
+「在所有螢幕上顯示」（`Preferences.allScreens`，預設開）開著且接了不止一塊螢幕時，`TabBarFleet` 給每塊螢幕建一條。**一條 = 一個完整的 `TabBarController` + 它自己的 `AppCatalog`**（自己的面板、預覽、開始選單、自動隱藏 / 不擋視窗 / 全螢幕讓位的計時器），各條只靠 `fixedDisplay`（顯示器編號 `CGDirectDisplayID`，插拔後下標會變、編號不變）認自己的螢幕，`anchorScreen` 直接回那塊螢幕，不走上面的 `ScreenPick`。關掉開關或只剩一塊螢幕時退回單條，行為和以前一模一樣。
+
+全域只能有一份的東西收在 fleet 裡：
+
+- **主條** `primary` 永遠在（單條模式下就是那一條；多螢幕時停在 `screens[0]`）。**⌘Tab 鉤子只裝在它身上**（`ownsCmdTab`）—— 系統裡只能有一個攔截者；⌘Tab 會話期間它的 catalog 暫時放開螢幕過濾（`scopeSuspended`），列出所有螢幕上的 App，會話結束（提交 / Esc / 收起）再恢復
+- **調度中心觀察者**只開一個，進出時通知每一條
+- 狀態列選單：開始選單開在滑鼠所在螢幕的那條上，其它條上開著的先收掉；其餘動作發給所有條
+- 螢幕插拔 / 改開關時 `layoutBars()` 增刪副條：被拆的那條 `shutdown()` 停計時器、移除觀察者、不播動畫地收掉面板 / 預覽 / 開始選單（淡出回呼裡 `self` 已經沒了，面板會留在螢幕上）
+
+**App 分到哪條**：`WindowPresence` 本來就每 1.2s 用 AX 查一輪「誰有視窗」，順手把每扇真視窗的 frame 帶回來，按重疊面積最大的螢幕歸屬（`ScreenAssign`，跨兩塊螢幕的只算重疊多的那塊），得出 `screensByPID: [pid: Set<顯示器編號>]`。各條的 `AppCatalog.collect()` 用 `ScreenScope.admits` 過濾運行中的 App：
+
+- 視窗落在這塊螢幕 → 上這條；兩塊螢幕都有視窗 → 兩條都有
+- 不知道在哪（還沒查到 / 沒有視窗 / 所在螢幕剛拔掉）→ 只放主螢幕那條，免得哪條都找不到
+- 固定項不過濾，每條都有
+- 沒有輔助使用權限 → 量不出視窗在哪，每條都放全部
+
+`WindowPresence` 的變化從單一回呼改成 `changed`（`PassthroughSubject`，主執行緒同步發），每條的 catalog 各自訂閱。
+
+**點副條上的 App**：catalog 的 `screenRegion`（本螢幕 + 所有螢幕的 CG 座標，值型別，能帶進背景的 AX 呼叫）傳給 `WindowBridge`：
+
+- 背景 App：照常啟用，再 `raiseWindow(pid:in:)` 把它在這塊螢幕上最前面的視窗提上來、設成焦點（這塊螢幕上只剩最小化的就放回一個）。順序同 `_focusWindow`：main / focused 先寫 → App 置前 → 等 0.3s 讓啟用引發的重排落地 → raise
+- 前台 App、焦點視窗在**別的**螢幕（`focusedWindow(pid:isIn:)`）→ 這一下是「切到這塊螢幕上的視窗」，不是收起
+- 前台 App、焦點視窗就在這塊螢幕 → 「點選前景 App 最小化」只收這塊螢幕上的視窗（`minimizeOpenWindows(pid:in:)`）
+- 懸停預覽也只列這塊螢幕上的視窗；一扇都對不上（視窗剛挪過螢幕、快照還沒跟上）就全列
+
+純邏輯（視窗歸屬、這條收不收某個 App）`--test-pins` 會打一組樣例，期望值寫在日誌裡。
 
 **5c. ⌘Tab 會話：迴圈序列與叫出動效**
 

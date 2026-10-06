@@ -182,6 +182,7 @@ final class Preferences: ObservableObject {
         static let showStartButton = "showStartButton"
         static let hideSystemDock = "hideSystemDock"
         static let avoidWindows  = "avoidWindows"
+        static let allScreens    = "allScreens"
         static let clickToMinimize = "clickToMinimize"
         static let startMenuSort = "startMenuSort"
         static let appFirstSeen  = "appFirstSeen"
@@ -359,6 +360,13 @@ final class Preferences: ObservableObject {
         didSet { d.set(avoidWindows, forKey: Key.avoidWindows) }
     }
 
+    /// 在所有屏幕上显示：接了多块屏时每块屏一条，每条只放窗口在那块屏上的 App
+    /// （固定项每条都有），不挡窗口 / 全屏让位 / 边缘唤出也各屏各管。
+    /// 关掉 = 只在「唤出所在屏幕」那一块上显示一条（原来的行为）。只有一块屏时没有区别。
+    @Published var allScreens: Bool = true {
+        didSet { d.set(allScreens, forKey: Key.allScreens) }
+    }
+
     /// 点前台 App 的标签 = 把它的窗口全部最小化；再点一次（或点预览）恢复。同 Windows 任务栏。
     @Published var clickToMinimize: Bool = true {
         didSet { d.set(clickToMinimize, forKey: Key.clickToMinimize) }
@@ -456,6 +464,7 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
         if d.object(forKey: Key.avoidWindows) != nil { avoidWindows = d.bool(forKey: Key.avoidWindows) }
+        if d.object(forKey: Key.allScreens) != nil { allScreens = d.bool(forKey: Key.allScreens) }
         if d.object(forKey: Key.clickToMinimize) != nil { clickToMinimize = d.bool(forKey: Key.clickToMinimize) }
         if let raw = d.string(forKey: Key.startMenuSort), let s = StartMenuSort(rawValue: raw) { startMenuSort = s }
 

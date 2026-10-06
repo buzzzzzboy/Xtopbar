@@ -111,7 +111,9 @@ enum QuickSwitchDismiss {
     }
 }
 
-/// 面板生命周期 + 定位 + 尺寸自适应 + 自动隐藏 + 预览调度
+/// 面板生命周期 + 定位 + 尺寸自适应 + 自动隐藏 + 预览调度。
+///
+/// 一个实例 = 一条。多屏「各屏一条」时 `TabBarFleet` 给每块屏建一个，各管各的屏（`fixedDisplay`）。
 @MainActor
 final class TabBarController: TabBarHost {
 
@@ -148,8 +150,18 @@ final class TabBarController: TabBarHost {
     private var environmentTimer: Timer?
     private var environmentPassRunning = false
 
-    /// 调度中心开着：条淡出让位，期间不响应唤出；退出后按原模式恢复
-    private let missionControl = MissionControlWatcher()
+    /// 调度中心开着：条淡出让位，期间不响应唤出；退出后按原模式恢复。
+    /// 所有条共用一个（`TabBarFleet` 持有，进出时调各条的 `missionControlChanged`）
+    private let missionControl: MissionControlWatcher
+
+    // MARK: - 多屏
+
+    /// 多屏「各屏一条」时这条固定停在哪块屏（显示器编号）。
+    /// nil = 单条模式：按设置里的「唤出所在屏幕」挑屏（`ScreenPick`）
+    private var fixedDisplay: CGDirectDisplayID?
+
+    /// ⌘Tab 钩子系统里只能装一个：归主条（单条模式下就是那一条）
+    private let ownsCmdTab: Bool
 
     /// 条该不该一直显示：常驻模式或「不挡窗口」，且没有 App 在全屏
     private var wantsResident: Bool {
@@ -197,11 +209,17 @@ final class TabBarController: TabBarHost {
     /// 面板显示期间的窗口快照刷新节流
     private var lastWarmup = Date.distantPast
 
-    init(catalog: AppCatalog) {
+    init(catalog: AppCatalog, missionControl: MissionControlWatcher,
+         display: CGDirectDisplayID?, ownsCmdTab: Bool) {
         self.catalog = catalog
         self.prefs = Preferences.shared
+        self.missionControl = missionControl
+        self.fixedDisplay = display
+        self.ownsCmdTab = ownsCmdTab
 
-        let frame = TabBarController.defaultScreen.map {
+        let initialScreen = display.flatMap { id in NSScreen.screens.first { $0.displayID == id } }
+            ?? TabBarController.defaultScreen
+        let frame = initialScreen.map {
             DockGeometry.barFrame(edge: Preferences.shared.dockEdge, visible: $0.visibleFrame,
                                   width: 600, height: TTLayout.barHeight, inset: 6)
         } ?? NSRect(x: 0, y: 0, width: 600, height: TTLayout.barHeight)
@@ -457,10 +475,37 @@ final class TabBarController: TabBarHost {
               + "錨定螢幕=\(anchorScreen?.localizedName ?? "-") 熱區=\(hotZone)")
         relayout()
         startMouseTracking()
-        missionControl.onChange = { [weak self] active in self?.missionControlChanged(active) }
-        missionControl.start()
-        promptAccessibilityIfNeeded()
+        if ownsCmdTab { promptAccessibilityIfNeeded() }
         applyBarEnabled()
+    }
+
+    /// 改这条停在哪块屏（多屏模式开关 / 主显示器换了）。nil = 回到单条模式
+    func assign(display: CGDirectDisplayID?) {
+        guard fixedDisplay != display else { return }
+        fixedDisplay = display
+        hidePreview()
+        startMenu.close(animated: false)
+        currentWidth = 0
+        relayout()
+    }
+
+    /// 拆掉这条（它那块屏拔掉了 / 多屏模式关了）：停计时器和钩子、收起所有浮层
+    func shutdown() {
+        mouseTimer?.invalidate()
+        mouseTimer = nil
+        environmentTimer?.invalidate()
+        environmentTimer = nil
+        cmdTap.stop()
+        cancellables.removeAll()
+        menuObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        menuObservers.removeAll()
+        NotificationCenter.default.removeObserver(self)
+        previewWork?.cancel()
+        preview.close()
+        startMenu.close(animated: false)
+        isRevealed = false
+        panel.orderOut(nil)
+        catalog.stop()
     }
 
     /// 调试用（`--test-hotzone=<屏序号>`）：重放"在 0 号屏上用过一次 ⌘Tab"的场景，
@@ -590,6 +635,18 @@ final class TabBarController: TabBarHost {
             TTLog("  [\(edge.rawValue)] 不擋視窗：鋪滿視窗 \(visibleCG) → \(moved.map { "\($0)" } ?? "不動")")
         }
         TTLog("  只顯示有視窗的 App=\(prefs.onlyWindowedApps)，判定無視窗：\(WindowPresence.shared.windowless.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
+        // 多屏各屏一条：窗口算哪块屏、这条收不收某个 App（纯逻辑样例，期望值写在日志里）
+        let pair = [CGRect(x: 0, y: 0, width: 100, height: 100), CGRect(x: 100, y: 0, width: 100, height: 100)]
+        let straddle = ScreenAssign.index(of: CGRect(x: 80, y: 10, width: 60, height: 50), in: pair)
+        let outside = ScreenAssign.index(of: CGRect(x: 500, y: 0, width: 10, height: 10), in: pair)
+        TTLog("  視窗歸屬：跨兩屏偏右 → \(straddle.map { "#\($0)" } ?? "nil")（期望 #1），"
+              + "屏外 → \(outside.map { "#\($0)" } ?? "nil")（期望 nil）")
+        let scope = ScreenScope(displayID: 2, isPrimary: false)
+        TTLog("  副屏那條：視窗在副屏 → \(scope.admits([2], live: [1, 2]))（期望 true），"
+              + "只在主屏 → \(scope.admits([1], live: [1, 2]))（期望 false），"
+              + "還沒查到 → \(scope.admits(nil, live: [1, 2]))（期望 false，歸主屏那條）")
+        TTLog("  本條螢幕=\(fixedDisplay.map { "\($0)" } ?? "單條模式")，"
+              + "已知視窗分佈的 App \(WindowPresence.shared.screensByPID.count) 個")
         let lib = AppLibrary.shared
         TTLog("  應用索引 \(lib.apps.count) 個；搜尋「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
     }
@@ -622,7 +679,7 @@ final class TabBarController: TabBarHost {
     /// 免得设置里显示"已开启"实际却没生效。
     @discardableResult
     func applyCmdTab() -> Bool {
-        guard prefs.cmdTabEnabled, prefs.barEnabled else {
+        guard ownsCmdTab, prefs.cmdTabEnabled, prefs.barEnabled else {
             cmdTap.stop()
             // 钩子没了就收不到"松 ⌘"，残留会话会把条钉住不收：直接取消
             catalog.endKeyboardSession()
@@ -939,6 +996,8 @@ final class TabBarController: TabBarHost {
     /// ⌘Tab 呼出不走这里 —— 它永远在鼠标位置弹出，那才是这个功能的意义。
     private var anchorScreen: NSScreen? {
         let screens = NSScreen.screens
+        // 各屏一条：只认自己那块屏，屏拔掉了就是 nil（TabBarFleet 马上会拆掉这条）
+        if let id = fixedDisplay { return screens.first { $0.displayID == id } }
         guard let i = ScreenPick.anchorIndex(for: prefs.hotZoneScreen,
                                              notched: TabBarController.notchedFlags,
                                              frames: screens.map(\.frame),
@@ -957,6 +1016,8 @@ final class TabBarController: TabBarHost {
     ///
     /// 停靠在底部时是屏幕底边一条窄带（见 `DockGeometry.hotZone`）。
     private var hotZone: NSRect {
+        // 自己那块屏已经拔掉：别退到别的屏上去唤出（.null 不包含任何点，并集时也不占地方）
+        if fixedDisplay != nil, anchorScreen == nil { return .null }
         let screen = anchorScreen ?? panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
         return DockGeometry.hotZone(edge: prefs.dockEdge,
                                     screen: screen.frame,
@@ -1048,7 +1109,7 @@ final class TabBarController: TabBarHost {
 
     /// 进调度中心：条（连同预览、开始菜单）淡出；退出：常驻类模式淡入恢复，
     /// 自动隐藏模式本来就藏着，保持藏着等鼠标顶边唤出。
-    private func missionControlChanged(_ active: Bool) {
+    func missionControlChanged(_ active: Bool) {
         TTLog("MissionControl \(active ? "進入 → 條淡出" : "退出 → 恢復")")
         if active {
             hidePreview()
@@ -1201,7 +1262,8 @@ final class TabBarController: TabBarHost {
             self.preview.show(for: entry,
                               anchorInScreen: screenRect,
                               mainPanelFrame: self.panel.frame,
-                              hideMinimized: self.prefs.hideMinimizedWindows)
+                              hideMinimized: self.prefs.hideMinimizedWindows,
+                              region: self.catalog.screenRegion)
         }
         previewWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + previewDelay, execute: work)
@@ -1225,6 +1287,12 @@ final class TabBarController: TabBarHost {
     }
 
     // MARK: - 开始菜单
+
+    /// 别的条要开开始菜单了：这条上开着的收掉（同一时间只开一个）
+    func closeStartMenu() {
+        guard startMenu.isVisible else { return }
+        startMenu.close()
+    }
 
     func toggleStartMenu() {
         if startMenu.isVisible {
@@ -1329,6 +1397,8 @@ final class TabBarController: TabBarHost {
         // 非钉住（顶部热区唤出 / 常驻）时用 anchorScreen —— 主显示器。
         // 以前这里是 panel.screen，于是 ⌘Tab 在副屏弹过一次后，
         // 面板 frame 留在副屏，之后顶部唤出就一直在副屏，主屏彻底没反应。
+        // 各屏一条、自己那块屏刚拔掉：原地不动，等 TabBarFleet 拆掉这条，别跳到别人的屏上叠着
+        if !pinnedToMouse, fixedDisplay != nil, anchorScreen == nil { return }
         let screen: NSScreen? = pinnedToMouse
             ? (NSScreen.screens.first { $0.frame.contains(pinnedAnchor) }
                 ?? panel.screen ?? NSScreen.main ?? NSScreen.screens.first)
