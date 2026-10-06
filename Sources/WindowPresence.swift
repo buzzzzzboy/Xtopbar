@@ -34,7 +34,11 @@ final class WindowPresence: ObservableObject {
     /// 跨两块屏的窗口只算重叠多的那块，一块都不沾的算主显示器
     @Published private(set) var screensByPID: [pid_t: Set<CGDirectDisplayID>] = [:]
 
-    /// 上面两张表有变化（主线程同步发出）。每块屏的条各有一个 AppCatalog，都要据此重采
+    /// 各 App 在每块屏上最前面那扇窗口的标题（Chrome 就是当前分页）。
+    /// 同一个 App 出现在好几条上时，条上的名字后面带上它，分得清哪条是哪扇窗口
+    @Published private(set) var frontTitles: [pid_t: [CGDirectDisplayID: String]] = [:]
+
+    /// 上面几张表有变化（主线程同步发出）。每块屏的条各有一个 AppCatalog，都要据此重采
     let changed = PassthroughSubject<Void, Never>()
 
     private var emptyStreak: [pid_t: Int] = [:]
@@ -48,9 +52,10 @@ final class WindowPresence: ObservableObject {
     func scan(pids: [pid_t]) {
         guard AXIsProcessTrusted() else {
             // 权限被撤销：不再过滤，已经藏起来的全部放回来
-            if !windowless.isEmpty || !screensByPID.isEmpty {
+            if !windowless.isEmpty || !screensByPID.isEmpty || !frontTitles.isEmpty {
                 windowless = []
                 screensByPID = [:]
+                frontTitles = [:]
                 emptyStreak = [:]
                 changed.send()
             }
@@ -64,22 +69,27 @@ final class WindowPresence: ObservableObject {
         }
     }
 
-    private func apply(_ results: [(pid: pid_t, frames: [CGRect]?)], scanned: [pid_t]) {
+    private func apply(_ results: [(pid: pid_t, windows: [WindowSample]?)], scanned: [pid_t]) {
         inFlight = false
         let screens = NSScreen.screens
         let screenRects = screens.map { AvoidGeometry.cgRect($0.frame) }
         let screenIDs = screens.map(\.displayID)
         var next = windowless
         var nextScreens = screensByPID
+        var nextTitles = frontTitles
         for r in results {
-            guard let frames = r.frames else { continue }   // 问不出来：维持原判
-            let count = frames.count
+            guard let windows = r.windows else { continue }   // 问不出来：维持原判
+            let count = windows.count
             if count == 0 || screens.isEmpty {
                 nextScreens[r.pid] = nil
+                nextTitles[r.pid] = nil
             } else {
-                nextScreens[r.pid] = Set(frames.compactMap {
-                    screenIDs[ScreenAssign.index(of: $0, in: screenRects) ?? 0]
-                })
+                let placed = windows.compactMap { w in
+                    screenIDs[ScreenAssign.index(of: w.frame, in: screenRects) ?? 0].map { (id: $0, window: w) }
+                }
+                nextScreens[r.pid] = Set(placed.map { $0.id })
+                let titles = WindowSample.frontTitles(placed)
+                nextTitles[r.pid] = titles.isEmpty ? nil : titles
             }
             if count > 0 {
                 emptyStreak[r.pid] = 0
@@ -94,55 +104,64 @@ final class WindowPresence: ObservableObject {
         let alive = Set(scanned)
         next = next.filter { alive.contains($0) }
         nextScreens = nextScreens.filter { alive.contains($0.key) }
+        nextTitles = nextTitles.filter { alive.contains($0.key) }
         emptyStreak = emptyStreak.filter { alive.contains($0.key) }
 
-        guard next != windowless || nextScreens != screensByPID else { return }
+        guard next != windowless || nextScreens != screensByPID || nextTitles != frontTitles else { return }
         if next != windowless {
             TTLog("WindowPresence 無視窗 App：\(next.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
         }
         windowless = next
         screensByPID = nextScreens
+        frontTitles = nextTitles
         changed.send()
     }
 
     // MARK: - 查询（后台）
 
-    /// 每个 pid 的真窗口 frame（CG 坐标）。nil = 问不出来；空 = 确实没有窗口
-    nonisolated static func query(_ pids: [pid_t]) async -> [(pid: pid_t, frames: [CGRect]?)] {
+    /// 每个 pid 的真窗口（AX 顺序 = 前后次序）。nil = 问不出来；空 = 确实没有窗口
+    nonisolated static func query(_ pids: [pid_t]) async -> [(pid: pid_t, windows: [WindowSample]?)] {
         let onScreen = onScreenWindowFrames()
-        return await withTaskGroup(of: (pid: pid_t, frames: [CGRect]?).self) { group in
+        return await withTaskGroup(of: (pid: pid_t, windows: [WindowSample]?).self) { group in
             for pid in pids {
                 group.addTask {
-                    let frames = axWindowFrames(pid)
-                    // AX 回空但屏上明明有它的窗口：信窗口服务器
-                    if frames?.isEmpty == true, let cg = onScreen[pid], !cg.isEmpty { return (pid, cg) }
-                    return (pid, frames)
+                    let windows = axWindows(pid)
+                    // AX 回空但屏上明明有它的窗口：信窗口服务器（拿不到标题）
+                    if windows?.isEmpty == true, let cg = onScreen[pid], !cg.isEmpty {
+                        return (pid, cg.map { WindowSample(frame: $0, title: "", minimized: false) })
+                    }
+                    return (pid, windows)
                 }
             }
-            var out: [(pid: pid_t, frames: [CGRect]?)] = []
+            var out: [(pid: pid_t, windows: [WindowSample]?)] = []
             for await r in group { out.append(r) }
             return out
         }
     }
 
     /// nil = 问不出来；空 = 确实没有（含最小化在内的）真窗口
-    nonisolated static func axWindowFrames(_ pid: pid_t) -> [CGRect]? {
+    nonisolated static func axWindows(_ pid: pid_t) -> [WindowSample]? {
         WindowBridge.axGate(for: pid) {
             let app = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(app, 0.3)
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
                   let list = value as? [AXUIElement] else { return nil }
-            var frames: [CGRect] = []
+            var windows: [WindowSample] = []
             for win in list {
                 let role = ScreenCaptureEngine.stringAttr(win, kAXRoleAttribute as CFString) ?? ""
                 let subrole = ScreenCaptureEngine.stringAttr(win, kAXSubroleAttribute as CFString) ?? ""
-                guard let frame = ScreenCaptureEngine.axFrame(of: win) else { continue }
-                if ScreenCaptureEngine.isRealWindow(role: role, subrole: subrole, size: frame.size) {
-                    frames.append(frame)
-                }
+                guard let frame = ScreenCaptureEngine.axFrame(of: win),
+                      ScreenCaptureEngine.isRealWindow(role: role, subrole: subrole, size: frame.size)
+                else { continue }
+                var minimized: CFTypeRef?
+                AXUIElementCopyAttributeValue(win, kAXMinimizedAttribute as CFString, &minimized)
+                windows.append(WindowSample(
+                    frame: frame,
+                    title: ScreenCaptureEngine.stringAttr(win, kAXTitleAttribute as CFString) ?? "",
+                    minimized: (minimized as? NSNumber)?.boolValue ?? false))
             }
-            return frames
+            return windows
         }
     }
 
@@ -163,5 +182,26 @@ final class WindowPresence: ObservableObject {
             owners[pid, default: []].append(rect)
         }
         return owners
+    }
+}
+
+/// 一扇真窗口的快照（后台 AX 查询 → 主线程）
+struct WindowSample: Sendable, Equatable {
+    /// CG 坐标
+    let frame: CGRect
+    let title: String
+    let minimized: Bool
+
+    /// 每块屏上最前面那扇窗口的标题：按 AX 顺序（前后次序）取第一扇开着的；
+    /// 这块屏上只剩最小化的就取最小化里最前的。没标题的跳过。纯逻辑，`--test-pins` 打样例
+    static func frontTitles<ID: Hashable>(_ placed: [(id: ID, window: WindowSample)]) -> [ID: String] {
+        var titles: [ID: String] = [:]
+        for preferOpen in [true, false] {
+            for p in placed where titles[p.id] == nil && (!preferOpen || !p.window.minimized) {
+                let title = p.window.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !title.isEmpty { titles[p.id] = title }
+            }
+        }
+        return titles
     }
 }

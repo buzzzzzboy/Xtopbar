@@ -135,7 +135,7 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
-        .help(entry.isRunning ? entry.name : "\(entry.name)（未執行，點選開啟）")
+        .help(entry.isRunning ? entry.displayName : "\(entry.name)（未執行，點選開啟）")
         // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
         .contextMenu { tabMenu }
@@ -179,7 +179,7 @@ struct AppTab: View {
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
                 .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
             if showsName {
-                Text(entry.name)
+                Text(entry.displayName)
                     // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
                     // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
                     // 高亮现在会随指针频繁进出，这个抖动会变得很明显。

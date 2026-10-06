@@ -17,10 +17,25 @@ struct AppEntry: Identifiable, Equatable {
     var isPinned: Bool = false
     /// 启动时间：运行中的 App 按它排（先开的在左，新开的接在右边）
     var launchDate: Date? = nil
+    /// 多屏时同一个 App 出现在好几条上：这条（这块屏）上它最前面那扇窗口的标题，
+    /// Chrome / Safari 就是当前分页。只出现在一条上时为 nil
+    var windowTitle: String? = nil
+
+    /// 条上显示的名字：带了窗口标题就是「名字 (标题)」，分得清每条上是哪扇窗口
+    var displayName: String { AppEntry.label(name: name, windowTitle: windowTitle) }
+
+    /// 标题太长截断（加省略号），免得一个标签把条撑得老长
+    static func label(name: String, windowTitle: String?, limit: Int = 20) -> String {
+        guard let raw = windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty, raw != name else { return name }
+        let title = raw.count > limit ? String(raw.prefix(limit - 1)) + "…" : raw
+        return "\(name) (\(title))"
+    }
 
     static func == (lhs: AppEntry, rhs: AppEntry) -> Bool {
         lhs.id == rhs.id && lhs.pid == rhs.pid && lhs.category == rhs.category
             && lhs.isRunning == rhs.isRunning && lhs.isPinned == rhs.isPinned
+            && lhs.windowTitle == rhs.windowTitle
     }
 }
 
@@ -217,7 +232,16 @@ final class AppCatalog: ObservableObject {
             !pinnedIDs.contains(e.id) && hidden[e.id] == nil && !windowless.contains(e.pid)
                 && (scope?.admits(screensByPID[e.pid], live: live) ?? true)
         }
-        return (pinned, others)
+        // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面带上这块屏上那扇窗口的分页标题
+        guard let current = scope else { return (pinned, others) }
+        let titles = WindowPresence.shared.frontTitles
+        func labeled(_ e: AppEntry) -> AppEntry {
+            guard e.pid > 0 else { return e }
+            var copy = e
+            copy.windowTitle = current.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid])
+            return copy
+        }
+        return (pinned.map(labeled), others.map(labeled))
     }
 
     /// 固定项的 .app 位置：记下的路径还在就用它，App 被挪走了就按 bundle id 问 LaunchServices
@@ -323,7 +347,7 @@ final class AppCatalog: ObservableObject {
         let newGroups = group(pinned: collected.pinned, running: collected.running)
 
         let signature = newGroups.map { g in
-            "\(g.id):" + g.entries.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")
+            "\(g.id):" + g.entries.map { "\($0.id)#\($0.pid)#\($0.windowTitle ?? "")" }.joined(separator: ",")
         }.joined(separator: "|") + "|active:\(frontPID)"
 
         guard signature != lastSignature else { return }
@@ -874,7 +898,7 @@ final class AppCatalog: ObservableObject {
                 if iconOnly {
                     total += 36 + 12 + 2
                 } else {
-                    let textWidth = min((entry.name as NSString).size(withAttributes: [.font: font]).width, 108)
+                    let textWidth = min((entry.displayName as NSString).size(withAttributes: [.font: font]).width, 108)
                     total += 18 + 6 + ceil(textWidth) + 18 + 2 + 13
                 }
             }

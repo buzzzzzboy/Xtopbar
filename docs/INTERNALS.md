@@ -189,6 +189,8 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 - 固定項不過濾，每條都有
 - 沒有輔助使用權限 → 量不出視窗在哪，每條都放全部
 
+**同一個 App 出現在好幾條上**（例如 Chrome 兩塊螢幕都有視窗）：每條上的名稱後面帶上「這塊螢幕上它最前面那扇視窗」的標題（Chrome / Safari 的視窗標題就是目前分頁），寫成 `名稱 (標題)`，標題超過 20 字截斷加「…」。標題也是同一輪 AX 查詢帶回來的（`WindowSample`，AX 視窗陣列按前後次序排，取每塊螢幕第一扇開著的；只剩最小化的就取最小化裡最前的），存在 `WindowPresence.frontTitles`；只出現在一條上的 App 保持原名（`ScreenScope.windowTitle`）。切分頁後約 1.2s 內跟上。
+
 `WindowPresence` 的變化從單一回呼改成 `changed`（`PassthroughSubject`，主執行緒同步發），每條的 catalog 各自訂閱。
 
 **點副條上的 App**：catalog 的 `screenRegion`（本螢幕 + 所有螢幕的 CG 座標，值型別，能帶進背景的 AX 呼叫）傳給 `WindowBridge`：

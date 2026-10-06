@@ -66,6 +66,14 @@ struct ScreenScope: Equatable {
         let known = (screens ?? []).intersection(live)
         return known.isEmpty ? isPrimary : known.contains(displayID)
     }
+
+    /// 这条上该给 App 名字后面带的窗口标题：只有它在不止一块（接着的）屏上有窗口、
+    /// 出现在好几条上时才带，取这块屏上最前面那扇窗口的标题；只在一条上就不带，保持原名
+    func windowTitle(_ screens: Set<CGDirectDisplayID>?, live: Set<CGDirectDisplayID>,
+                     titles: [CGDirectDisplayID: String]?) -> String? {
+        guard (screens ?? []).intersection(live).count > 1 else { return nil }
+        return titles?[displayID]
+    }
 }
 
 /// 管所有条：单条模式就一条；「在所有螢幕上顯示」开着并接了多块屏时每块屏一条。
