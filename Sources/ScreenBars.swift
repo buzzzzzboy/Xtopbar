@@ -67,6 +67,14 @@ struct ScreenScope: Equatable {
         return known.isEmpty ? isPrimary : known.contains(displayID)
     }
 
+    /// 条上图标角落数字圆圈的数字：各屏一条时数这块屏上的窗口，单条模式（scope 为 nil）数全部。
+    /// 少于 2 扇不画圆圈（调用方判断）
+    static func windowCount(_ counts: [CGDirectDisplayID: Int]?, scope: ScreenScope?) -> Int {
+        guard let counts else { return 0 }
+        guard let scope else { return counts.values.reduce(0, +) }
+        return counts[scope.displayID] ?? 0
+    }
+
     /// 这条上该给 App 名字后面带的窗口标题：只有它在不止一块（接着的）屏上有窗口、
     /// 出现在好几条上时才带，取这块屏上最前面那扇窗口的标题；只在一条上就不带，保持原名
     func windowTitle(_ screens: Set<CGDirectDisplayID>?, live: Set<CGDirectDisplayID>,

@@ -648,6 +648,8 @@ final class TabBarController: TabBarHost {
         TTLog("  同 App 多條：兩屏都有視窗 → \(scope.windowTitle([1, 2], live: [1, 2], titles: [2: "YouTube"]) ?? "nil")（期望 YouTube），"
               + "只在副屏 → \(scope.windowTitle([2], live: [1, 2], titles: [2: "YouTube"]) ?? "nil")（期望 nil），"
               + "名稱 → \(AppEntry.label(name: "Chrome", windowTitle: "一個非常非常非常非常非常長的分頁標題"))（期望截到 20 字）")
+        TTLog("  視窗數圓圈：副屏那條 → \(ScreenScope.windowCount([1: 2, 2: 3], scope: scope))（期望 3），"
+              + "單條模式 → \(ScreenScope.windowCount([1: 2, 2: 3], scope: nil))（期望 5）")
         TTLog("  本條螢幕=\(fixedDisplay.map { "\($0)" } ?? "單條模式")，"
               + "已知視窗分佈的 App \(WindowPresence.shared.screensByPID.count) 個")
         let lib = AppLibrary.shared

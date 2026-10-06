@@ -21,6 +21,9 @@ struct AppEntry: Identifiable, Equatable {
     /// Chrome / Safari 就是当前分页。只出现在一条上时为 nil
     var windowTitle: String? = nil
 
+    /// 这条（这块屏）上它开着几扇窗口（含最小化的）；单条模式下是全部窗口。≥ 2 时图标角落画数字圆圈
+    var windowCount: Int = 0
+
     /// 条上显示的名字：带了窗口标题就是「名字 (标题)」，分得清每条上是哪扇窗口
     var displayName: String { AppEntry.label(name: name, windowTitle: windowTitle) }
 
@@ -35,7 +38,7 @@ struct AppEntry: Identifiable, Equatable {
     static func == (lhs: AppEntry, rhs: AppEntry) -> Bool {
         lhs.id == rhs.id && lhs.pid == rhs.pid && lhs.category == rhs.category
             && lhs.isRunning == rhs.isRunning && lhs.isPinned == rhs.isPinned
-            && lhs.windowTitle == rhs.windowTitle
+            && lhs.windowTitle == rhs.windowTitle && lhs.windowCount == rhs.windowCount
     }
 }
 
@@ -173,10 +176,9 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - Collection
 
-    /// 后台查一轮"哪些 App 没有窗口"（结果变了会回调 refresh）。
-    /// 开关关着、开始菜单也没开（它的「背景執行」区要用）、也不用按屏分 App 就不查。
+    /// 后台查一轮各 App 的窗口（有没有 / 在哪块屏 / 几扇 / 标题，结果变了会回调 refresh）。
+    /// 图标角落的窗口数圆圈一直要用，所以不再看开关，每轮都查（没有辅助功能权限时 scan 自己会跳过）。
     func scanWindows() {
-        guard Preferences.shared.onlyWindowedApps || startMenuOpen || screenScope != nil else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let pids = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != me }
@@ -232,13 +234,15 @@ final class AppCatalog: ObservableObject {
             !pinnedIDs.contains(e.id) && hidden[e.id] == nil && !windowless.contains(e.pid)
                 && (scope?.admits(screensByPID[e.pid], live: live) ?? true)
         }
-        // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面带上这块屏上那扇窗口的分页标题
-        guard let current = scope else { return (pinned, others) }
+        // 窗口数（图标角落的数字圆圈）：各屏一条数这块屏上的，单条模式数全部。
+        // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面再带上这块屏上那扇窗口的分页标题
         let titles = WindowPresence.shared.frontTitles
+        let counts = WindowPresence.shared.windowCounts
         func labeled(_ e: AppEntry) -> AppEntry {
             guard e.pid > 0 else { return e }
             var copy = e
-            copy.windowTitle = current.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid])
+            copy.windowCount = ScreenScope.windowCount(counts[e.pid], scope: scope)
+            copy.windowTitle = scope?.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid])
             return copy
         }
         return (pinned.map(labeled), others.map(labeled))
@@ -347,7 +351,9 @@ final class AppCatalog: ObservableObject {
         let newGroups = group(pinned: collected.pinned, running: collected.running)
 
         let signature = newGroups.map { g in
-            "\(g.id):" + g.entries.map { "\($0.id)#\($0.pid)#\($0.windowTitle ?? "")" }.joined(separator: ",")
+            "\(g.id):" + g.entries.map {
+                "\($0.id)#\($0.pid)#\($0.windowTitle ?? "")#\($0.windowCount)"
+            }.joined(separator: ",")
         }.joined(separator: "|") + "|active:\(frontPID)"
 
         guard signature != lastSignature else { return }

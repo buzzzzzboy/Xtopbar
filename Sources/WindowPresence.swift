@@ -38,6 +38,9 @@ final class WindowPresence: ObservableObject {
     /// 同一个 App 出现在好几条上时，条上的名字后面带上它，分得清哪条是哪扇窗口
     @Published private(set) var frontTitles: [pid_t: [CGDirectDisplayID: String]] = [:]
 
+    /// 各 App 在每块屏上开着几扇窗口（含最小化的）。条上图标角落的数字圆圈按它画
+    @Published private(set) var windowCounts: [pid_t: [CGDirectDisplayID: Int]] = [:]
+
     /// 上面几张表有变化（主线程同步发出）。每块屏的条各有一个 AppCatalog，都要据此重采
     let changed = PassthroughSubject<Void, Never>()
 
@@ -52,10 +55,11 @@ final class WindowPresence: ObservableObject {
     func scan(pids: [pid_t]) {
         guard AXIsProcessTrusted() else {
             // 权限被撤销：不再过滤，已经藏起来的全部放回来
-            if !windowless.isEmpty || !screensByPID.isEmpty || !frontTitles.isEmpty {
+            if !windowless.isEmpty || !screensByPID.isEmpty || !frontTitles.isEmpty || !windowCounts.isEmpty {
                 windowless = []
                 screensByPID = [:]
                 frontTitles = [:]
+                windowCounts = [:]
                 emptyStreak = [:]
                 changed.send()
             }
@@ -77,12 +81,14 @@ final class WindowPresence: ObservableObject {
         var next = windowless
         var nextScreens = screensByPID
         var nextTitles = frontTitles
+        var nextCounts = windowCounts
         for r in results {
             guard let windows = r.windows else { continue }   // 问不出来：维持原判
             let count = windows.count
             if count == 0 || screens.isEmpty {
                 nextScreens[r.pid] = nil
                 nextTitles[r.pid] = nil
+                nextCounts[r.pid] = nil
             } else {
                 let placed = windows.compactMap { w in
                     screenIDs[ScreenAssign.index(of: w.frame, in: screenRects) ?? 0].map { (id: $0, window: w) }
@@ -90,6 +96,7 @@ final class WindowPresence: ObservableObject {
                 nextScreens[r.pid] = Set(placed.map { $0.id })
                 let titles = WindowSample.frontTitles(placed)
                 nextTitles[r.pid] = titles.isEmpty ? nil : titles
+                nextCounts[r.pid] = placed.reduce(into: [CGDirectDisplayID: Int]()) { counts, p in counts[p.id, default: 0] += 1 }
             }
             if count > 0 {
                 emptyStreak[r.pid] = 0
@@ -105,15 +112,18 @@ final class WindowPresence: ObservableObject {
         next = next.filter { alive.contains($0) }
         nextScreens = nextScreens.filter { alive.contains($0.key) }
         nextTitles = nextTitles.filter { alive.contains($0.key) }
+        nextCounts = nextCounts.filter { alive.contains($0.key) }
         emptyStreak = emptyStreak.filter { alive.contains($0.key) }
 
-        guard next != windowless || nextScreens != screensByPID || nextTitles != frontTitles else { return }
+        guard next != windowless || nextScreens != screensByPID || nextTitles != frontTitles
+                || nextCounts != windowCounts else { return }
         if next != windowless {
             TTLog("WindowPresence 無視窗 App：\(next.compactMap { NSRunningApplication(processIdentifier: $0)?.localizedName })")
         }
         windowless = next
         screensByPID = nextScreens
         frontTitles = nextTitles
+        windowCounts = nextCounts
         changed.send()
     }
 

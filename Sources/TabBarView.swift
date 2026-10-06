@@ -135,7 +135,9 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
-        .help(entry.isRunning ? entry.displayName : "\(entry.name)（未執行，點選開啟）")
+        .help(entry.isRunning
+              ? entry.displayName + (entry.windowCount >= 2 ? "（\(entry.windowCount) 個視窗）" : "")
+              : "\(entry.name)（未執行，點選開啟）")
         // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
         .contextMenu { tabMenu }
@@ -156,6 +158,7 @@ struct AppTab: View {
                 .resizable()
                 .interpolation(.high)
                 .frame(width: TTLayout.s(36), height: TTLayout.s(36))
+                .overlay(alignment: .topTrailing) { windowBadge(size: 16) }
                 // 只缩放图标本身：frame 是固定的，命中区域不受影响
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
                 .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
@@ -174,6 +177,7 @@ struct AppTab: View {
                 .resizable()
                 .interpolation(.high)
                 .frame(width: TTLayout.s(18), height: TTLayout.s(18))
+                .overlay(alignment: .topTrailing) { windowBadge(size: 12) }
                 // 只缩放图标本身：frame 是固定的，布局不会变，
                 // 上报给窗口层的命中区域也就不受影响。
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
@@ -193,6 +197,27 @@ struct AppTab: View {
         // 只有图标时左右也收成 6pt，和上下一样，成一个方块
         .padding(.horizontal, TTLayout.s(showsName ? 9 : 6))
         .padding(.vertical, TTLayout.s(6))
+    }
+
+    /// 这块屏上开着 ≥ 2 扇窗口：图标右上角画个数字圆圈（多于 9 扇写 9+）。
+    /// 挂在图标的 overlay 上并往外挪半个圆，不占布局，标签宽度和上报的命中区域都不变
+    @ViewBuilder
+    private func windowBadge(size: CGFloat) -> some View {
+        if entry.windowCount >= 2 {
+            let d = TTLayout.s(size)
+            Text(entry.windowCount > 9 ? "9+" : "\(entry.windowCount)")
+                .font(.system(size: TTLayout.font(size * 0.62), weight: .bold).monospacedDigit())
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, entry.windowCount > 9 ? d * 0.18 : 0)
+                .frame(minWidth: d, minHeight: d)
+                .background(Capsule().fill(Color.accentColor))
+                // 白边把圆圈和图标分开，深浅壁纸上都看得清
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.9), lineWidth: 1))
+                .offset(x: d * 0.4, y: -d * 0.35)
+                .allowsHitTesting(false)
+        }
     }
 
     /// 固定了但没在运行的 App 只放图标（同 Windows 11 任务栏），名字留在悬停提示里
