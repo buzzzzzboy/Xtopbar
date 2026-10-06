@@ -122,9 +122,9 @@ final class TabBarFleet {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.layoutBars() }
             .store(in: &cancellables)
+        // 同步处理、不 receive(on:)：屏幕一变当场拆副条 / 摆主条，别让旧摆法多画一轮 runloop
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.layoutBars() }
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.layoutBars() } }
             .store(in: &cancellables)
     }
 
@@ -134,14 +134,15 @@ final class TabBarFleet {
         let multi = prefs.allScreens && screens.count > 1
         let primaryID = multi ? screens.first?.displayID : nil
 
-        primary.assign(display: primaryID)
-        primaryCatalog.screenScope = primaryID.map { ScreenScope(displayID: $0, isPrimary: true) }
-
+        // 先拆不要的副条，再挪主条：主条挪到副条那块屏上时副条已经不在，不会有两条叠着的一帧
         let wanted = multi ? screens.dropFirst().compactMap(\.displayID) : []
         for (id, bar) in secondaries where !wanted.contains(id) {
             bar.controller.shutdown()
             secondaries[id] = nil
         }
+
+        primary.assign(display: primaryID)
+        primaryCatalog.screenScope = primaryID.map { ScreenScope(displayID: $0, isPrimary: true) }
         for id in wanted where secondaries[id] == nil {
             let catalog = AppCatalog()
             catalog.screenScope = ScreenScope(displayID: id, isPrimary: false)

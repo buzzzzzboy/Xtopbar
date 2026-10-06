@@ -169,7 +169,7 @@ final class WindowPresence: ObservableObject {
     nonisolated static func onScreenWindowFrames() -> [pid_t: [CGRect]] {
         let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
-            return []
+            return [:]
         }
         var owners: [pid_t: [CGRect]] = [:]
         for w in list {
