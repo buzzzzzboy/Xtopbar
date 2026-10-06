@@ -540,14 +540,16 @@ enum WindowBridge {
 
     /// App 在前台时点它的图标：把所有开着（没最小化）的标准窗口收进 Dock。
     /// 返回 true = 真的收了至少一个；一个开着的都没有时返回 false，由调用方走"激活 + 恢复"。
-    static func minimizeOpenWindows(pid: pid_t) -> Bool {
+    /// - region: 多屏各屏一条时只收这块屏上的窗口（nil = 全部）
+    static func minimizeOpenWindows(pid: pid_t, in region: ScreenRegion? = nil) -> Bool {
         guard isTrusted else { return false }
         return axGate(for: pid) { () -> Bool in
             let app = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(app, 0.3)
-            let open = axWindows(app).map(\.element).filter {
-                isStandardWindow($0) && boolAttribute($0, kAXMinimizedAttribute as String) != true
-            }
+            let open = axWindows(app).filter { w in
+                isStandardWindow(w.element) && boolAttribute(w.element, kAXMinimizedAttribute as String) != true
+                    && (region.map { r in w.frame.map(r.contains) ?? false } ?? true)
+            }.map(\.element)
             guard !open.isEmpty else { return false }
             for window in open {
                 AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
@@ -589,6 +591,52 @@ enum WindowBridge {
                 AXUIElementPerformAction(top, kAXRaiseAction as CFString)
             }
             TTLog("tap-restore pid=\(pid) 放回 \(targets.count) 個視窗")
+        }
+    }
+
+    // MARK: - 多屏：切到 / 判断某块屏上的窗口
+
+    /// 多屏各屏一条：从某块屏的条上点 App 时，把它在这块屏上最前面的窗口提到最前并设成焦点；
+    /// 这块屏上只剩最小化的窗口就放回最近的一个。激活 App 之后调。
+    /// 返回 false = 这块屏上没有它的窗口，什么都没动。
+    @discardableResult
+    static func raiseWindow(pid: pid_t, in region: ScreenRegion) -> Bool {
+        guard isTrusted else { return false }
+        return axGate(for: pid) { () -> Bool in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.3)
+            // AX 窗口数组按前后次序排，第一个就是这块屏上最前面的
+            let here = axWindows(app).filter { w in
+                isStandardWindow(w.element) && (w.frame.map(region.contains) ?? false)
+            }
+            let open = here.first { boolAttribute($0.element, kAXMinimizedAttribute as String) != true }
+            guard let target = open ?? here.first else { return false }
+            if open == nil {
+                AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            }
+            // 同 _focusWindow：main / focused 先写，App 置前，等激活引发的窗口重排落地后再 raise，
+            // 否则 raise 会被 App 自己"把上个主窗口顶上来"的重排冲掉
+            AXUIElementSetAttributeValue(target.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementSetAttributeValue(target.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            usleep(300_000)
+            AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
+            TTLog("raise-on-screen pid=\(pid) title=\"\(target.title)\" screen=#\(region.index)")
+            return true
+        }
+    }
+
+    /// App 的焦点窗口落不落在这块屏上。问不出来按"落在"算 —— 照原来的"点前台 App = 收起"走。
+    static func focusedWindow(pid: pid_t, isIn region: ScreenRegion) -> Bool {
+        guard isTrusted else { return true }
+        return axGate(for: pid) { () -> Bool in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.3)
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
+                  let v = value, CFGetTypeID(v) == AXUIElementGetTypeID(),
+                  let frame = axFrame(v as! AXUIElement) else { return true }
+            return region.contains(frame)
         }
     }
 

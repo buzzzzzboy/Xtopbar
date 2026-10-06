@@ -10,12 +10,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private let statusItem: NSStatusItem
     private let prefs: Preferences
-    private weak var controller: TabBarController?
+    /// 动作分发给所有条（开始菜单开在鼠标所在屏的那条上）
+    private weak var controller: TabBarFleet?
     private var cancellables = Set<AnyCancellable>()
 
-    init(prefs: Preferences, controller: TabBarController) {
+    init(prefs: Preferences, fleet: TabBarFleet) {
         self.prefs = prefs
-        self.controller = controller
+        self.controller = fleet
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 

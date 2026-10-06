@@ -6,7 +6,7 @@ import Combine
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let catalog = AppCatalog()
-    private var controller: TabBarController?
+    private var fleet: TabBarFleet?
     private var statusItem: StatusItemController?
     private var cancellables = Set<AnyCancellable>()
     /// 用户在确认框里点了取消、把开关弹回去时置位，免得弹回本身又触发一次确认
@@ -20,12 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLibrary.shared.refreshIfStale(maxAge: 0)
 
         catalog.start()
-        let controller = TabBarController(catalog: catalog)
-        self.controller = controller
-        controller.start()
+        // 一条或多条（「在所有螢幕上顯示」+ 多块屏时每块屏一条）；下面的调试入口都走主条
+        let fleet = TabBarFleet(catalog: catalog)
+        self.fleet = fleet
+        fleet.start()
+        let controller = fleet.primary
 
         // 菜单栏图标。由 Preferences.showStatusItem 控制显隐。
-        statusItem = StatusItemController(prefs: .shared, controller: controller)
+        statusItem = StatusItemController(prefs: .shared, fleet: fleet)
 
         // 「隐藏系统 Dock」开关：改动时确认 → 写 com.apple.dock → 重启 Dock。
         // 启动时不动（dropFirst）：开着的就一直开着，不用每次启动都重启 Dock。
@@ -48,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 调试用：`--start-menu` 启动后直接弹开始菜单
         if CommandLine.arguments.contains("--start-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                controller.toggleStartMenu()
+                fleet.toggleStartMenu()
             }
         }
 

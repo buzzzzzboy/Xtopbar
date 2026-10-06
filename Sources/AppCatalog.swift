@@ -17,10 +17,28 @@ struct AppEntry: Identifiable, Equatable {
     var isPinned: Bool = false
     /// 启动时间：运行中的 App 按它排（先开的在左，新开的接在右边）
     var launchDate: Date? = nil
+    /// 多屏时同一个 App 出现在好几条上：这条（这块屏）上它最前面那扇窗口的标题，
+    /// Chrome / Safari 就是当前分页。只出现在一条上时为 nil
+    var windowTitle: String? = nil
+
+    /// 这条（这块屏）上它开着几扇窗口（含最小化的）；单条模式下是全部窗口。≥ 2 时图标角落画数字圆圈
+    var windowCount: Int = 0
+
+    /// 条上显示的名字：带了窗口标题就是「名字 (标题)」，分得清每条上是哪扇窗口
+    var displayName: String { AppEntry.label(name: name, windowTitle: windowTitle) }
+
+    /// 标题太长截断（加省略号），免得一个标签把条撑得老长
+    static func label(name: String, windowTitle: String?, limit: Int = 20) -> String {
+        guard let raw = windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty, raw != name else { return name }
+        let title = raw.count > limit ? String(raw.prefix(limit - 1)) + "…" : raw
+        return "\(name) (\(title))"
+    }
 
     static func == (lhs: AppEntry, rhs: AppEntry) -> Bool {
         lhs.id == rhs.id && lhs.pid == rhs.pid && lhs.category == rhs.category
             && lhs.isRunning == rhs.isRunning && lhs.isPinned == rhs.isPinned
+            && lhs.windowTitle == rhs.windowTitle && lhs.windowCount == rhs.windowCount
     }
 }
 
@@ -80,7 +98,33 @@ final class AppCatalog: ObservableObject {
     private var iconCache: [String: NSImage] = [:]
     private var refreshTimer: Timer?
     private var subscribers: [NSObjectProtocol] = []
+    private var cancellables = Set<AnyCancellable>()
     private var lastSignature: String = ""
+
+    // MARK: - 多屏：这条只管哪块屏
+
+    /// 多屏「各屏一条」时这条管的屏：运行中的 App 只在窗口落在这块屏上时才上条。
+    /// nil = 单条模式，不按屏过滤。由 `TabBarFleet` 设。
+    var screenScope: ScreenScope? {
+        didSet {
+            guard screenScope != oldValue else { return }
+            lastSignature = ""
+            refresh()
+            scanWindows()
+        }
+    }
+
+    /// ⌘Tab 会话期间放开屏幕过滤：快切要能切到任何一块屏上的 App
+    private var scopeSuspended = false
+
+    /// 眼下实际生效的屏幕过滤
+    private var activeScope: ScreenScope? { scopeSuspended ? nil : screenScope }
+
+    /// 这条所在屏的范围（CG 坐标）。点标签切窗口 / 最小化、预览列窗口都只管这块屏上的；
+    /// 单条模式和 ⌘Tab 会话期间为 nil（不分屏）
+    var screenRegion: ScreenRegion? {
+        activeScope.flatMap { ScreenRegion.of(displayID: $0.displayID) }
+    }
 
     // MARK: - Lifecycle
 
@@ -113,7 +157,10 @@ final class AppCatalog: ObservableObject {
         }
         RunLoop.main.add(refreshTimer!, forMode: .common)
 
-        WindowPresence.shared.onChange = { [weak self] in self?.refresh() }
+        // 每块屏的条各有一个 catalog，都订阅同一份窗口分布；同步回调，和以前的单回调时序一样
+        WindowPresence.shared.changed
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.refresh() } }
+            .store(in: &cancellables)
         refresh()
         scanWindows()
     }
@@ -121,6 +168,7 @@ final class AppCatalog: ObservableObject {
     func stop() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        cancellables.removeAll()
         let nc = NSWorkspace.shared.notificationCenter
         subscribers.forEach { nc.removeObserver($0) }
         subscribers.removeAll()
@@ -128,10 +176,9 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - Collection
 
-    /// 后台查一轮"哪些 App 没有窗口"（结果变了会回调 refresh）。
-    /// 开关关着、开始菜单也没开（它的「背景執行」区要用）就不查。
+    /// 后台查一轮各 App 的窗口（有没有 / 在哪块屏 / 几扇 / 标题，结果变了会回调 refresh）。
+    /// 图标角落的窗口数圆圈一直要用，所以不再看开关，每轮都查（没有辅助功能权限时 scan 自己会跳过）。
     func scanWindows() {
-        guard Preferences.shared.onlyWindowedApps || startMenuOpen else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let pids = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != me }
@@ -179,10 +226,26 @@ final class AppCatalog: ObservableObject {
         let hidden = prefs.hiddenApps
         // 「只显示有窗口的 App」：没窗口的运行中 App 不上条（固定项上面已经收走了，不受影响）
         let windowless: Set<pid_t> = prefs.onlyWindowedApps ? WindowPresence.shared.windowless : []
+        // 多屏各屏一条：只留窗口在这块屏上的。没有辅助功能权限就量不出窗口在哪，每条都放全部
+        let scope = WindowBridge.isTrusted ? activeScope : nil
+        let live = Set(NSScreen.screens.compactMap(\.displayID))
+        let screensByPID = WindowPresence.shared.screensByPID
         let others = running.filter { e in
             !pinnedIDs.contains(e.id) && hidden[e.id] == nil && !windowless.contains(e.pid)
+                && (scope?.admits(screensByPID[e.pid], live: live) ?? true)
         }
-        return (pinned, others)
+        // 窗口数（图标角落的数字圆圈）：各屏一条数这块屏上的，单条模式数全部。
+        // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面再带上这块屏上那扇窗口的分页标题
+        let titles = WindowPresence.shared.frontTitles
+        let counts = WindowPresence.shared.windowCounts
+        func labeled(_ e: AppEntry) -> AppEntry {
+            guard e.pid > 0 else { return e }
+            var copy = e
+            copy.windowCount = ScreenScope.windowCount(counts[e.pid], scope: scope)
+            copy.windowTitle = scope?.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid])
+            return copy
+        }
+        return (pinned.map(labeled), others.map(labeled))
     }
 
     /// 固定项的 .app 位置：记下的路径还在就用它，App 被挪走了就按 bundle id 问 LaunchServices
@@ -288,7 +351,9 @@ final class AppCatalog: ObservableObject {
         let newGroups = group(pinned: collected.pinned, running: collected.running)
 
         let signature = newGroups.map { g in
-            "\(g.id):" + g.entries.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")
+            "\(g.id):" + g.entries.map {
+                "\($0.id)#\($0.pid)#\($0.windowTitle ?? "")#\($0.windowCount)"
+            }.joined(separator: ",")
         }.joined(separator: "|") + "|active:\(frontPID)"
 
         guard signature != lastSignature else { return }
@@ -421,6 +486,8 @@ final class AppCatalog: ObservableObject {
 
     /// - fromClick: 鼠标点标签（Windows 任务栏语义：前台 App 再点一下 = 最小化）。
     ///   ⌘Tab 提交 / 右键菜单等其它入口只管激活。
+    ///
+    /// 多屏各屏一条时，点的是哪块屏的条，就切到 / 收起这块屏上的窗口（同 Windows 多工作列）。
     func activate(_ entry: AppEntry, fromClick: Bool = false) {
         guard entry.isRunning, entry.pid > 0 else {
             // 固定了但没在运行：点一下 = 启动（同点 Dock 上没有小圆点的图标）
@@ -428,8 +495,12 @@ final class AppCatalog: ObservableObject {
             return
         }
         let pid = entry.pid
+        let region = fromClick ? screenRegion : nil
         guard fromClick, Preferences.shared.clickToMinimize, WindowBridge.isTrusted else {
             activatePID(pid)
+            if let region {
+                Task.detached(priority: .userInitiated) { WindowBridge.raiseWindow(pid: pid, in: region) }
+            }
             return
         }
         // 点前台 App：把它开着的窗口全部最小化；一个开着的都没有（上次点图标收起来了）
@@ -438,14 +509,24 @@ final class AppCatalog: ObservableObject {
         guard isFront else {
             // 后台 App：照常立刻激活（切换手感不能等 AX），被点图标收进 Dock 的窗口顺手放回来
             activatePID(pid)
-            Task.detached(priority: .userInitiated) { WindowBridge.restoreMinimized(pid: pid) }
+            Task.detached(priority: .userInitiated) {
+                WindowBridge.restoreMinimized(pid: pid)
+                if let region { WindowBridge.raiseWindow(pid: pid, in: region) }
+            }
             return
         }
         // AX 读写可能卡到超时，挪到后台，别卡住鼠标
         Task.detached(priority: .userInitiated) { [weak self] in
-            if WindowBridge.minimizeOpenWindows(pid: pid) { return }
+            // 前台 App 正在用的窗口在别的屏：这一下是"切到这块屏上的窗口"，不是收起
+            // （这块屏上一扇它的窗口都没有就照原来的收起 / 恢复走）
+            if let region, !WindowBridge.focusedWindow(pid: pid, isIn: region),
+               WindowBridge.raiseWindow(pid: pid, in: region) {
+                return
+            }
+            if WindowBridge.minimizeOpenWindows(pid: pid, in: region) { return }
             WindowBridge.restoreMinimized(pid: pid)
             await self?.activatePID(pid)
+            if let region { WindowBridge.raiseWindow(pid: pid, in: region) }
         }
     }
 
@@ -536,11 +617,18 @@ final class AppCatalog: ObservableObject {
     /// 开始会话并预选上一个 App。返回是否成功（不足两个可见 App 时返回 false）。
     @discardableResult
     func startKeyboardSession() -> Bool {
+        // 多屏时主条平时只列主屏上的 App；快切得能切到任何一块屏上的，会话期间放开过滤
+        if screenScope != nil, !scopeSuspended {
+            scopeSuspended = true
+            lastSignature = ""
+            refresh()
+        }
         mru.removeAll { NSRunningApplication(processIdentifier: $0)?.isTerminated ?? true }
         // 没在运行的固定项切不过去，不进 ⌘Tab 循环
         let visible = groups.flatMap(\.entries).filter { $0.pid > 0 }
         guard visible.count >= 2 else {
             TTLog("kbdSession: 可見 App 不足(\(visible.count))")
+            restoreScope()
             return false
         }
 
@@ -585,6 +673,15 @@ final class AppCatalog: ObservableObject {
         sessionCycle = []
         sessionIndex = 0
         keyboardHighlightPID = 0
+        restoreScope()
+    }
+
+    /// ⌘Tab 会话结束：恢复屏幕过滤，条回到只列本屏的 App
+    private func restoreScope() {
+        guard scopeSuspended else { return }
+        scopeSuspended = false
+        lastSignature = ""
+        refresh()
     }
 
     private static func name(of pid: pid_t) -> String {
@@ -807,7 +904,7 @@ final class AppCatalog: ObservableObject {
                 if iconOnly {
                     total += 36 + 12 + 2
                 } else {
-                    let textWidth = min((entry.name as NSString).size(withAttributes: [.font: font]).width, 108)
+                    let textWidth = min((entry.displayName as NSString).size(withAttributes: [.font: font]).width, 108)
                     total += 18 + 6 + ceil(textWidth) + 18 + 2 + 13
                 }
             }

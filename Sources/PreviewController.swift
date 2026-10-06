@@ -419,6 +419,7 @@ final class PreviewController {
     private var lastAnchor: NSRect = .zero
     private var lastMainFrame: NSRect = .zero
     private var lastHideMinimized = false
+    private var lastRegion: ScreenRegion?
 
     var isVisible: Bool { panel.isVisible }
     var frame: NSRect { panel.frame }
@@ -601,7 +602,7 @@ final class PreviewController {
     private func reload() {
         guard let entry = lastEntry else { return }
         show(for: entry, anchorInScreen: lastAnchor,
-             mainPanelFrame: lastMainFrame, hideMinimized: lastHideMinimized)
+             mainPanelFrame: lastMainFrame, hideMinimized: lastHideMinimized, region: lastRegion)
     }
 
     /// AppKit 窗口坐标（原点左下）→ CG 屏幕坐标（原点上左）
@@ -612,10 +613,12 @@ final class PreviewController {
 
     // MARK: - 呈现
 
+    /// - region: 多屏各屏一条时只列这块屏上的窗口（nil = 全部）
     func show(for entry: AppEntry,
               anchorInScreen: NSRect,
               mainPanelFrame: NSRect,
-              hideMinimized: Bool) {
+              hideMinimized: Bool,
+              region: ScreenRegion? = nil) {
         token &+= 1
         let myToken = token
 
@@ -623,6 +626,7 @@ final class PreviewController {
         lastAnchor = anchorInScreen
         lastMainFrame = mainPanelFrame
         lastHideMinimized = hideMinimized
+        lastRegion = region
 
         currentPID = entry.pid
         model.appName = entry.name
@@ -631,7 +635,10 @@ final class PreviewController {
         model.clearInteraction()
         model.generation &+= 1
 
-        let all = engine.windows(of: entry.pid)
+        let everywhere = engine.windows(of: entry.pid)
+        // 一扇都对不上（窗口刚挪过屏、快照还没跟上）就全列，别让悬停落空
+        let here = region.map { r in everywhere.filter { r.contains($0.frame) } } ?? everywhere
+        let all = here.isEmpty ? everywhere : here
         let windows = hideMinimized ? all.filter { !$0.isMinimized } : all
         currentWindows = windows
 
@@ -719,6 +726,17 @@ final class PreviewController {
                 self.panel.alphaValue = 1
             }
         }
+    }
+
+    /// 立刻收掉、不播动画（条被拆掉时用：淡出回调里 self 已经没了，面板会留在屏上）
+    func close() {
+        token &+= 1
+        currentPID = nil
+        currentWindows = []
+        pendingPress = nil
+        model.clearInteraction()
+        panel.orderOut(nil)
+        panel.alphaValue = 1
     }
 
     private func present(anchorInScreen: NSRect, mainPanelFrame: NSRect) {

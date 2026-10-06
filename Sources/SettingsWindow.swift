@@ -175,17 +175,26 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Picker("喚出所在螢幕", selection: $prefs.hotZoneScreen) {
-                ForEach(HotZoneScreen.allCases) { screen in
-                    Text(screen.title).tag(screen)
-                }
-            }
-            .pickerStyle(.radioGroup)
+            Toggle("在所有螢幕上顯示", isOn: $prefs.allScreens)
+                .toggleStyle(.switch)
 
-            Text(prefs.hotZoneScreen.subtitle.replacingOccurrences(of: "頂部", with: "邊緣")
-                 + " ⌘Tab 叫出不受這裡影響，始終在滑鼠位置彈出。")
+            Text("接外接螢幕時每塊螢幕各一條：每條只放視窗在那塊螢幕上的 App（固定項每條都有），點圖示切到 / 收起的也是那塊螢幕上的視窗；不擋視窗、全螢幕讓位、頂邊 / 底邊喚出各螢幕各管各的。⌘Tab 仍在滑鼠位置彈出，列出所有螢幕上的 App。按螢幕分 App 需要「輔助使用」權限，沒有時每條都顯示全部。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+
+            if !prefs.allScreens {
+                Picker("喚出所在螢幕", selection: $prefs.hotZoneScreen) {
+                    ForEach(HotZoneScreen.allCases) { screen in
+                        Text(screen.title).tag(screen)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+
+                Text(prefs.hotZoneScreen.subtitle.replacingOccurrences(of: "頂部", with: "邊緣")
+                     + " ⌘Tab 叫出不受這裡影響，始終在滑鼠位置彈出。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
 
             Toggle("視窗預覽", isOn: $prefs.previewEnabled)
                 .toggleStyle(.switch)
