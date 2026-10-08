@@ -349,7 +349,7 @@ final class Preferences: ObservableObject {
     }
 
     /// 条最左边显示开始按钮（Windows 风格开始菜单）。默认关：保持原版外观。
-    @Published var showStartButton: Bool = false {
+    @Published var showStartButton: Bool = true {
         didSet { d.set(showStartButton, forKey: Key.showStartButton) }
     }
 
@@ -446,8 +446,10 @@ final class Preferences: ObservableObject {
     private init() {
         // 停靠边默认从顶部改成了底部。老用户没动过这个设置时偏好里没有这个 key，
         // 不补一下更新后条会自己跑到底部 —— 用 TopTab 迁移标记认老用户（第一次启动就会写）
-        if d.object(forKey: "migratedFromTopTab") != nil, d.object(forKey: Key.dockEdge) == nil {
-            d.set(DockEdge.top.rawValue, forKey: Key.dockEdge)
+        // 开始按钮同理：默认从关改成开，老用户没动过的保持关
+        if d.object(forKey: "migratedFromTopTab") != nil {
+            if d.object(forKey: Key.dockEdge) == nil { d.set(DockEdge.top.rawValue, forKey: Key.dockEdge) }
+            if d.object(forKey: Key.showStartButton) == nil { d.set(false, forKey: Key.showStartButton) }
         }
         Self.migrateLegacyDefaults(d)
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
