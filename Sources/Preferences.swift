@@ -168,6 +168,7 @@ final class Preferences: ObservableObject {
         static let windowSwitcherEnabled = "windowSwitcherEnabled"
         static let hiddenApps    = "hiddenApps"
         static let uiScale       = "uiScale"
+        static let barCornerRadius = "barCornerRadius"
         static let autoCheckUpdates = "autoCheckUpdates"
         static let ignoredVersion   = "ignoredVersion"
         static let dockEdge      = "dockEdge"
@@ -279,6 +280,17 @@ final class Preferences: ObservableObject {
             let clamped = min(max(uiScale, 0.8), 1.3)
             if clamped != uiScale { uiScale = clamped; return }
             d.set(uiScale, forKey: Key.uiScale)
+        }
+    }
+
+    /// 悬浮条圆角（未缩放的 pt，实际画时乘界面缩放）。0 = 直角；
+    /// 超过条高的一半就是胶囊形，画的时候钳到半高（见 `TTLayout.barCornerRadius`）
+    static let barCornerRange: ClosedRange<Double> = 0...30
+    @Published var barCornerRadius: Double = 16 {
+        didSet {
+            let clamped = min(max(barCornerRadius, Self.barCornerRange.lowerBound), Self.barCornerRange.upperBound)
+            if clamped != barCornerRadius { barCornerRadius = clamped; return }
+            d.set(barCornerRadius, forKey: Key.barCornerRadius)
         }
     }
 
@@ -457,6 +469,7 @@ final class Preferences: ObservableObject {
         }
         if let map = d.dictionary(forKey: Key.hiddenApps) as? [String: String] { hiddenApps = map }
         if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
+        if d.object(forKey: Key.barCornerRadius) != nil { barCornerRadius = d.double(forKey: Key.barCornerRadius) }
         if d.object(forKey: Key.autoCheckUpdates) != nil { autoCheckUpdates = d.bool(forKey: Key.autoCheckUpdates) }
         ignoredVersion = d.string(forKey: Key.ignoredVersion) ?? ""
         if let raw = d.string(forKey: Key.dockEdge), let e = DockEdge(rawValue: raw) { dockEdge = e }
@@ -496,6 +509,18 @@ final class Preferences: ObservableObject {
 
 /// 共享布局度量：设计基准值（1.0 档）× 界面缩放。
 ///
+/// 拖分隔线调大小期间的临时缩放。
+///
+/// 不直接改 `Preferences.uiScale`：Preferences 是一个大 ObservableObject，改它会让
+/// 所有观察它的视图（每条悬浮条、藏着的开始菜单、设定窗口）整个重算，外加每拍写一次
+/// UserDefaults —— 跟手的时候根本跟不上。拖动中只有悬浮条观察这个小对象，松手再写回偏好。
+@MainActor
+final class LiveScale: ObservableObject {
+    static let shared = LiveScale()
+    /// nil = 没在拖，用偏好里的缩放
+    @Published var value: Double?
+}
+
 /// 缩放乘在**布局常量本身**上，而不是给视图套 `scaleEffect` ——
 /// scaleEffect 只是渲染变换，GeometryReader 上报的命中区域仍是未缩放坐标，
 /// 窗口层拿它做点击判定会错位（预览卡片、标签都是窗口层命中）。
@@ -503,13 +528,23 @@ final class Preferences: ObservableObject {
 /// 视图侧无需显式传参：TabBarView / PreviewView 都 @ObservedObject prefs，
 /// uiScale 变化触发 body 重算，这里读到的就是新值。
 enum TTLayout {
-    @MainActor static var scale: CGFloat { CGFloat(Preferences.shared.uiScale) }
+    /// 拖分隔线调大小时用临时缩放（`LiveScale`），松手才写回偏好
+    @MainActor static var scale: CGFloat { CGFloat(LiveScale.shared.value ?? Preferences.shared.uiScale) }
 
-    /// 缩放一个长度
-    @MainActor static func s(_ v: CGFloat) -> CGFloat { v * scale }
+    /// 缩放一个长度，对齐到半 pt（Retina 的一个像素）：非 100% 缩放时
+    /// 长度带零头会让图标和文字落在半像素上，整条发糊
+    @MainActor static func s(_ v: CGFloat) -> CGFloat { (v * scale * 2).rounded() / 2 }
 
     /// 悬浮条高度：Dock 风格（只显示图标）用大图标，标签风格保持原来的 42pt
-    @MainActor static var barHeight: CGFloat { s(Preferences.shared.iconOnly ? 58 : 42) }
+    @MainActor static var barHeight: CGFloat { s(barBaseHeight) }
+
+    /// 未缩放的条高（拖分隔线调大小时按它换算缩放比例）
+    @MainActor static var barBaseHeight: CGFloat { Preferences.shared.iconOnly ? 58 : 42 }
+
+    /// 悬浮条圆角：随界面缩放，最大到半高（胶囊）
+    @MainActor static var barCornerRadius: CGFloat {
+        min(s(CGFloat(Preferences.shared.barCornerRadius)), barHeight / 2)
+    }
 
     /// 缩放一个字号（取半 pt 对齐，避免奇奇怪怪的亚像素位置）
     @MainActor static func font(_ v: CGFloat) -> CGFloat { (v * scale * 2).rounded() / 2 }

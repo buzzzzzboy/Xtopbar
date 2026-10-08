@@ -77,6 +77,40 @@ struct StartButton: View {
     }
 }
 
+/// 开始按钮右边那条分隔线兼「调大小」把手：同系统 Dock 的分隔线，按住上下拖改界面缩放。
+/// 线本身照旧 1pt，命中区域铺满整条的高度（拖动由窗口层处理，id `AppCatalog.resizeHandleID`）
+struct ResizeHandle: View {
+    let iconOnly: Bool
+    /// 正在拖：线加深，看得出抓住了
+    let active: Bool
+
+    @State private var hovering = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(active || hovering ? 0.32 : 0.14))
+            .frame(width: 1, height: TTLayout.s(iconOnly ? 30 : 16))
+            .padding(.horizontal, TTLayout.s(6))
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                guard inside != hovering else { return }
+                hovering = inside
+                // 拖动中指针会跑出把手（条在跟着变大小），这时别把光标换回箭头，松手时再还原
+                if inside { NSCursor.resizeUpDown.set() } else if !active { NSCursor.arrow.set() }
+            }
+            .help("上下拖曳調整大小")
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TabFramesKey.self,
+                        value: [AppCatalog.resizeHandleID: geo.frame(in: .named(TabBarView.space))]
+                    )
+                }
+            )
+    }
+}
+
 /// 单个 App 标签（纯视觉，点击由窗口层命中测试处理）
 struct AppTab: View {
     let entry: AppEntry
@@ -296,6 +330,8 @@ struct TabBarView: View {
 
     @ObservedObject var catalog: AppCatalog
     @ObservedObject var prefs: Preferences
+    /// 拖分隔线调大小时只有条跟着这个重算（见 LiveScale）
+    @ObservedObject var liveScale = LiveScale.shared
     let onHoverChange: (Bool) -> Void
 
     /// 内容比面板宽：两端加渐隐，暗示"这里还能滚"
@@ -328,13 +364,13 @@ struct TabBarView: View {
             .allowsHitTesting(false)
         }
         .compositingGroup()
-        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.s(16)))
-        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(16), style: .continuous))
+        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.s(16), style: .continuous)
+            RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
         )
-        .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(16), style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
         .onHover { inside in
             if catalog.pointerOverBar != inside { catalog.pointerOverBar = inside }
             onHoverChange(inside)
@@ -365,7 +401,9 @@ struct TabBarView: View {
                 StartButton(iconOnly: prefs.iconOnly,
                             isOpen: catalog.startMenuOpen,
                             animated: prefs.animationsEnabled)
-                if !catalog.groups.isEmpty { divider }
+                if !catalog.groups.isEmpty {
+                    ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing)
+                }
             }
             ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
                 if index > 0 { divider }

@@ -87,10 +87,14 @@ final class AppCatalog: ObservableObject {
     /// SwiftUI 测量的内容宽度回填入口。
     /// 手算宽度（`preferredWidth`）会漏掉每标签 2pt 的外边距和 `.fixedSize()` 的文字，
     /// 结果面板比内容窄一点点，最右边的标签连高亮一起被圆角切掉。
+    /// 量 contentWidth 时的界面缩放
+    private var contentWidthScale: CGFloat = 1
+
     func reportContentWidth(_ width: CGFloat) {
         TTLog("reportContentWidth \(width) (prev \(contentWidth), barWidth \(barWidth))")
         guard width > 1, abs(width - contentWidth) > 0.5 else { return }
         contentWidth = width
+        contentWidthScale = TTLayout.scale
         // 在视图更新过程中回调会触发 "Modifying state during view update"，推到下一轮
         DispatchQueue.main.async { [weak self] in self?.onLayoutNeeded?() }
     }
@@ -197,6 +201,8 @@ final class AppCatalog: ObservableObject {
 
     /// 开始按钮在命中区域表里的保留 id（不会和 bundle id 撞）
     nonisolated static let startButtonID = "__start__"
+    /// 开始按钮右边的分隔线（按住上下拖调大小），命中区域的保留 id
+    nonisolated static let resizeHandleID = "__resize__"
 
     /// 采集：固定项（按固定顺序，合并运行实例）+ 其余运行中的 App。
     ///
@@ -390,14 +396,27 @@ final class AppCatalog: ObservableObject {
     private static let dragThreshold: CGFloat = 4
 
     /// 鼠标按住标签中（按下还没抬起 / 正在拖）：控制器据此暂停自动隐藏
-    var isPressing: Bool { pressedEntry != nil }
+    var isPressing: Bool { pressedEntry != nil || resizeStart != nil }
+
+    /// 按住分隔线调大小：按下时指针的屏幕 y 和当时的缩放。
+    /// 用屏幕坐标不用窗口坐标 —— 拖动中条在跟着变高、挪位置，窗口坐标会跟着漂
+    private var resizeStart: (mouseY: CGFloat, scale: Double)?
+    /// 正在拖分隔线（视图据此把线画深）
+    @Published private(set) var isResizing = false
 
     /// 窗口层命中测试入口（point 使用「原点在左上」的坐标系）。
     /// 按下：开始按钮当场开关；标签先记下来，等抬起或拖动再决定是点击还是排序。
     /// 点击在抬起时才执行（同系统 Dock / Windows 任务栏）—— 按下就切 App 的话没法拖。
     func handlePress(at point: NSPoint) -> Bool {
         pressedEntry = nil
+        endResize()
         if drag != nil { drag = nil }
+        if let rect = tabFrames[Self.resizeHandleID], rect.contains(point), !keyboardSession {
+            resizeStart = (NSEvent.mouseLocation.y, Preferences.shared.uiScale)
+            isResizing = true
+            host?.dismissPreview()
+            return true
+        }
         if let rect = tabFrames[Self.startButtonID], rect.contains(point) {
             if keyboardSession { endKeyboardSession() }
             host?.toggleStartMenu()
@@ -411,6 +430,10 @@ final class AppCatalog: ObservableObject {
 
     /// 按住拖动：过了阈值就进入拖动排序，被拖的标签跟着指针走，同组其它标签让位
     func handleDrag(to point: NSPoint) {
+        if let start = resizeStart {
+            resize(from: start)
+            return
+        }
         guard let pressed = pressedEntry else { return }
         if drag == nil {
             // ⌘Tab 会话里条是键盘驱动的，不在这时候排序
@@ -426,6 +449,10 @@ final class AppCatalog: ObservableObject {
 
     /// 抬起：拖过就落位，没拖就当一次点击
     func handleRelease(at point: NSPoint) {
+        if resizeStart != nil {
+            endResize()
+            return
+        }
         let pressed = pressedEntry
         pressedEntry = nil
         if let finished = drag {
@@ -445,9 +472,39 @@ final class AppCatalog: ObservableObject {
     /// 按住状态不清掉的话自动隐藏和重采会一直停着。拖到一半的不落位，原样弹回。
     func cancelPress() {
         pressedEntry = nil
+        endResize()
         guard drag != nil else { return }
         withAnimation(Preferences.shared.animationsEnabled ? TabDrag.settle : nil) { drag = nil }
         refresh()
+    }
+
+    // MARK: - 拖分隔线调大小
+
+    /// 条高跟着指针走（同系统 Dock）：停在底部往上拖变大，停在顶部往下拖变大。
+    /// 换算成界面缩放（0.8–1.3，Preferences 那边会钳），取到 1% 免得每个像素都重排一次
+    /// 缩放取到「条高是整数 pt」：指针每挪 1pt 条高变 1pt，同时尺寸不带零头、不发糊。
+    /// 拖动中只改 `LiveScale`（只有悬浮条重算），松手才写回偏好
+    private func resize(from start: (mouseY: CGFloat, scale: Double)) {
+        let dy = NSEvent.mouseLocation.y - start.mouseY
+        let grow = Preferences.shared.dockEdge == .bottom ? dy : -dy
+        let base = Double(TTLayout.barBaseHeight)
+        let height = (start.scale * base + Double(grow)).rounded()
+        let next = min(max(height / base, 0.8), 1.3)
+        NSCursor.resizeUpDown.set()
+        let current = LiveScale.shared.value ?? Preferences.shared.uiScale
+        if abs(next - current) > 0.0001 { LiveScale.shared.value = next }
+    }
+
+    private func endResize() {
+        guard resizeStart != nil else { return }
+        resizeStart = nil
+        isResizing = false
+        if let final = LiveScale.shared.value {
+            // 先写偏好再清临时值：TTLayout.scale 读到的始终是同一个数，不会闪回旧尺寸
+            Preferences.shared.uiScale = final
+            LiveScale.shared.value = nil
+        }
+        NSCursor.arrow.set()
     }
 
     private func entry(at point: NSPoint) -> AppEntry? {
@@ -903,7 +960,9 @@ final class AppCatalog: ObservableObject {
     /// 面板理想宽度（首帧兜底）：内容实测 + 内边距，上限交给控制器按屏幕裁。
     /// 内容宽度上报到位后就以实测为准。
     var preferredWidth: CGFloat {
-        guard contentWidth <= 1 else { return contentWidth }
+        // 实测宽度是按量的那一刻的缩放量的；拖分隔线调大小时缩放每拍都在变，
+        // 先按比例估一个，实测值下一拍就到 —— 不然条宽总慢一拍，一抽一抽的
+        guard contentWidth <= 1 else { return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = Preferences.shared.iconOnly
         // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算）

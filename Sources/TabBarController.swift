@@ -34,11 +34,12 @@ enum DockGeometry {
     static func barFrame(edge: DockEdge, visible: CGRect,
                          width: CGFloat, height: CGFloat, inset: CGFloat) -> CGRect {
         let maxWidth = visible.width - 24
-        let w = max(minBarWidth, min(width, maxWidth))
-        let x = visible.midX - w / 2
-        let y = edge == .top
+        let w = max(minBarWidth, min(width, maxWidth)).rounded(.up)
+        // 原点取整：窗口落在半像素上整条内容都会发糊
+        let x = (visible.midX - w / 2).rounded()
+        let y = (edge == .top
             ? visible.maxY - inset - height   // visibleFrame 已排除菜单栏，maxY 即菜单栏正下方
-            : visible.minY + inset
+            : visible.minY + inset).rounded()
         return CGRect(x: x, y: y, width: w, height: height)
     }
 
@@ -417,6 +418,22 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in
                 self?.hidePreview()
                 self?.relayout()
+            }
+            .store(in: &cancellables)
+
+        // 拖分隔线调大小：条跟着重排（不收预览 —— 按下分隔线时已经收了）
+        LiveScale.shared.$value
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relayout() }
+            .store(in: &cancellables)
+
+        // 圆角变了：面板阴影是按内容轮廓算的，等这一拍画完再重算，不然阴影还是旧圆角
+        prefs.$barCornerRadius
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.panel.invalidateShadow() }
             }
             .store(in: &cancellables)
 

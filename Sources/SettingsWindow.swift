@@ -238,7 +238,20 @@ struct SettingsView: View {
                     .frame(width: 44, alignment: .trailing)
             }
 
-            Text("懸浮條與視窗預覽的整體大小（80%–130%）。拖曳即時生效。")
+            Text("懸浮條與視窗預覽的整體大小（80%–130%）。拖曳即時生效；也可以按住開始按鈕旁的分隔線上下拖。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("圓角")
+                Slider(value: $prefs.barCornerRadius, in: Preferences.barCornerRange, step: 1)
+                Text(String(format: "%.0f pt", prefs.barCornerRadius))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+            }
+
+            Text("懸浮條四角的弧度：0 是直角，拉到底是膠囊形。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 

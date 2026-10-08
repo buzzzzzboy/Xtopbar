@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 不占 Dock、不进 Cmd+Tab，纯悬浮条 + 菜单栏图标
         NSApp.setActivationPolicy(.accessory)
+        BackgroundCursor.enable()
 
         // 开始菜单的「所有应用」索引：启动就在后台扫一遍，第一次打开菜单时已经就绪
         AppLibrary.shared.refreshIfStale(maxAge: 0)
@@ -139,5 +140,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+}
+
+/// 让 Xtopbar 在后台也能换光标（悬停分隔线时显示上下箭头）。
+/// Xtopbar 是不抢焦点的 accessory App，几乎永远不在前台；系统默认只理会前台 App 的
+/// NSCursor.set()。打开 WindowServer 连接的 "SetsCursorInBackground" 属性就不受这个限制
+/// （私有 API，Hammerspoon 等工具同样这么做；符号找不到就什么都不做）。
+enum BackgroundCursor {
+    private typealias DefaultConnection = @convention(c) () -> Int32
+    private typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+
+    static func enable() {
+        guard let handle = dlopen(nil, RTLD_NOW),
+              let connSym = dlsym(handle, "_CGSDefaultConnection"),
+              let setSym = dlsym(handle, "CGSSetConnectionProperty") else { return }
+        let conn = unsafeBitCast(connSym, to: DefaultConnection.self)()
+        let set = unsafeBitCast(setSym, to: SetProperty.self)
+        let err = set(conn, conn, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+        TTLog("SetsCursorInBackground err=\(err)")
     }
 }
