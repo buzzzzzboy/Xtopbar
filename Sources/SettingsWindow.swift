@@ -28,18 +28,23 @@ final class SettingsWindowController {
 
         let view = SettingsView(prefs: Preferences.shared)
         let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: 560, height: 820)
+        hosting.frame = NSRect(x: 0, y: 0, width: 780, height: 680)
 
+        // 同系统设定：侧栏从标题栏底下透上来（fullSizeContentView + 统一工具栏），
+        // 标题栏里只留红绿灯，标题由右边内容的 navigationTitle 给
         let window = NSWindow(
             contentRect: hosting.frame,
-            styleMask: [.titled, .closable, .miniaturizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Xtopbar 設定"
         window.contentView = hosting
         window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "xtopbar.settings")
+        window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .automatic
+        window.setFrameAutosaveName("XtopbarSettings")
         self.window = window
         return window
     }
@@ -47,29 +52,67 @@ final class SettingsWindowController {
 
 // MARK: - 视图
 
+/// 设置页分类（侧栏）。同系统设定：左边选类别，右边是这一类的分组表单
+enum SettingsPage: String, CaseIterable, Identifiable {
+    case general, appearance, dock, windows, about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general:    return "一般"
+        case .appearance: return "外觀"
+        case .dock:       return "Dock 與開始選單"
+        case .windows:    return "視窗"
+        case .about:      return "權限與關於"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general:    return "gearshape"
+        case .appearance: return "paintbrush"
+        case .dock:       return "dock.rectangle"
+        case .windows:    return "macwindow.on.rectangle"
+        case .about:      return "info.circle"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var prefs: Preferences
     @ObservedObject private var updater = Updater.shared
+    @State private var page: SettingsPage = .general
 
     var body: some View {
-        Form {
-            generalSection
-            dockSection
-            barSection
-            switcherSection
-            permissionSection
-            aboutSection
+        NavigationSplitView {
+            List(SettingsPage.allCases, selection: $page) { page in
+                Label(page.title, systemImage: page.symbol)
+                    .tag(page)
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+        } detail: {
+            Form {
+                switch page {
+                case .general:    generalPage
+                case .appearance: appearancePage
+                case .dock:       dockPage
+                case .windows:    windowsPage
+                case .about:      aboutPage
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(page.title)
         }
-        .formStyle(.grouped)
-        .frame(minWidth: 520, idealWidth: 560, minHeight: 500, idealHeight: 820)
+        .frame(minWidth: 720, idealWidth: 780, minHeight: 520, idealHeight: 680)
         // 1 秒一拍：授权是纯外部行为，没有通知可听，只能轮询刷新状态图标
         .onReceive(ticker) { _ in captureTick &+= 1 }
     }
 
-    // MARK: 通用
-
-    private var generalSection: some View {
-        Section("一般") {
+    /// 一般：启动、悬浮条总开关、多屏
+    @ViewBuilder
+    private var generalPage: some View {
+        Section("啟動") {
             LaunchAtLoginRow()
 
             Toggle("在選單列顯示圖示", isOn: $prefs.showStatusItem)
@@ -79,103 +122,13 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
-    }
 
-    // MARK: Dock
-
-    private var dockSection: some View {
-        Section("Dock 與開始選單") {
-            Picker("Dock 位置", selection: $prefs.dockEdge) {
-                ForEach(DockEdge.allCases) { edge in
-                    Text(edge.title).tag(edge)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text(prefs.dockEdge.subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("顯示開始按鈕", isOn: $prefs.showStartButton)
-                .toggleStyle(.switch)
-
-            Text("條最左邊加一個 Windows 風格的開始按鈕：搜尋、已固定、最近使用、所有應用。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Picker("現正播放", selection: $prefs.nowPlayingSource) {
-                ForEach(NowPlayingSource.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-
-            Text("開始選單底部的播放控制。自動：誰在播就顯示誰；也可以固定為 Spotify 或 Apple Music。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("只顯示圖示（Dock 風格）", isOn: $prefs.iconOnly)
-                .toggleStyle(.switch)
-
-            Text("開：大圖示 + 執行指示點，名字懸停顯示。關：圖示 + 名稱的標籤。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
-                .toggleStyle(.switch)
-
-            Text("執行中但一個視窗都沒有的 App（比如關完視窗還掛著的 Safari、Finder）不顯示；最小化的視窗也算有視窗。固定到工作列的 App 始終顯示。需要「輔助使用」權限。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("隱藏系統 Dock", isOn: $prefs.hideSystemDock)
-                .toggleStyle(.switch)
-
-            Text("把系統 Dock 設為自動隱藏，讓 Xtopbar 接替它的位置；滑鼠頂到螢幕底邊仍可喚出 Dock，會蓋在條上面照常使用。會重啟一次 Dock；關掉即恢復原來的設定。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("不擋視窗（常駐，視窗自動讓位）", isOn: $prefs.avoidWindows)
-                .toggleStyle(.switch)
-
-            Text("像 Windows 工作列：條一直顯示，壓到條上的視窗會被自動挪開或縮短，不會再蓋住視窗底部（停在頂部時是頂部）。有 App 全螢幕時條自動隱藏，滑鼠頂到螢幕邊緣仍可臨時喚出。需要「輔助使用」權限。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("點選前景 App 最小化視窗", isOn: $prefs.clickToMinimize)
-                .toggleStyle(.switch)
-
-            Text("點正在前景的 App 圖示：把它的視窗全部最小化；再點一次恢復。視窗預覽裡也能直接點回被最小化的視窗。需要「輔助使用」權限。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            PinnedAppsRow(title: "固定到工作列", pins: $prefs.dockPins, reorderable: true)
-            PinnedAppsRow(title: "固定到開始選單", pins: $prefs.startPins, reorderable: true)
-
-            Text("在條上或開始選單裡右鍵任意 App →「固定到工作列 / 開始選單」。固定到工作列的 App 沒在執行也會留在條上，點一下即開啟。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: 悬浮条
-
-    private var barSection: some View {
         Section("懸浮條") {
             Toggle("啟用懸浮條", isOn: $prefs.barEnabled)
                 .toggleStyle(.switch)
+        }
 
-            HStack {
-                Text("喚醒熱區寬度")
-                Slider(value: $prefs.hotZoneWidth, in: 60...400, step: 10)
-                Text("\(Int(prefs.hotZoneWidth)) pt")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .trailing)
-            }
-
-            Text("停在頂部時：滑鼠頂到螢幕頂部中央多寬的範圍會喚出懸浮條（居中對齊），預設 120 pt ≈ 4 個狀態列圖示；外接螢幕上誤觸頻繁可調小，難喚出可調大。停在底部時：沿整條懸浮條的寬度頂底邊都能喚出，這裡的值只是下限。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
+        Section("多螢幕") {
             Toggle("在所有螢幕上顯示", isOn: $prefs.allScreens)
                 .toggleStyle(.switch)
 
@@ -195,20 +148,19 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+        }
+    }
 
-            Toggle("視窗預覽", isOn: $prefs.previewEnabled)
+    /// 外观：样式、大小、透明度与动画
+    @ViewBuilder
+    private var appearancePage: some View {
+        Section("樣式") {
+            Toggle("只顯示圖示（Dock 風格）", isOn: $prefs.iconOnly)
                 .toggleStyle(.switch)
 
-            Toggle("只顯示已開啟的視窗", isOn: $prefs.hideMinimizedWindows)
-                .toggleStyle(.switch)
-
-            Picker("自動隱藏", selection: $prefs.hideDelay) {
-                ForEach(Preferences.delayOptions, id: \.value) { option in
-                    Text(option.label).tag(option.value)
-                }
-            }
-
-            HiddenAppsRow(prefs: prefs)
+            Text("開：大圖示 + 執行指示點，名字懸停顯示。關：圖示 + 名稱的標籤。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
 
             Picker("背景材質", selection: $prefs.glassStyle) {
                 ForEach(GlassStyle.allCases.filter { $0 != .liquid || GlassStyle.liquidAvailable }) { style in
@@ -220,7 +172,9 @@ struct SettingsView: View {
             Text(prefs.glassStyle.subtitle)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+        }
 
+        Section("大小") {
             HStack {
                 Text("介面縮放")
                 Slider(value: $prefs.uiScale, in: 0.8...1.3, step: 0.05)
@@ -246,7 +200,9 @@ struct SettingsView: View {
             Text("懸浮條四角的弧度：0 是直角，拉到底是膠囊形。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+        }
 
+        Section("其他") {
             HStack {
                 Text("待機不透明度")
                 Slider(value: $prefs.idleOpacity, in: 0.4...1.0)
@@ -261,9 +217,114 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: 视窗切换器
+    /// Dock 与开始菜单：位置、显示与隐藏、点击行为、开始菜单、固定 / 隐藏的 App
+    @ViewBuilder
+    private var dockPage: some View {
+        Section("位置") {
+            Picker("Dock 位置", selection: $prefs.dockEdge) {
+                ForEach(DockEdge.allCases) { edge in
+                    Text(edge.title).tag(edge)
+                }
+            }
+            .pickerStyle(.segmented)
 
-    private var switcherSection: some View {
+            Text(prefs.dockEdge.subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Toggle("隱藏系統 Dock", isOn: $prefs.hideSystemDock)
+                .toggleStyle(.switch)
+
+            Text("把系統 Dock 設為自動隱藏，讓 Xtopbar 接替它的位置；滑鼠頂到螢幕底邊仍可喚出 Dock，會蓋在條上面照常使用。會重啟一次 Dock；關掉即恢復原來的設定。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
+        Section("顯示與隱藏") {
+            Toggle("不擋視窗（常駐，視窗自動讓位）", isOn: $prefs.avoidWindows)
+                .toggleStyle(.switch)
+
+            Text("像 Windows 工作列：條一直顯示，壓到條上的視窗會被自動挪開或縮短，不會再蓋住視窗底部（停在頂部時是頂部）。有 App 全螢幕時條自動隱藏，滑鼠頂到螢幕邊緣仍可臨時喚出。需要「輔助使用」權限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Picker("自動隱藏", selection: $prefs.hideDelay) {
+                ForEach(Preferences.delayOptions, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                }
+            }
+
+            HStack {
+                Text("喚醒熱區寬度")
+                Slider(value: $prefs.hotZoneWidth, in: 60...400, step: 10)
+                Text("\(Int(prefs.hotZoneWidth)) pt")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, alignment: .trailing)
+            }
+
+            Text("停在頂部時：滑鼠頂到螢幕頂部中央多寬的範圍會喚出懸浮條（居中對齊），預設 120 pt ≈ 4 個狀態列圖示；外接螢幕上誤觸頻繁可調小，難喚出可調大。停在底部時：沿整條懸浮條的寬度頂底邊都能喚出，這裡的值只是下限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
+        Section("行為") {
+            Toggle("點選前景 App 最小化視窗", isOn: $prefs.clickToMinimize)
+                .toggleStyle(.switch)
+
+            Text("點正在前景的 App 圖示：把它的視窗全部最小化；再點一次恢復。視窗預覽裡也能直接點回被最小化的視窗。需要「輔助使用」權限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
+                .toggleStyle(.switch)
+
+            Text("執行中但一個視窗都沒有的 App（比如關完視窗還掛著的 Safari、Finder）不顯示；最小化的視窗也算有視窗。固定到工作列的 App 始終顯示。需要「輔助使用」權限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
+        Section("開始選單") {
+            Toggle("顯示開始按鈕", isOn: $prefs.showStartButton)
+                .toggleStyle(.switch)
+
+            Text("條最左邊加一個 Windows 風格的開始按鈕：搜尋、已固定、最近使用、所有應用。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Picker("現正播放", selection: $prefs.nowPlayingSource) {
+                ForEach(NowPlayingSource.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            Text("開始選單底部的播放控制。自動：誰在播就顯示誰；也可以固定為 Spotify 或 Apple Music。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
+        Section("固定與隱藏的 App") {
+            PinnedAppsRow(title: "固定到工作列", pins: $prefs.dockPins, reorderable: true)
+            PinnedAppsRow(title: "固定到開始選單", pins: $prefs.startPins, reorderable: true)
+
+            Text("在條上或開始選單裡右鍵任意 App →「固定到工作列 / 開始選單」。固定到工作列的 App 沒在執行也會留在條上，點一下即開啟。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            HiddenAppsRow(prefs: prefs)
+        }
+    }
+
+    /// 视窗：悬停预览、⌥Tab 切换器
+    @ViewBuilder
+    private var windowsPage: some View {
+        Section("視窗預覽") {
+            Toggle("視窗預覽", isOn: $prefs.previewEnabled)
+                .toggleStyle(.switch)
+
+            Toggle("只顯示已開啟的視窗", isOn: $prefs.hideMinimizedWindows)
+                .toggleStyle(.switch)
+        }
+
         Section("視窗切換器") {
             Toggle("⌥Tab 視窗切換器（所有視窗縮圖）", isOn: $prefs.windowSwitcherEnabled)
                 .toggleStyle(.switch)
@@ -274,9 +335,9 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: 权限
-
-    private var permissionSection: some View {
+    /// 权限与关于
+    @ViewBuilder
+    private var aboutPage: some View {
         Section("權限") {
             PermissionRow(
                 title: "螢幕錄製",
@@ -305,20 +366,7 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
-    }
 
-    /// 1 秒一次的刷新节拍，用来重新读权限状态（授权是外部行为，没有通知可听）
-    @State private var captureTick = 0
-    private let ticker = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
-
-    private func openSettingsPane(_ anchor: String) {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
-        NSWorkspace.shared.open(url)
-    }
-
-    // MARK: 关于
-
-    private var aboutSection: some View {
         Section("關於") {
             HStack(spacing: 12) {
                 Image(nsImage: NSApp.applicationIconImage ?? NSImage())
@@ -340,6 +388,15 @@ struct SettingsView: View {
 
             updateRow
         }
+    }
+
+    /// 1 秒一次的刷新节拍，用来重新读权限状态（授权是外部行为，没有通知可听）
+    @State private var captureTick = 0
+    private let ticker = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
+
+    private func openSettingsPane(_ anchor: String) {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: 更新
