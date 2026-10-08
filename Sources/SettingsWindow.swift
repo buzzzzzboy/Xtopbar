@@ -129,7 +129,7 @@ struct SettingsView: View {
             Toggle("隱藏系統 Dock", isOn: $prefs.hideSystemDock)
                 .toggleStyle(.switch)
 
-            Text("把系統 Dock 設為自動隱藏並把喚出延遲調到極長，讓 Xtopbar 接替它。會重啟一次 Dock；關掉即恢復原來的設定。")
+            Text("把系統 Dock 設為自動隱藏，讓 Xtopbar 接替它的位置；滑鼠頂到螢幕底邊仍可喚出 Dock，會蓋在條上面照常使用。會重啟一次 Dock；關掉即恢復原來的設定。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 

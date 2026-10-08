@@ -1,7 +1,9 @@
 import AppKit
 
-/// 「隐藏系统 Dock」：把系统 Dock 设成自动隐藏 + 超长唤出延迟（等于永远不出来），
-/// 关掉时把原来的两个值原样写回。
+/// 「隐藏系统 Dock」：把系统 Dock 设成自动隐藏，关掉时把原来的值原样写回。
+/// 鼠标顶到底边照样能唤出 Dock，它的窗口层级比悬浮条高，会盖在条上面正常用。
+///
+/// 早先的版本还把唤出延迟调到 1000 秒（等于 Dock 永远不出来），`migrateLegacyDelay` 负责改回来。
 ///
 /// 没有公开 API 能真正"关掉"系统 Dock，业内通行做法就是这两个 defaults：
 ///   `com.apple.dock autohide`        是否自动隐藏
@@ -15,8 +17,8 @@ import AppKit
 enum SystemDock {
 
     private static let domain = "com.apple.dock"
-    /// 唤出延迟：1000 秒 ≈ 永远。不用更大的数：个别系统版本对超大浮点会忽略整条配置
-    private static let hiddenDelay = "1000"
+    /// 早先版本写进去的唤出延迟（1000 秒 ≈ 永远不出来）
+    private static let legacyHiddenDelay: Double = 1000
 
     static func apply(hide: Bool) {
         let prefs = Preferences.shared
@@ -27,7 +29,6 @@ enum SystemDock {
                 prefs.hasSavedSystemDock = true
             }
             run(["write", domain, "autohide", "-bool", "true"])
-            run(["write", domain, "autohide-delay", "-float", hiddenDelay])
             TTLog("SystemDock 隱藏（原值 autohide=\(String(describing: prefs.savedDockAutohide)) "
                   + "delay=\(String(describing: prefs.savedDockDelay))）")
         } else {
@@ -51,13 +52,28 @@ enum SystemDock {
         restartDock()
     }
 
+    /// 从早先版本升级上来、开着「隐藏系统 Dock」的：唤出延迟还是 1000 秒，Dock 叫不出来。
+    /// 启动时改回用户原来的延迟（原来没设过就删掉这个 key），重启一次 Dock
+    static func migrateLegacyDelay() {
+        let prefs = Preferences.shared
+        guard prefs.hideSystemDock, prefs.hasSavedSystemDock,
+              readDouble("autohide-delay") == legacyHiddenDelay else { return }
+        if let v = prefs.savedDockDelay {
+            run(["write", domain, "autohide-delay", "-float", String(v)])
+        } else {
+            run(["delete", domain, "autohide-delay"])
+        }
+        TTLog("SystemDock 舊版 1000 秒喚出延遲已還原")
+        restartDock()
+    }
+
     /// 改开关前先确认：Dock 会重启一下（闪一下），得让用户知道发生了什么。
     /// 返回 false = 用户取消。
     static func confirm(hide: Bool) -> Bool {
         let alert = NSAlert()
         alert.messageText = hide ? "隱藏系統 Dock？" : "恢復系統 Dock？"
         alert.informativeText = hide
-            ? "會把系統 Dock 設為「自動隱藏」並把喚出延遲調到極長，然後重啟一次 Dock（螢幕底部會閃一下，視窗不受影響）。\n\n關掉這個開關會恢復你原來的設定。"
+            ? "會把系統 Dock 設為「自動隱藏」，然後重啟一次 Dock（螢幕底部會閃一下，視窗不受影響）。滑鼠頂到螢幕底邊仍可喚出 Dock。\n\n關掉這個開關會恢復你原來的設定。"
             : "會恢復開啟前的 Dock 自動隱藏設定，並重啟一次 Dock。"
         alert.addButton(withTitle: hide ? "隱藏" : "恢復")
         alert.addButton(withTitle: "取消")

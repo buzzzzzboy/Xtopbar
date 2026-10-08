@@ -178,6 +178,9 @@ final class TabBarController: TabBarHost {
                                   width: 600, height: TTLayout.barHeight, inset: 6)
         } ?? NSRect(x: 0, y: 0, width: 600, height: TTLayout.barHeight)
         self.panel = FloatingPanel(contentRect: frame)
+        // 比系统 Dock 低一层（其它窗口照样压得住）：Dock 自动隐藏时滑鼠顶到底边把它叫出来，
+        // 它盖在条上面正常用，而不是被条挡住
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
 
         let view = TabBarView(
             catalog: catalog,

@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 「隐藏系统 Dock」开关：改动时确认 → 写 com.apple.dock → 重启 Dock。
         // 启动时不动（dropFirst）：开着的就一直开着，不用每次启动都重启 Dock。
+        // 只有从早先版本升上来、Dock 还被 1000 秒延迟锁着叫不出来的，改回一次
+        SystemDock.migrateLegacyDelay()
         Preferences.shared.$hideSystemDock
             .dropFirst()
             .removeDuplicates()

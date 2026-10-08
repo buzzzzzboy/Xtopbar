@@ -84,8 +84,8 @@ enum HotZoneScreen: String, CaseIterable, Identifiable {
 /// 底部 = macOS Dock 的替代品（鼠标顶到屏幕底边唤出，或常驻）；
 /// 顶部 = 早先的顶部切换条（鼠标顶到菜单栏中央唤出）。
 enum DockEdge: String, CaseIterable, Identifiable {
-    case top      // 默认：原版顶部切换条
-    case bottom   // Dock 风格
+    case top      // 原版顶部切换条
+    case bottom   // 默认：Dock 风格
 
     var id: String { rawValue }
 
@@ -99,7 +99,7 @@ enum DockEdge: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .bottom:
-            return "停在螢幕底部，滑鼠頂到底邊喚出 —— 可以當 Dock 用。視窗預覽和開始選單向上彈出。"
+            return "停在螢幕底部，可以當 Dock 用；視窗預覽和開始選單向上彈出。不會擋住系統 Dock：Dock 常駐時條停在它上方；建議開啟下面的「隱藏系統 Dock」，條就貼著螢幕底部，滑鼠頂到底邊喚出 Dock 時，Dock 會蓋在條上面，照常可以用。"
         case .top:
             return "停在選單列下方，滑鼠頂到螢幕頂部中央喚出。視窗預覽和開始選單向下彈出。"
         }
@@ -298,7 +298,7 @@ final class Preferences: ObservableObject {
     }
 
     /// 悬浮条停靠边。默认顶部（原版外观）；改成底部就能当 Dock 用。
-    @Published var dockEdge: DockEdge = .top {
+    @Published var dockEdge: DockEdge = .bottom {
         didSet { d.set(dockEdge.rawValue, forKey: Key.dockEdge) }
     }
 
@@ -444,6 +444,11 @@ final class Preferences: ObservableObject {
     }
 
     private init() {
+        // 停靠边默认从顶部改成了底部。老用户没动过这个设置时偏好里没有这个 key，
+        // 不补一下更新后条会自己跑到底部 —— 用 TopTab 迁移标记认老用户（第一次启动就会写）
+        if d.object(forKey: "migratedFromTopTab") != nil, d.object(forKey: Key.dockEdge) == nil {
+            d.set(DockEdge.top.rawValue, forKey: Key.dockEdge)
+        }
         Self.migrateLegacyDefaults(d)
         if d.object(forKey: Key.hideDelay) != nil { hideDelay = d.double(forKey: Key.hideDelay) }
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
