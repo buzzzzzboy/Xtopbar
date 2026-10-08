@@ -53,15 +53,15 @@ struct StartMenuView: View {
 
     /// 「背景執行」两列
     private var backgroundColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: TTLayout.s(8), alignment: .leading), count: 2)
+        Array(repeating: GridItem(.flexible(), spacing: StartLayout.s(8), alignment: .leading), count: 2)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
-                .padding(.horizontal, TTLayout.s(20))
-                .padding(.top, TTLayout.s(18))
-                .padding(.bottom, TTLayout.s(10))
+                .padding(.horizontal, StartLayout.s(20))
+                .padding(.top, StartLayout.s(18))
+                .padding(.bottom, StartLayout.s(10))
 
             Group {
                 if !model.query.isEmpty {
@@ -80,10 +80,10 @@ struct StartMenuView: View {
             footer
         }
         .frame(width: StartMenuController.size.width, height: StartMenuController.size.height)
-        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.s(14)))
-        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(14), style: .continuous))
+        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: StartLayout.s(14)))
+        .clipShape(RoundedRectangle(cornerRadius: StartLayout.s(14), style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.s(14), style: .continuous)
+            RoundedRectangle(cornerRadius: StartLayout.s(14), style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
         )
         .onAppear { searchFocused = true }
@@ -103,12 +103,12 @@ struct StartMenuView: View {
     // MARK: - 搜索框
 
     private var searchField: some View {
-        HStack(spacing: TTLayout.s(8)) {
+        HStack(spacing: StartLayout.s(8)) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField("搜尋應用", text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: TTLayout.font(14)))
+                .font(.system(size: StartLayout.font(14)))
                 .focused($searchFocused)
             if !model.query.isEmpty {
                 Button { model.query = "" } label: {
@@ -117,14 +117,14 @@ struct StartMenuView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, TTLayout.s(12))
-        .padding(.vertical, TTLayout.s(8))
+        .padding(.horizontal, StartLayout.s(12))
+        .padding(.vertical, StartLayout.s(8))
         .background(
-            RoundedRectangle(cornerRadius: TTLayout.s(18), style: .continuous)
+            RoundedRectangle(cornerRadius: StartLayout.s(18), style: .continuous)
                 .fill(Color.primary.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.s(18), style: .continuous)
+            RoundedRectangle(cornerRadius: StartLayout.s(18), style: .continuous)
                 .strokeBorder(Color.primary.opacity(searchFocused ? 0.18 : 0.06), lineWidth: 1)
         )
     }
@@ -133,15 +133,15 @@ struct StartMenuView: View {
 
     private var home: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: TTLayout.s(10)) {
+            VStack(alignment: .leading, spacing: StartLayout.s(10)) {
                 sectionHeader("已固定") {
-                    HStack(spacing: TTLayout.s(6)) {
+                    HStack(spacing: StartLayout.s(6)) {
                         Button { openFolder(catalog.createStartFolder(), rename: true) } label: {
                             HStack(spacing: 2) {
                                 Image(systemName: "plus")
                                 Text("新增資料夾")
                             }
-                            .font(.system(size: TTLayout.font(11), weight: .medium))
+                            .font(.system(size: StartLayout.font(11), weight: .medium))
                         }
                         .buttonStyle(PillButtonStyle())
                         Button { model.showAll = true } label: {
@@ -149,7 +149,7 @@ struct StartMenuView: View {
                                 Text("所有應用")
                                 Image(systemName: "chevron.right")
                             }
-                            .font(.system(size: TTLayout.font(11), weight: .medium))
+                            .font(.system(size: StartLayout.font(11), weight: .medium))
                         }
                         .buttonStyle(PillButtonStyle())
                     }
@@ -158,9 +158,9 @@ struct StartMenuView: View {
                 // App 和文件夹混排在同一个网格里（同 Windows 11），一起拖动排序
                 if pinnedCells.isEmpty {
                     Text("還沒有固定的應用。右鍵任意應用 →「固定到開始選單」，或者在「所有應用」裡固定。")
-                        .font(.system(size: TTLayout.font(11)))
+                        .font(.system(size: StartLayout.font(11)))
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
+                        .frame(maxWidth: .infinity, minHeight: StartLayout.s(80))
                         .multilineTextAlignment(.center)
                 } else {
                     reorderGrid(pinnedCells, current: { pinnedCells },
@@ -175,8 +175,8 @@ struct StartMenuView: View {
                 // 开着但一个窗口都没有的 App：点一下叫出窗口，右键可以结束
                 if !backgroundApps.isEmpty {
                     sectionHeader("背景執行") { EmptyView() }
-                        .padding(.top, TTLayout.s(8))
-                    LazyVGrid(columns: backgroundColumns, spacing: TTLayout.s(2)) {
+                        .padding(.top, StartLayout.s(8))
+                    LazyVGrid(columns: backgroundColumns, spacing: StartLayout.s(2)) {
                         ForEach(backgroundApps, id: \.pid) { item in
                             StartRow(app: item.app, icon: library.icon(for: item.app.url)) { onLaunch(item.app) }
                                 .contextMenu {
@@ -191,8 +191,8 @@ struct StartMenuView: View {
                     }
                 }
             }
-            .padding(.horizontal, TTLayout.s(24))
-            .padding(.bottom, TTLayout.s(12))
+            .padding(.horizontal, StartLayout.s(24))
+            .padding(.bottom, StartLayout.s(12))
         }
     }
 
@@ -211,8 +211,8 @@ struct StartMenuView: View {
                                         move: @escaping (String, String) -> Void,
                                         @ViewBuilder menu: @escaping (StartCell) -> Menu) -> some View {
         let slots = pinSlots[grid] ?? [:]
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: TTLayout.s(4)), count: columns),
-                         spacing: TTLayout.s(6)) {
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: StartLayout.s(4)), count: columns),
+                         spacing: StartLayout.s(6)) {
             ForEach(Array(cells.enumerated()), id: \.element.id) { index, cell in
                 cellView(cell)
                     .opacity(pinDrag?.id == cell.id ? 0.3 : 1)
@@ -343,11 +343,11 @@ struct StartMenuView: View {
         .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.86), value: model.openFolder)
     }
 
-    private static var padWidth: CGFloat { TTLayout.s(380) }
+    private static var padWidth: CGFloat { StartLayout.s(380) }
 
     /// 以文件夹格子为中心摆，夹在首页范围内（离边留 12pt）
     private func padOrigin(_ id: UUID, in container: CGSize) -> CGPoint {
-        let margin = TTLayout.s(12)
+        let margin = StartLayout.s(12)
         let size = CGSize(width: Self.padWidth, height: padSize.height)
         let tile = folderFrames[id] ?? CGRect(x: container.width / 2, y: container.height / 2, width: 0, height: 0)
         func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { max(lo, min(v, max(lo, hi))) }
@@ -363,28 +363,28 @@ struct StartMenuView: View {
     /// 弹窗本体：名字（点一下就能改）+ 关闭，下面是可拖动排序的图标网格
     private func padCard(_ folder: StartFolder) -> some View {
         let apps = resolved(folder.apps)
-        return VStack(spacing: TTLayout.s(8)) {
-            HStack(spacing: TTLayout.s(6)) {
+        return VStack(spacing: StartLayout.s(8)) {
+            HStack(spacing: StartLayout.s(6)) {
                 TextField("資料夾名稱", text: Binding(
                     get: { folder.name },
                     set: { catalog.renameStartFolder(folder.id, to: $0) }
                 ))
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.center)
-                .font(.system(size: TTLayout.font(13), weight: .semibold))
+                .font(.system(size: StartLayout.font(13), weight: .semibold))
                 .focused($folderNameFocused)
                 .onSubmit { folderNameFocused = false }
-                .padding(.horizontal, TTLayout.s(8))
-                .padding(.vertical, TTLayout.s(4))
+                .padding(.horizontal, StartLayout.s(8))
+                .padding(.vertical, StartLayout.s(4))
                 .background(
-                    RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous)
+                    RoundedRectangle(cornerRadius: StartLayout.s(6), style: .continuous)
                         .fill(Color.primary.opacity(folderNameFocused ? 0.10 : 0))
                 )
 
                 // 删除文件夹改走右键菜单，这里只收起
                 Button { closeFolder() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: TTLayout.font(11), weight: .medium))
+                        .font(.system(size: StartLayout.font(11), weight: .medium))
                 }
                 .buttonStyle(PillButtonStyle())
                 .help("關閉")
@@ -392,9 +392,9 @@ struct StartMenuView: View {
 
             if apps.isEmpty {
                 Text("資料夾是空的。右鍵任意應用 →「加入資料夾」→「\(folder.name)」。")
-                    .font(.system(size: TTLayout.font(11)))
+                    .font(.system(size: StartLayout.font(11)))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
+                    .frame(maxWidth: .infinity, minHeight: StartLayout.s(80))
                     .multilineTextAlignment(.center)
             } else {
                 // 超过三行才滚动，少的时候弹窗跟着内容缩
@@ -410,20 +410,20 @@ struct StartMenuView: View {
                     }
                 }
                 // 每格 90pt 高、行距 6pt：n 行 = 96n - 6
-                .frame(height: min(CGFloat((apps.count + 3) / 4), 3) * TTLayout.s(96) - TTLayout.s(6))
+                .frame(height: min(CGFloat((apps.count + 3) / 4), 3) * StartLayout.s(96) - StartLayout.s(6))
             }
         }
-        .padding(TTLayout.s(14))
+        .padding(StartLayout.s(14))
         .frame(width: Self.padWidth)
-        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.s(12)))
-        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(12), style: .continuous))
+        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: StartLayout.s(12)))
+        .clipShape(RoundedRectangle(cornerRadius: StartLayout.s(12), style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.s(12), style: .continuous)
+            RoundedRectangle(cornerRadius: StartLayout.s(12), style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.28), radius: 18, y: 6)
         // 弹窗本体要能命中：点空白处不穿透到下面的点击层把弹窗关掉
-        .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(12), style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: StartLayout.s(12), style: .continuous))
     }
 
     private func openFolder(_ id: UUID, rename: Bool = false) {
@@ -448,12 +448,12 @@ struct StartMenuView: View {
                         Image(systemName: "chevron.left")
                         Text("返回")
                     }
-                    .font(.system(size: TTLayout.font(11), weight: .medium))
+                    .font(.system(size: StartLayout.font(11), weight: .medium))
                 }
                 .buttonStyle(PillButtonStyle())
             }
-            .padding(.horizontal, TTLayout.s(24))
-            .padding(.bottom, TTLayout.s(6))
+            .padding(.horizontal, StartLayout.s(24))
+            .padding(.bottom, StartLayout.s(6))
 
             Picker("排序", selection: $prefs.startMenuSort) {
                 ForEach(StartMenuSort.allCases) { sort in
@@ -463,12 +463,12 @@ struct StartMenuView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .controlSize(.small)
-            .padding(.horizontal, TTLayout.s(24))
-            .padding(.bottom, TTLayout.s(8))
+            .padding(.horizontal, StartLayout.s(24))
+            .padding(.bottom, StartLayout.s(8))
 
             if library.apps.isEmpty {
                 ProgressView().controlSize(.small)
-                    .frame(maxWidth: .infinity, minHeight: TTLayout.s(80))
+                    .frame(maxWidth: .infinity, minHeight: StartLayout.s(80))
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -481,17 +481,17 @@ struct StartMenuView: View {
                                 }
                             } header: {
                                 Text(section.letter)
-                                    .font(.system(size: TTLayout.font(12), weight: .semibold))
+                                    .font(.system(size: StartLayout.font(12), weight: .semibold))
                                     .foregroundStyle(.secondary)
-                                    .padding(.vertical, TTLayout.s(4))
-                                    .padding(.horizontal, TTLayout.s(8))
+                                    .padding(.vertical, StartLayout.s(4))
+                                    .padding(.horizontal, StartLayout.s(8))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(.ultraThinMaterial)
                             }
                         }
                     }
-                    .padding(.horizontal, TTLayout.s(20))
-                    .padding(.bottom, TTLayout.s(12))
+                    .padding(.horizontal, StartLayout.s(20))
+                    .padding(.bottom, StartLayout.s(12))
                 }
             }
         }
@@ -524,13 +524,13 @@ struct StartMenuView: View {
         return Group {
             if results.isEmpty {
                 Text(library.apps.isEmpty ? "正在建立應用索引…" : "沒有找到「\(model.query)」")
-                    .font(.system(size: TTLayout.font(12)))
+                    .font(.system(size: StartLayout.font(12)))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: TTLayout.s(120))
+                    .frame(maxWidth: .infinity, minHeight: StartLayout.s(120))
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: TTLayout.s(2)) {
+                        LazyVStack(alignment: .leading, spacing: StartLayout.s(2)) {
                             ForEach(Array(results.enumerated()), id: \.element.id) { i, app in
                                 StartRow(app: app, icon: library.icon(for: app.url),
                                          subtitle: i == 0 ? "最佳匹配" : runningSubtitle(app),
@@ -539,8 +539,8 @@ struct StartMenuView: View {
                                     .contextMenu { itemMenu(app) }
                             }
                         }
-                        .padding(.horizontal, TTLayout.s(20))
-                        .padding(.bottom, TTLayout.s(12))
+                        .padding(.horizontal, StartLayout.s(20))
+                        .padding(.bottom, StartLayout.s(12))
                     }
                     .onChange(of: model.selection) { _, index in
                         guard results.indices.contains(index) else { return }
@@ -554,17 +554,17 @@ struct StartMenuView: View {
     // MARK: - 底栏
 
     private var footer: some View {
-        HStack(spacing: TTLayout.s(10)) {
+        HStack(spacing: StartLayout.s(10)) {
             NowPlayingBar(nowPlaying: nowPlaying, prefs: prefs)
             Button(action: onSettings) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: TTLayout.font(14)))
+                    .font(.system(size: StartLayout.font(14)))
             }
             .buttonStyle(PillButtonStyle())
             .help("Xtopbar 設定")
         }
-        .padding(.horizontal, TTLayout.s(24))
-        .padding(.vertical, TTLayout.s(12))
+        .padding(.horizontal, StartLayout.s(24))
+        .padding(.vertical, StartLayout.s(12))
         .background(Color.primary.opacity(0.05))
     }
 
@@ -629,7 +629,7 @@ struct StartMenuView: View {
                                                @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack {
             Text(title)
-                .font(.system(size: TTLayout.font(13), weight: .semibold))
+                .font(.system(size: StartLayout.font(13), weight: .semibold))
             Spacer()
             trailing()
         }
@@ -766,22 +766,22 @@ private struct StartTile: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: TTLayout.s(6)) {
+        VStack(spacing: StartLayout.s(6)) {
             Image(nsImage: icon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: TTLayout.s(40), height: TTLayout.s(40))
+                .frame(width: StartLayout.s(40), height: StartLayout.s(40))
             Text(app.name)
-                .font(.system(size: TTLayout.font(11)))
+                .font(.system(size: StartLayout.font(11)))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(height: TTLayout.s(28), alignment: .top)
+                .frame(height: StartLayout.s(28), alignment: .top)
         }
-        .padding(.vertical, TTLayout.s(8))
-        .padding(.horizontal, TTLayout.s(2))
+        .padding(.vertical, StartLayout.s(8))
+        .padding(.horizontal, StartLayout.s(2))
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
+            RoundedRectangle(cornerRadius: StartLayout.s(8), style: .continuous)
                 .fill(Color.primary.opacity(lifted ? 0.12 : hovering ? 0.10 : 0))
         )
         .scaleEffect(lifted ? 1.06 : 1)
@@ -806,32 +806,32 @@ private struct FolderTile: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: TTLayout.s(6)) {
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(TTLayout.s(16)), spacing: TTLayout.s(3)), count: 2),
-                      spacing: TTLayout.s(3)) {
+        VStack(spacing: StartLayout.s(6)) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(StartLayout.s(16)), spacing: StartLayout.s(3)), count: 2),
+                      spacing: StartLayout.s(3)) {
                 ForEach(icons.indices, id: \.self) { i in
                     Image(nsImage: icons[i])
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: TTLayout.s(16), height: TTLayout.s(16))
+                        .frame(width: StartLayout.s(16), height: StartLayout.s(16))
                 }
             }
-            .frame(width: TTLayout.s(40), height: TTLayout.s(40))
+            .frame(width: StartLayout.s(40), height: StartLayout.s(40))
             .background(
-                RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                RoundedRectangle(cornerRadius: StartLayout.s(9), style: .continuous)
                     .fill(Color.primary.opacity(0.09))
             )
             Text(name)
-                .font(.system(size: TTLayout.font(11)))
+                .font(.system(size: StartLayout.font(11)))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(height: TTLayout.s(28), alignment: .top)
+                .frame(height: StartLayout.s(28), alignment: .top)
         }
-        .padding(.vertical, TTLayout.s(8))
-        .padding(.horizontal, TTLayout.s(2))
+        .padding(.vertical, StartLayout.s(8))
+        .padding(.horizontal, StartLayout.s(2))
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
+            RoundedRectangle(cornerRadius: StartLayout.s(8), style: .continuous)
                 .fill(Color.primary.opacity(lifted ? 0.12 : hovering ? 0.10 : 0))
         )
         .scaleEffect(lifted ? 1.06 : 1)
@@ -870,27 +870,27 @@ private struct StartRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: TTLayout.s(10)) {
+            HStack(spacing: StartLayout.s(10)) {
                 Image(nsImage: icon)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: TTLayout.s(28), height: TTLayout.s(28))
+                    .frame(width: StartLayout.s(28), height: StartLayout.s(28))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(app.name)
-                        .font(.system(size: TTLayout.font(12), weight: .medium))
+                        .font(.system(size: StartLayout.font(12), weight: .medium))
                         .lineLimit(1)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.system(size: TTLayout.font(10)))
+                            .font(.system(size: StartLayout.font(10)))
                             .foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, TTLayout.s(8))
-            .padding(.vertical, TTLayout.s(5))
+            .padding(.horizontal, StartLayout.s(8))
+            .padding(.vertical, StartLayout.s(5))
             .background(
-                RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
+                RoundedRectangle(cornerRadius: StartLayout.s(8), style: .continuous)
                     .fill(selected ? Color.accentColor.opacity(0.28)
                           : Color.primary.opacity(hovering ? 0.10 : 0))
             )
@@ -935,15 +935,15 @@ private struct NowPlayingBar: View {
     private var player: MediaPlayer? { nowPlaying.player ?? prefs.nowPlayingSource.player }
 
     var body: some View {
-        HStack(spacing: TTLayout.s(10)) {
-            HStack(spacing: TTLayout.s(10)) {
+        HStack(spacing: StartLayout.s(10)) {
+            HStack(spacing: StartLayout.s(10)) {
                 cover
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.system(size: TTLayout.font(12), weight: .medium))
+                        .font(.system(size: StartLayout.font(12), weight: .medium))
                         .lineLimit(1)
                     Text(subtitle)
-                        .font(.system(size: TTLayout.font(10)))
+                        .font(.system(size: StartLayout.font(10)))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -953,7 +953,7 @@ private struct NowPlayingBar: View {
             .onTapGesture { nowPlaying.openPlayer() }
             .help(player.map { "開啟 \($0.title)" } ?? "")
 
-            HStack(spacing: TTLayout.s(2)) {
+            HStack(spacing: StartLayout.s(2)) {
                 control("backward.fill", enabled: nowPlaying.track != nil) { nowPlaying.previous() }
                 control(nowPlaying.track?.playing == true ? "pause.fill" : "play.fill", enabled: true, large: true) {
                     nowPlaying.playPause()
@@ -982,7 +982,7 @@ private struct NowPlayingBar: View {
 
     @ViewBuilder
     private var cover: some View {
-        let size = TTLayout.s(32)
+        let size = StartLayout.s(32)
         Group {
             if let art = nowPlaying.artwork {
                 Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
@@ -990,22 +990,22 @@ private struct NowPlayingBar: View {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().interpolation(.high)
             } else {
                 Image(systemName: "music.note")
-                    .font(.system(size: TTLayout.font(14)))
+                    .font(.system(size: StartLayout.font(14)))
                     .foregroundStyle(.secondary)
                     .frame(width: size, height: size)
                     .background(Color.primary.opacity(0.08))
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StartLayout.s(6), style: .continuous))
     }
 
     private func control(_ symbol: String, enabled: Bool, large: Bool = false,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: TTLayout.font(large ? 15 : 12)))
-                .frame(width: TTLayout.s(large ? 32 : 26), height: TTLayout.s(28))
+                .font(.system(size: StartLayout.font(large ? 15 : 12)))
+                .frame(width: StartLayout.s(large ? 32 : 26), height: StartLayout.s(28))
                 .contentShape(Rectangle())
         }
         .buttonStyle(ControlButtonStyle())
@@ -1029,7 +1029,7 @@ private struct ControlButtonStyle: ButtonStyle {
             configuration.label
                 .foregroundStyle(enabled ? .primary : .tertiary)
                 .background(
-                    RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous)
+                    RoundedRectangle(cornerRadius: StartLayout.s(6), style: .continuous)
                         .fill(Color.primary.opacity(configuration.isPressed ? 0.16 : hovering && enabled ? 0.08 : 0))
                 )
                 .onHover { hovering = $0 }

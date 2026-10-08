@@ -32,6 +32,13 @@ final class StartMenuModel: ObservableObject {
 /// 和主面板 / 预览面板不同，它要接收键盘输入（搜索框），所以打开时 `makeKey`。
 /// 面板是 nonactivating 的：变成 key 窗口但**不激活 Xtopbar**，
 /// 前台 App 不会失焦（Spotlight / Alfred 同款做法）。
+/// 开始菜单的尺寸常量：固定大小，不跟「介面縮放」走（缩放只管悬浮条和窗口预览）。
+/// 和 `TTLayout` 同样的写法，换个名字方便以后单独调
+enum StartLayout {
+    static func s(_ v: CGFloat) -> CGFloat { v }
+    static func font(_ v: CGFloat) -> CGFloat { v }
+}
+
 @MainActor
 final class StartMenuController {
 
@@ -60,7 +67,7 @@ final class StartMenuController {
     var isVisible: Bool { panel.isVisible && !closing }
     var frame: NSRect { panel.frame }
 
-    static var size: CGSize { CGSize(width: TTLayout.s(560), height: TTLayout.s(600)) }
+    static var size: CGSize { CGSize(width: StartLayout.s(560), height: StartLayout.s(600)) }
 
     init(catalog: AppCatalog) {
         self.catalog = catalog
@@ -244,7 +251,7 @@ final class StartMenuController {
     /// 开关动画的滑动距离。不跟「進出場動畫」开关走（那个管的是条本身进出场），
     /// 系统开了「减少动态效果」就只淡入淡出、不滑动。
     private var slideDistance: CGFloat? {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : TTLayout.s(90)
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : StartLayout.s(90)
     }
 
     private func launch(_ app: LibraryApp) {
