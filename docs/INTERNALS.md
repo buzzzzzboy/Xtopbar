@@ -19,6 +19,7 @@ Sources/
   ScreenCaptureEngine.swift  SC 列舉 + 抓圖 + 快取 + 預熱；AX 視窗集合配對
   WindowBridge.swift         AX 視窗聚焦（下標優先，標題/幾何回退）
   TabBarView.swift           SwiftUI 標籤條 + 開始按鈕 + 命中區域上報 + 分隔線 + 右鍵選單
+  BrowserProfiles.swift      Chromium 系瀏覽器設定檔：讀 Local State 列出設定檔，--profile-directory 開新視窗
   TabBarController.swift     面板定位（DockGeometry）、自動隱藏、熱點喚出、預覽排程、預熱、開始選單開關
   ScreenBars.swift           多螢幕：TabBarFleet（每塊螢幕一條）+ 視窗歸屬螢幕的純邏輯（ScreenAssign / ScreenScope / ScreenRegion）
   AppLibrary.swift           已安裝 App 索引（掃 Applications 目錄）+ 搜尋

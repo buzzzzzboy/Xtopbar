@@ -161,6 +161,15 @@ final class AppCatalog: ObservableObject {
         WindowPresence.shared.changed
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.refresh() } }
             .store(in: &cancellables)
+        // 浏览器设定档在后台读好了：强制重建一次，右键菜单里才有「開啟設定檔」
+        BrowserProfiles.changed
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.lastSignature = ""
+                    self?.refresh()
+                }
+            }
+            .store(in: &cancellables)
         refresh()
         scanWindows()
     }
@@ -349,6 +358,8 @@ final class AppCatalog: ObservableObject {
 
         let collected = collect()
         let newGroups = group(pinned: collected.pinned, running: collected.running)
+        // 条上有 Chromium 系浏览器就先在后台把设定档读好（节流，非浏览器直接跳过）
+        for g in newGroups { for e in g.entries { BrowserProfiles.prefetch(e.id) } }
 
         let signature = newGroups.map { g in
             "\(g.id):" + g.entries.map {

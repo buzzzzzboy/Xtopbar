@@ -75,6 +75,11 @@ final class StartMenuController {
             prefs: Preferences.shared,
             catalog: catalog,
             onLaunch: { [weak self] app in self?.launch(app) },
+            onOpenProfile: { [weak self] app, profile in
+                self?.close()
+                Preferences.shared.noteRecent(app.bundleID)
+                BrowserProfiles.open(profile, bundleID: app.bundleID, appURL: app.url)
+            },
             onSettings: { [weak self] in
                 self?.close()
                 SettingsWindowController.shared.show()

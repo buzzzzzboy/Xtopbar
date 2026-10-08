@@ -17,6 +17,8 @@ struct StartMenuView: View {
     @ObservedObject var presence = WindowPresence.shared
     let catalog: AppCatalog
     let onLaunch: (LibraryApp) -> Void
+    /// 用浏览器的某个设定档开新窗口（右键菜单「開啟設定檔」）
+    let onOpenProfile: (LibraryApp, BrowserProfiles.Profile) -> Void
     let onSettings: () -> Void
 
     @FocusState var searchFocused: Bool
@@ -636,6 +638,14 @@ struct StartMenuView: View {
     @ViewBuilder
     private func itemMenu(_ app: LibraryApp) -> some View {
         Button("開啟") { onLaunch(app) }
+        let profiles = BrowserProfiles.profiles(for: app.bundleID)
+        if !profiles.isEmpty {
+            Menu("開啟設定檔") {
+                ForEach(profiles) { profile in
+                    Button(profile.name) { onOpenProfile(app, profile) }
+                }
+            }
+        }
         Divider()
         if prefs.startPins.contains(where: { $0.bundleID == app.bundleID }) {
             Button("從開始選單取消固定") { catalog.unpinFromStart(app.bundleID) }

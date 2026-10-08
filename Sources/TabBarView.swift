@@ -232,6 +232,7 @@ struct AppTab: View {
     /// 顶层保持原版的「隐藏此 App / 退出 App」，固定相关的收进「固定」子菜单
     @ViewBuilder
     private var tabMenu: some View {
+        profileMenu
         if entry.isRunning {
             if !entry.isPinned {
                 Button("隱藏此 App") { catalog?.hide(entry) }
@@ -256,6 +257,24 @@ struct AppTab: View {
                     Button("固定到開始選單") { catalog?.pinToStart(entry) }
                 }
             }
+        }
+    }
+
+    /// Chromium 系浏览器有多个设定档时：菜单最上面放「開啟設定檔」子菜单 + 分隔线，点一个就用它开新窗口
+    @ViewBuilder
+    private var profileMenu: some View {
+        let profiles = BrowserProfiles.profiles(for: entry.id)
+        if !profiles.isEmpty {
+            Menu {
+                ForEach(profiles) { profile in
+                    Button(profile.name) {
+                        BrowserProfiles.open(profile, bundleID: entry.id, appURL: entry.bundleURL)
+                    }
+                }
+            } label: {
+                Label("開啟設定檔", systemImage: "person.crop.circle")
+            }
+            Divider()
         }
     }
 
