@@ -116,8 +116,6 @@ struct AppTab: View {
     let entry: AppEntry
     /// 前台 App：蓝底 + 描边（不论指针在不在条上，一眼看出谁在前台）
     let isActive: Bool
-    /// ⌘Tab 会话中被键盘选中的标签：画描边环（和前台蓝底区分开）
-    var keyboardSelected: Bool = false
     var animated: Bool = true
     /// Dock 风格：只画大图标 + 运行小圆点，名字放进悬停提示
     var iconOnly: Bool = false
@@ -151,13 +149,6 @@ struct AppTab: View {
         .overlay(
             RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
                 .strokeBorder(Color.accentColor.opacity(isActive ? 0.55 : 0), lineWidth: 1)
-        )
-        // ⌘Tab 键盘选中环：白色描边 + 阴影，深浅壁纸都看得清
-        .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                .strokeBorder(Color.white.opacity(keyboardSelected ? 0.95 : 0), lineWidth: 2)
-                .shadow(color: .black.opacity(keyboardSelected ? 0.45 : 0), radius: 2)
-                .animation(animated ? .easeOut(duration: 0.10) : nil, value: keyboardSelected)
         )
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous))
         .onHover { value in
@@ -416,7 +407,6 @@ struct TabBarView: View {
                     AppTab(entry: entry,
                                // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
                                isActive: entry.pid > 0 && entry.pid == catalog.activePID,
-                               keyboardSelected: entry.pid > 0 && entry.pid == catalog.keyboardHighlightPID,
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
                                startPinned: prefs.startPins.contains { $0.bundleID == entry.id },

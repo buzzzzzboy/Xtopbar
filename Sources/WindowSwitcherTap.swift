@@ -3,8 +3,7 @@ import CoreGraphics
 
 /// ⌥Tab 拦截器：视窗切换器（Windows Alt+Tab / DockDoor 同款）的键盘入口。
 ///
-/// 和 `CmdTabTap` 是同一套机制（会话级 CGEventTap），但各管各的组合键：
-/// 这里只认「按住 ⌥、没按 ⌘ / ⌃」时的 Tab，⌘Tab 原样留给 `CmdTabTap` / 系统。
+/// 会话级 CGEventTap，只认「按住 ⌥、没按 ⌘ / ⌃」时的 Tab，⌘Tab 原样留给系统。
 ///
 /// 语义：
 /// - 第一次按下 ⌥Tab（⌥⇧Tab 反向）→ `onActivate`
@@ -14,9 +13,9 @@ import CoreGraphics
 /// - 松开 ⌥ → `onOptionReleased`（提交选中）
 ///
 /// keyUp 只吞「keyDown 被我们吞过」的那几颗键，普通按键的 keyUp 完全放行
-/// （理由同 `CmdTabTap`：不配对的 keyUp 会让个别输入框进怪状态）。
+/// （不配对的 keyUp 会让个别输入框进怪状态）。
 ///
-/// 线程约定同 `CmdTabTap`：runloop source 挂在 main，回调都在主线程。
+/// 线程约定：runloop source 挂在 main，回调都在主线程。
 final class WindowSwitcherTap {
 
     enum Key {
@@ -138,7 +137,7 @@ final class WindowSwitcherTap {
             return nil
         }
 
-        // 只认 ⌥Tab / ⌥⇧Tab。带 ⌘ 的是 ⌘Tab（归 CmdTabTap / 系统），带 ⌃ 的留给 App 自己。
+        // 只认 ⌥Tab / ⌥⇧Tab。带 ⌘ 的是 ⌘Tab（归系统），带 ⌃ 的留给 App 自己。
         guard keycode == Self.tabKey,
               flags.contains(.maskAlternate),
               !flags.contains(.maskCommand),

@@ -118,16 +118,10 @@ final class AppCatalog: ObservableObject {
         }
     }
 
-    /// ⌘Tab 会话期间放开屏幕过滤：快切要能切到任何一块屏上的 App
-    private var scopeSuspended = false
-
-    /// 眼下实际生效的屏幕过滤
-    private var activeScope: ScreenScope? { scopeSuspended ? nil : screenScope }
-
     /// 这条所在屏的范围（CG 坐标）。点标签切窗口 / 最小化、预览列窗口都只管这块屏上的；
-    /// 单条模式和 ⌘Tab 会话期间为 nil（不分屏）
+    /// 单条模式为 nil（不分屏）
     var screenRegion: ScreenRegion? {
-        activeScope.flatMap { ScreenRegion.of(displayID: $0.displayID) }
+        screenScope.flatMap { ScreenRegion.of(displayID: $0.displayID) }
     }
 
     // MARK: - Lifecycle
@@ -242,7 +236,7 @@ final class AppCatalog: ObservableObject {
         // 「只显示有窗口的 App」：没窗口的运行中 App 不上条（固定项上面已经收走了，不受影响）
         let windowless: Set<pid_t> = prefs.onlyWindowedApps ? WindowPresence.shared.windowless : []
         // 多屏各屏一条：只留窗口在这块屏上的。没有辅助功能权限就量不出窗口在哪，每条都放全部
-        let scope = WindowBridge.isTrusted ? activeScope : nil
+        let scope = WindowBridge.isTrusted ? screenScope : nil
         let live = Set(NSScreen.screens.compactMap(\.displayID))
         let screensByPID = WindowPresence.shared.screensByPID
         let others = running.filter { e in
@@ -379,8 +373,7 @@ final class AppCatalog: ObservableObject {
         let countChanged = newGroups.map { $0.entries.count } != groups.map { $0.entries.count }
         groups = newGroups
         activePID = frontPID
-        // 真实前台变化也要进 MRU —— 用户不经过悬浮条、直接 ⌘ 点 Dock /
-        // 用系统切换器换 App 时，快切的历史不能断
+        // 不经过悬浮条换的前台（点 Dock / 系统 ⌘Tab）也记进「最近使用」
         noteActive(frontPID)
 
         if countChanged { onLayoutNeeded?() }
@@ -411,14 +404,13 @@ final class AppCatalog: ObservableObject {
         pressedEntry = nil
         endResize()
         if drag != nil { drag = nil }
-        if let rect = tabFrames[Self.resizeHandleID], rect.contains(point), !keyboardSession {
+        if let rect = tabFrames[Self.resizeHandleID], rect.contains(point) {
             resizeStart = (NSEvent.mouseLocation.y, Preferences.shared.uiScale)
             isResizing = true
             host?.dismissPreview()
             return true
         }
         if let rect = tabFrames[Self.startButtonID], rect.contains(point) {
-            if keyboardSession { endKeyboardSession() }
             host?.toggleStartMenu()
             return true
         }
@@ -436,9 +428,7 @@ final class AppCatalog: ObservableObject {
         }
         guard let pressed = pressedEntry else { return }
         if drag == nil {
-            // ⌘Tab 会话里条是键盘驱动的，不在这时候排序
-            guard !keyboardSession,
-                  max(abs(point.x - pressPoint.x), abs(point.y - pressPoint.y)) > Self.dragThreshold,
+            guard max(abs(point.x - pressPoint.x), abs(point.y - pressPoint.y)) > Self.dragThreshold,
                   let started = TabDrag(entry: pressed, startX: pressPoint.x, groups: groups, frames: tabFrames)
             else { return }
             host?.dismissPreview()
@@ -460,12 +450,7 @@ final class AppCatalog: ObservableObject {
             return
         }
         guard let pressed else { return }
-        // ⌘Tab 会话中用鼠标点了标签：点击本身就是选择，
-        // 结束会话避免松 ⌘ 时再提交一次高亮（可能不是点中的这个）
-        if keyboardSession { endKeyboardSession() }
         activate(pressed, fromClick: true)
-        // 这次如果条是 ⌘Tab 呼出来的，选完立刻消失，不等鼠标离开的倒计时
-        host?.dismissQuickSwitch()
     }
 
     /// 兜底：鼠标键其实早就放开了却没收到 mouseUp（面板中途被收起之类），
@@ -553,7 +538,7 @@ final class AppCatalog: ObservableObject {
     }
 
     /// - fromClick: 鼠标点标签（Windows 任务栏语义：前台 App 再点一下 = 最小化）。
-    ///   ⌘Tab 提交 / 右键菜单等其它入口只管激活。
+    ///   右键菜单等其它入口只管激活。
     ///
     /// 多屏各屏一条时，点的是哪块屏的条，就切到 / 收起这块屏上的窗口（同 Windows 多工作列）。
     func activate(_ entry: AppEntry, fromClick: Bool = false) {
@@ -610,7 +595,7 @@ final class AppCatalog: ObservableObject {
         }
     }
 
-    /// 按 pid 激活（点标签与 ⌘Tab 快切共用这条路径）。
+    /// 按 pid 激活（点标签走这条路径）。
     func activatePID(_ pid: pid_t) {
         guard let app = NSRunningApplication(processIdentifier: pid) else {
             return
@@ -642,118 +627,17 @@ final class AppCatalog: ObservableObject {
         }
     }
 
-    /// 最近使用顺序（栈顶 = 当前前台）。⌘Tab 快按快放时取第二个 = 上一个 App。
-    /// 只在真实前台变化（refresh）和主动激活（activatePID）时更新，
-    /// 容量 12 足够覆盖日常来回切换，也避免退出后残留一堆失效 pid。
-    @Published private(set) var mru: [pid_t] = []
+    /// 上次记进「最近使用」的前台 App：同一个 App 连着来不重复记
+    private var lastActivePID: pid_t = 0
 
+    /// 前台换了（refresh 读到的真实前台 / 主动激活）：记进开始菜单的「最近使用」
     func noteActive(_ pid: pid_t) {
-        guard pid > 0, mru.first != pid else { return }
+        guard pid > 0, pid != lastActivePID else { return }
+        lastActivePID = pid
         if let bid = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
            bid != Bundle.main.bundleIdentifier {
             Preferences.shared.noteRecent(bid)
         }
-        var next = mru
-        next.removeAll { $0 == pid }
-        next.insert(pid, at: 0)
-        if next.count > 12 { next.removeLast(next.count - 12) }
-        mru = next
-    }
-
-    // MARK: - ⌘Tab 键盘会话（AppRing 同款机制）
-    //
-    // 第一次 ⌘Tab：立即弹条 + 预选上一个 App；
-    // 再按 Tab：沿**视觉顺序**（标签从左到右）前进高亮，走到头回到第一个；
-    // 松开 ⌘：提交高亮项（快按快放因此天然等于"切上一个"）；
-    // Esc / 鼠标点标签 / 再按一次 ⌘Tab 前松手：取消。
-
-    /// 会话进行中（tick 据此暂停自动隐藏；松 ⌘ 据此决定要不要提交）
-    @Published private(set) var keyboardSession = false
-    /// 当前键盘高亮的 pid（视图层画描边环）
-    @Published private(set) var keyboardHighlightPID: pid_t = 0
-    /// 会话的循环序列 = 面板上的视觉顺序（标签从左到右）
-    private var sessionCycle: [pid_t] = []
-    private var sessionIndex = 0
-
-    /// 鼠标悬停接管高亮（AppRing 同款：指针扫到哪个图标，松 ⌘ 就提交哪个）
-    func setKeyboardHighlight(_ pid: pid_t) {
-        guard keyboardSession, let i = sessionCycle.firstIndex(of: pid) else { return }
-        sessionIndex = i
-        keyboardHighlightPID = pid
-    }
-
-    /// 开始会话并预选上一个 App。返回是否成功（不足两个可见 App 时返回 false）。
-    @discardableResult
-    func startKeyboardSession() -> Bool {
-        // 多屏时主条平时只列主屏上的 App；快切得能切到任何一块屏上的，会话期间放开过滤
-        if screenScope != nil, !scopeSuspended {
-            scopeSuspended = true
-            lastSignature = ""
-            refresh()
-        }
-        mru.removeAll { NSRunningApplication(processIdentifier: $0)?.isTerminated ?? true }
-        // 没在运行的固定项切不过去，不进 ⌘Tab 循环
-        let visible = groups.flatMap(\.entries).filter { $0.pid > 0 }
-        guard visible.count >= 2 else {
-            TTLog("kbdSession: 可見 App 不足(\(visible.count))")
-            restoreScope()
-            return false
-        }
-
-        // 循环序列 = 面板上的**视觉顺序**（标签从左到右），也就是 groups.flatMap 的顺序。
-        //
-        // 以前用的是 MRU 顺序（"最近用过"），它跟屏幕上看到的排布毫无关系 ——
-        // 于是按 Tab 时高亮会在图标之间横跳（第二个直接蹦到第四个），
-        // 看着像漏了一帧。改成按视觉顺序走：每按一次就挪到右边一格，
-        // 走到末尾从最左边续上，全程连贯可预期。
-        let cycle = visible.map(\.pid)
-        sessionCycle = cycle
-        sessionIndex = SessionCycle.startIndex(visual: cycle, mru: mru, active: activePID)
-        keyboardHighlightPID = cycle[sessionIndex]
-        keyboardSession = true
-        TTLog("kbdSession start → \(Self.name(of: cycle[sessionIndex])) "
-              + "idx=\(sessionIndex)/\(cycle.count)")
-        return true
-    }
-
-    /// 会话中再按 Tab：沿视觉顺序前进一格，末尾回到第一个（循环）。
-    func cycleKeyboardSession() {
-        guard keyboardSession, !sessionCycle.isEmpty else { return }
-        sessionIndex = SessionCycle.next(sessionIndex, count: sessionCycle.count)
-        keyboardHighlightPID = sessionCycle[sessionIndex]
-        TTLog("kbdSession cycle → \(Self.name(of: sessionCycle[sessionIndex])) "
-              + "idx=\(sessionIndex)/\(sessionCycle.count)")
-    }
-
-    /// 松开 ⌘：激活高亮项并结束会话。
-    func commitKeyboardSession() {
-        guard keyboardSession else { return }
-        let pid = keyboardHighlightPID
-        endKeyboardSession()
-        guard pid > 0 else { return }
-        TTLog("kbdSession commit → \(Self.name(of: pid)) pid=\(pid)")
-        activatePID(pid)
-    }
-
-    /// Esc / 鼠标抢先点击：结束会话但不激活。
-    func endKeyboardSession() {
-        keyboardSession = false
-        sessionCycle = []
-        sessionIndex = 0
-        keyboardHighlightPID = 0
-        restoreScope()
-    }
-
-    /// ⌘Tab 会话结束：恢复屏幕过滤，条回到只列本屏的 App
-    private func restoreScope() {
-        guard scopeSuspended else { return }
-        scopeSuspended = false
-        lastSignature = ""
-        refresh()
-    }
-
-    private static func name(of pid: pid_t) -> String {
-        NSRunningApplication(processIdentifier: pid)?.localizedName ?? "?"
     }
 
     /// 兜底：AX frontmost + activate()
@@ -980,35 +864,6 @@ final class AppCatalog: ObservableObject {
             }
         }
         return total * TTLayout.scale
-    }
-}
-
-/// ⌘Tab 会话的循环序列规则：纯下标运算，不碰 App 列表，
-/// 这样"起点在哪 / 怎么循环"这条路径能离线跑回归（同 TabBarController.ScreenPick 的思路）。
-///
-/// 序列本身恒为**面板视觉顺序**（标签从左到右）。唯一的例外是起点：
-/// 预选"上一个 App"，好让快按快放仍然等于切回上一个 App（Windows Alt+Tab 的手感）。
-/// 一旦开始按 Tab，就只沿视觉顺序走 —— 每按一次挪一格，末尾回到第一个。
-enum SessionCycle {
-
-    /// 起点下标：MRU 里第一个既不是当前前台、又还在条上的 App。
-    ///
-    /// 找不到（MRU 里只剩当前 App、或刚启动还没记录）就退到第 1 格 ——
-    /// 调用方保证可见 App ≥ 2，所以第 1 格一定存在。
-    static func startIndex(visual: [pid_t], mru: [pid_t], active: pid_t) -> Int {
-        guard !visual.isEmpty else { return 0 }
-        let visible = Set(visual)
-        if let pid = mru.first(where: { $0 != active && visible.contains($0) }),
-           let i = visual.firstIndex(of: pid) {
-            return i
-        }
-        return visual.count > 1 ? 1 : 0
-    }
-
-    /// 前进一格；末尾回到第一个（循环，不越界、不停住）。
-    static func next(_ index: Int, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        return ((index % count) + 1) % count
     }
 }
 

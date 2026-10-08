@@ -89,7 +89,6 @@ struct ScreenScope: Equatable {
 /// 每条是一个完整的 `TabBarController` + 自己的 `AppCatalog`（自己的面板、预览、开始菜单、
 /// 自动隐藏 / 不挡窗口 / 全屏让位），只有全局只能有一份的东西收在这里：
 /// - **主条**（`primary`）永远在：单条模式下就是原来那一条；多屏时停在主显示器上。
-///   ⌘Tab 钩子只装在它身上（系统里只能有一个拦截者），⌘Tab 会话期间它临时放开屏幕过滤、列出全部 App
 /// - **调度中心观察者**只开一个，进出时通知每一条
 /// - 状态栏菜单的动作在这里分发：开始菜单开在鼠标所在屏的那条上
 @MainActor
@@ -113,7 +112,7 @@ final class TabBarFleet {
         missionControl = watcher
         primaryCatalog = catalog
         primary = TabBarController(catalog: catalog, missionControl: watcher,
-                                   display: nil, ownsCmdTab: true)
+                                   display: nil, isPrimary: true)
     }
 
     func start() {
@@ -156,7 +155,7 @@ final class TabBarFleet {
             catalog.screenScope = ScreenScope(displayID: id, isPrimary: false)
             catalog.start()
             let controller = TabBarController(catalog: catalog, missionControl: missionControl,
-                                              display: id, ownsCmdTab: false)
+                                              display: id, isPrimary: false)
             controller.start()
             secondaries[id] = (controller, catalog)
         }

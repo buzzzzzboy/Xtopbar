@@ -85,36 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             TTLog("unregister → \(off ?? "ok")，status=\(LaunchAtLogin.statusDescription)")
         }
 
-        // 调试用：`--test-hotzone=1` 重放"在 1 号屏上用过一次 ⌘Tab"，
-        // 看热区是否仍留在设置指定的那块屏上
-        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--test-hotzone") }) {
-            let index = Int(arg.split(separator: "=").last ?? "0") ?? 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                controller.diagnoseHotZone(pointerOnScreen: index)
-            }
-        }
-
-        // 调试用：`--test-cycle=6` 把 ⌘Tab 会话的循环序列走一遍，
-        // 看高亮是不是一格一格连着的（而不是在图标之间横跳）
-        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--test-cycle") }) {
-            let presses = Int(arg.split(separator: "=").last ?? "6") ?? 6
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                controller.diagnoseCycle(presses: presses)
-            }
-        }
-
         // 调试用：`--test-switcher` 把 ⌥Tab 切换器的格子排版 / 键盘移动样例和当前窗口写进日志
         if CommandLine.arguments.contains("--test-switcher") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 switcher.diagnose()
-            }
-        }
-
-        // 调试用：`--test-quickswitch` 模拟"⌘Tab 呼出 → 选完"，
-        // 验证条是不是当场消失、以及会不会被顶部唤出区立刻拉回来
-        if CommandLine.arguments.contains("--test-quickswitch") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                controller.diagnoseQuickSwitch()
             }
         }
 

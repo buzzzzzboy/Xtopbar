@@ -74,7 +74,7 @@ enum HotZoneScreen: String, CaseIterable, Identifiable {
         case .notch:
             return "只有筆電內建螢幕（有劉海那塊）頂部能喚出，內建螢幕以外都不響應。"
         case .followMouse:
-            return "滑鼠在哪塊螢幕，就頂哪塊螢幕的頂部喚出 —— 和 ⌘Tab 叫出同一套座標來源。"
+            return "滑鼠在哪塊螢幕，就頂哪塊螢幕的頂部喚出。"
         }
     }
 }
@@ -164,7 +164,6 @@ final class Preferences: ObservableObject {
         static let animations    = "animationsEnabled"
         static let hotZoneWidth  = "hotZoneWidth"
         static let hotZoneScreen = "hotZoneScreen"
-        static let cmdTabEnabled = "cmdTabEnabled"
         static let windowSwitcherEnabled = "windowSwitcherEnabled"
         static let hiddenApps    = "hiddenApps"
         static let uiScale       = "uiScale"
@@ -243,18 +242,11 @@ final class Preferences: ObservableObject {
     /// 顶部热区落在哪块屏。
     ///
     /// 默认**带菜单栏的系统主显示器**（`screens[0]`）。多屏时另一块屏顶部不再唤出，
-    /// 面板也固定停在主屏顶部 —— 否则某次 ⌘Tab 在另一块屏弹出后，面板"停"在那块屏，
-    /// 热区跟着跑过去，主屏顶部就再也唤不出来了。
+    /// 面板也固定停在主屏顶部。
     /// 注意"系统主显示器"与"刘海屏"在多屏下不是同一块：外接屏被设为主屏时，
     /// 刘海在内置屏上，想顶刘海呼出要显式选「内置屏」。
     @Published var hotZoneScreen: HotZoneScreen = .menuBar {
         didSet { d.set(hotZoneScreen.rawValue, forKey: Key.hotZoneScreen) }
-    }
-
-    /// ⌘Tab 呼出：接管系统应用切换器的快捷键，在鼠标位置唤出悬浮条。
-    /// 靠 CGEventTap 实现，需要辅助功能权限。
-    @Published var cmdTabEnabled: Bool = false {
-        didSet { d.set(cmdTabEnabled, forKey: Key.cmdTabEnabled) }
     }
 
     /// ⌥Tab 视窗切换器：屏幕中央铺开当前桌面所有窗口的缩略图（Windows Alt+Tab 同款）。
@@ -463,7 +455,8 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.animations) != nil { animationsEnabled = d.bool(forKey: Key.animations) }
         if d.object(forKey: Key.hotZoneWidth) != nil { hotZoneWidth = d.double(forKey: Key.hotZoneWidth) }
         if let raw = d.string(forKey: Key.hotZoneScreen), let s = HotZoneScreen(rawValue: raw) { hotZoneScreen = s }
-        if d.object(forKey: Key.cmdTabEnabled) != nil { cmdTabEnabled = d.bool(forKey: Key.cmdTabEnabled) }
+        // ⌘Tab 叫出已移除：清掉旧版留下的开关
+        d.removeObject(forKey: "cmdTabEnabled")
         if d.object(forKey: Key.windowSwitcherEnabled) != nil {
             windowSwitcherEnabled = d.bool(forKey: Key.windowSwitcherEnabled)
         }

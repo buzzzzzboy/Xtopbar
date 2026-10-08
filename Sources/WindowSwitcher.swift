@@ -716,7 +716,7 @@ final class WindowSwitcherController {
         }
     }
 
-    /// 收场：面板立刻消失（同 ⌘Tab，键盘动作不做出场动画）
+    /// 收场：面板立刻消失（键盘动作不做出场动画）
     private func end() {
         guard active else { return }
         active = false

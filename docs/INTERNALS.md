@@ -166,13 +166,13 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 
 所以預設取 `.menuBar`（使用者說"主顯示器"時指的就是它），劉海螢幕要顯式選 —— 別替使用者猜。
 
-> **修掉的老 bug**：熱區以前按 `panel.screen` 算，而 `panel.screen` 是"面板當前停在哪個螢幕"。⌘Tab 會在滑鼠位置彈出並釘住面板，於是在另一塊螢幕用過一次 ⌘Tab 之後，面板 frame 就留在那塊螢幕，熱區跟著搬過去 —— 表現為"只有那塊螢幕頂部能喚出，主螢幕徹底沒反應"。
+> **不能用 `panel.screen`**：它是"面板當前停在哪個螢幕"，面板一旦停到別的螢幕，熱區就跟著搬過去 —— 表現為"只有那塊螢幕頂部能喚出，主螢幕徹底沒反應"。
 >
 > 同理不能用 `NSScreen.main`：它跟著"當前接收鍵盤事件的視窗"漂移，副螢幕上的 App 一啟用它就變成副螢幕。
 >
-> 三處一起改：① 熱區與預設停靠位改看 `anchorScreen`（不再看 `panel.screen`）；② 收起後 `parkOnAnchorScreen()` 把面板 frame 挪回錨定螢幕，不留舊位置；③ 常駐模式（不自動隱藏）下 ⌘Tab 提交後主動歸位，否則會一直釘在滑鼠那處。
-
-**⌘Tab 叫出刻意不走這套** —— 它永遠在滑鼠位置彈出（`revealAtMouse` / `pinnedAnchor`），那才是這個功能的意義。錨定螢幕只約束"頂部喚出"。
+> 所以熱區與預設停靠位都看 `anchorScreen`，收起後 `parkOnAnchorScreen()` 把面板 frame 挪回錨定螢幕，不留舊位置。
+>
+> （v2.6.0 以前還有「⌘Tab 叫出」：接管系統 ⌘Tab、在滑鼠位置彈出條。之後移除，系統 ⌘Tab 不再被攔截。）
 
 **5b'. 多螢幕：每塊螢幕一條（`TabBarFleet`）**
 
@@ -180,7 +180,7 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 
 全域只能有一份的東西收在 fleet 裡：
 
-- **主條** `primary` 永遠在（單條模式下就是那一條；多螢幕時停在 `screens[0]`）。**⌘Tab 鉤子只裝在它身上**（`ownsCmdTab`）—— 系統裡只能有一個攔截者；⌘Tab 會話期間它的 catalog 暫時放開螢幕過濾（`scopeSuspended`），列出所有螢幕上的 App，會話結束（提交 / Esc / 收起）再恢復
+- **主條** `primary` 永遠在（單條模式下就是那一條；多螢幕時停在 `screens[0]`）。缺輔助使用權限時只由它提示一次（`isPrimary`），不會每條各彈一次
 - **調度中心觀察者**只開一個，進出時通知每一條
 - 狀態列選單：開始選單開在滑鼠所在螢幕的那條上，其它條上開著的先收掉；其餘動作發給所有條
 - 螢幕插拔 / 改開關時 `layoutBars()` 增刪副條：被拆的那條 `shutdown()` 停計時器、移除觀察者、不播動畫地收掉面板 / 預覽 / 開始選單（淡出回呼裡 `self` 已經沒了，面板會留在螢幕上）
@@ -206,28 +206,6 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 - 懸停預覽也只列這塊螢幕上的視窗；一扇都對不上（視窗剛挪過螢幕、快照還沒跟上）就全列
 
 純邏輯（視窗歸屬、這條收不收某個 App）`--test-pins` 會打一組樣例，期望值寫在日誌裡。
-
-**5c. ⌘Tab 會話：迴圈序列與叫出動效**
-
-`CmdTabTap` 用會話級 `CGEventTap` 吞掉「按住 ⌘ 時按下 Tab」（⌘Tab 會被 Dock 搶在任何 App 之前消費，只有 HID/會話層的 tap 能截住）。會話由 `AppCatalog` 的三個方法驅動：`startKeyboardSession` / `cycleKeyboardSession` / `commitKeyboardSession`。
-
-**迴圈序列 = 面板的視覺順序**（`groups.flatMap(\.entries)`，也就是標籤從左到右），起點另算：
-
-- 起點 = MRU 裡第一個既不是當前前景、又還在條上的 App（`SessionCycle.startIndex`）。快按快放因此仍然等於切回上一個 App
-- 之後每一發 Tab 只做 `(index + 1) % count`，走一格挪一格，末尾回到第一個
-
-> **修掉的老 bug**：序列以前直接按 MRU 順序排（"最近用過"優先，當前前景插到最前，剩下的補在後面）。它跟螢幕上看到的排布毫無關係 —— 反白於是會在圖示之間橫跳（第二個直接蹦到第四個），功能沒錯但看著像漏幀。順序抽在 `SessionCycle` 裡（純下標運算），迴歸要斷言的不變數是：**從任何起點連按 N 發，相鄰兩步的下標差恆為 `+1 mod count`**。
-
-**⌘Tab 叫出不做動效**：`beginReveal(animated:)` 傳 `false`。它是高頻純鍵盤動作，滑落 + 淡入那 50ms 在這裡只是延遲 —— 手指按下去那一刻條就該在。頂部熱區喚出仍走動畫（滑鼠慢慢頂上來，有過程可看）。無動畫路徑必須**先把 frame 擺好、再設 alpha、最後 `orderFrontRegardless()`**，順序錯了會閃一幀。
-
-**選完立刻消失**：`dismissQuickSwitch()`。⌘Tab 叫出的條在完成選擇那一刻（鬆 ⌘ 提交 / 滑鼠點標籤 / 點視窗縮圖 / Esc 反悔）直接收掉，不走"滑鼠離開後 N 秒"那套 —— 條就貼在滑鼠位置，選完還杵著會擋住剛切過去的視窗。收場同樣走 `hide(animated: false)`，和叫出兩頭一致。
-
-判定抽在 `QuickSwitchDismiss.action(pinnedToMouse:hideDelay:)`（三值：`ignore` / `hideNow` / `parkBack`），可離線迴歸。兩條邊界必須守住：
-
-- **不是 ⌘Tab 叫出的（`pinnedToMouse == false`）→ `ignore`**。滑鼠從頂部頂出來的條點標籤後仍按原延遲淡出，不能被鍵盤邏輯收掉；
-- **常駐模式（`hideDelay ≤ 0`）→ `parkBack`**。條本來就該一直在，只擺回錨定螢幕頂部。
-
-還有個坑：⌘Tab 面板彈在滑鼠處，指標停在螢幕頂部中央時和頂部喚出區正好重疊 —— 瞬間收起後下一幀 `tick` 看到 `inHot` 就又把條拉出來，表現為"選完閃一下又回來"。所以收起時置 `suppressHotZoneUntilExit`，等指標離開喚出區一次再恢復喚出。
 
 **6. 視窗預覽** — 懸停 0.12s 防抖後彈出第二個 `NSPanel`。
 
@@ -291,7 +269,7 @@ Google Chrome          2              7
 
 | 位置 | 動效 |
 |---|---|
-| 喚出 / 收起 | 面板整體"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比單純變透明度自然。**⌘Tab 例外：進出場都不動效**（見 5c） |
+| 喚出 / 收起 | 面板整體"落下 / 升回" 10pt + 淡入淡出（0.18s / 0.13s），比單純變透明度自然 |
 | 標籤懸停 | 圖示彈簧放大到 1.12（0.22s）；底色漸變 0.11s |
 | 前景 App 反白 | 彈簧（0.26s, damping 0.74），切換 App 時反白塊"落"下來；指標離開條面時縮回 |
 | 預覽彈出 | 面板下滑 + 淡入；整塊只託一下（0.99 → 1，0.12s easeOut） |
@@ -302,7 +280,7 @@ Google Chrome          2              7
 
 **點選動效刻意做"小"**：卡片互動是高頻動作，用 spring 會拖出尾巴、看著"黏"；按下幅度 0.955→0.975、曲線從 spring 換成 easeOut，動作本身在 mouseUp 那一刻就發生。早先為了讓"有沒有點到"看得見，點中後先彈 0.1s 再切視窗 —— 每次切換白等 100ms，正是"不夠乾脆"的來源，已去掉。
 
-兩個刻意的約束：**縮放只作用在圖示或整塊預覽上，絕不做在標籤上** —— 標籤的命中區域是 `GeometryReader` 上報的，縮放會讓點選判定和視覺錯位；懸停 / 選中一律用顏色過渡而不是位移。佈局上：位置錨定螢幕（預設系統主顯示器，見 5b）可見區域頂部居中，距選單列 6pt（⌘Tab 叫出時釘在滑鼠位置，預設在指標上方，貼頂則翻到下方）；寬度隨 App 數量自適應，上限為螢幕寬 −24pt（超出可橫向捲動，兩端漸隱）；分隔線每兩個標籤之間都是同一條淡豎線（1×16pt，opacity 0.14）；左右留白各 12pt，標籤自身 9pt 內邊距 —— 內邊距太小（8pt）時最右那個標籤看起來像"貼邊"。前景 App 反白**只在指標夠得著的時候亮**：指標在喚出熱點區或標籤條上時亮起，離開即撤下。反白表達的是"這個可以點"，不是"它是前景" —— 讓它常駐的話，切走 App 之後反白還掛在舊標籤上，看起來像選中了它，很容易誤讀。
+兩個刻意的約束：**縮放只作用在圖示或整塊預覽上，絕不做在標籤上** —— 標籤的命中區域是 `GeometryReader` 上報的，縮放會讓點選判定和視覺錯位；懸停 / 選中一律用顏色過渡而不是位移。佈局上：位置錨定螢幕（預設系統主顯示器，見 5b）可見區域頂部居中，距選單列 6pt；寬度隨 App 數量自適應，上限為螢幕寬 −24pt（超出可橫向捲動，兩端漸隱）；分隔線每兩個標籤之間都是同一條淡豎線（1×16pt，opacity 0.14）；左右留白各 12pt，標籤自身 9pt 內邊距 —— 內邊距太小（8pt）時最右那個標籤看起來像"貼邊"。前景 App 反白**只在指標夠得著的時候亮**：指標在喚出熱點區或標籤條上時亮起，離開即撤下。反白表達的是"這個可以點"，不是"它是前景" —— 讓它常駐的話，切走 App 之後反白還掛在舊標籤上，看起來像選中了它，很容易誤讀。
 
 **9. ⌥Tab 視窗切換器** — `WindowSwitcherController`，和悬浮條完全獨立（`AppDelegate` 直接建，條關了照樣能用），DockDoor / Windows Alt+Tab 的形態：螢幕中央一塊格狀面板，一張卡片 = 一個視窗。
 
@@ -311,9 +289,9 @@ Google Chrome          2              7
 - 同步粗篩（不到 1ms，按下就能出面板）：layer 0、alpha > 0、≥150×110、擁有者是 `.regular` App、不是自己。異步精篩（`SwitcherWindows.refine`）：同一個 App 的**未最小化** AX 視窗裡按幾何領座位（容差 8pt，同幾何按個數領 —— Chrome 多視窗常完全重疊），領不到的是輔助表面，從面板上摘掉；順手換上 AX 的完整標題（CG 視窗名會被截斷，沒錄屏權限時是空的）。AX 問不出來或回空就不篩，寧多勿漏。AX 查詢照樣走 `axGate`
 - **縮圖**：`ScreenCaptureEngine.adoptWindows(includeOffscreen:)` 把目前桌面在屏視窗（有最小化視窗時連不在屏的一起）的 SC 句柄併進引擎（`refresh` 只為條上的 App 精確化、還有節流，句柄缺了就抓不到），再逐個 `capture`。快取裡有圖先頂上（不管多舊），新圖回來再換，共用預覽的 `NSCache`
 - **排版**（`SwitcherGrid`，純運算，`--test-switcher` 會打幾組樣例）：先按原尺寸能塞幾列算行數，高過可用區（螢幕 visibleFrame 的 88%）就整塊 ×0.9 縮，最小 0.45；列數最後按行數均分（7 張 → 4 + 3，不是 6 + 1），最後一行置中。縮放乘在布局常量上（同預覽，命中區域才對得上）
-- **鍵盤**：`WindowSwitcherTap` 只認「⌥ 按著、⌘ / ⌃ 沒按」的 Tab，⌘Tab 留給 `CmdTabTap`。會話中整個鍵盤歸它 —— 方向鍵、Return、Esc 轉成動作，其它鍵一律吞掉（按住 ⌥ 誤按字母會在前台 App 打出 ∑ ø）；keyUp 只吞吞過 keyDown 的那幾顆。上下移動見 `SwitcherNav.vertical`：下一行不夠長落到最後一張，最後一行再往下回到第一行同一列
+- **鍵盤**：`WindowSwitcherTap` 只認「⌥ 按著、⌘ / ⌃ 沒按」的 Tab，⌘Tab 留給系統。會話中整個鍵盤歸它 —— 方向鍵、Return、Esc 轉成動作，其它鍵一律吞掉（按住 ⌥ 誤按字母會在前台 App 打出 ∑ ø）；keyUp 只吞吞過 keyDown 的那幾顆。上下移動見 `SwitcherNav.vertical`：下一行不夠長落到最後一張，最後一行再往下回到第一行同一列
 - **松 ⌥ 的兜底**：除了 flagsChanged 事件，30Hz 指標輪詢裡也用 `CGEventSource.flagsState` 看一眼 ⌥ 還在不在 —— 安全輸入框或鉤子被系統臨時停用時會漏掉松鍵事件，不兜的話面板一直掛著、鍵盤一直被吞
-- **快按快放不閃**：面板延後 60ms 才上屏，期間松了 ⌥ 就直接切、面板根本不出現。收場同 ⌘Tab：立刻 `orderOut`，不做出場動畫
+- **快按快放不閃**：面板延後 60ms 才上屏，期間松了 ⌥ 就直接切、面板根本不出現。收場：立刻 `orderOut`，不做出場動畫
 - **滑鼠**：指針真的動過（>3pt）才接管選取，免得面板彈出時剛好壓在某張卡上把鍵盤預選搶走；而且只在指針換到另一張卡時才改選取，指針停著時鍵盤照樣能走。點選走 `FloatingPanel` 的兩段式（按下選中、抬起在同一張卡上才切）
 - 切過去用 `WindowBridge.focusWindow(cgID:)`（卡片的 CG 編號就是縮圖像素來源，是最不會錯位的錨點），丟到背景執行緒 —— 它裡面有等激活重排落地的幾百毫秒
 - 面板 level 是 `.popUpMenu`，比條和預覽（`.statusBar`）高一層
@@ -331,7 +309,7 @@ Google Chrome          2              7
 | `hotZone` | 選單列中央、寬度可調（預設 120pt，免得誤觸狀態圖示），上邊界越出螢幕 2pt | 底邊一條 6pt 高的窄帶，向下越出 2pt（同樣是半開區間的坑），寬度 = max(條寬, 設定值) —— 底邊沒有狀態圖示可誤觸 |
 | `slideSign` | +1（從上方落下） | −1（從下方升起） |
 
-預覽和開始選單往哪邊彈，**看條的實際位置而不是設定**（`opensUpward`：條在螢幕下半部就向上）—— ⌘Tab 把條釘在滑鼠處時，兩種停靠邊都可能出現在螢幕任何位置。彈出面板統一走 `popupFrame` 擺位 + 夾進可用區。預覽面板順手改成按"主面板所在螢幕"夾邊界，不再用會跟著鍵盤焦點漂的 `NSScreen.main`。
+預覽和開始選單往哪邊彈，**看條的實際位置而不是設定**（`opensUpward`：條在螢幕下半部就向上）。彈出面板統一走 `popupFrame` 擺位 + 夾進可用區。預覽面板順手改成按"主面板所在螢幕"夾邊界，不再用會跟著鍵盤焦點漂的 `NSScreen.main`。
 
 **2. 固定項與執行項（`AppCatalog.collect`）**
 
@@ -341,7 +319,7 @@ Google Chrome          2              7
 - 標籤模式下固定項不畫執行小圓點（只有 Dock 風格才畫，同 macOS Dock）
 - 右鍵選單開著時（`NSMenu.didBeginTracking` → `menuTracking`）凍結 `pointerOverBar` 和 `refresh()`：選單是 SwiftUI `contextMenu` 按視圖狀態生成的，任何 @Published 變化都會重建整個選單，已展開的「固定」子選單會當場收起 —— 子選單常伸出條外，指標一移過去 `pointerOverBar` 就翻轉，於是永遠夠不著。關選單時補一次 refresh
 - 固定項不受「隱藏此 App」影響；固定時順手把它從隱藏列表裡放出來
-- 所有"只對執行中 App 有意義"的地方都要按 `pid > 0` 過濾：⌘Tab 迴圈序列、預熱、預覽、退出。`activePID` / `keyboardHighlightPID` 永遠不會是 0，所以反白也不會落到沒執行的圖示上
+- 所有"只對執行中 App 有意義"的地方都要按 `pid > 0` 過濾：預熱、預覽、退出。`activePID` 永遠不會是 0，所以反白也不會落到沒執行的圖示上
 - 點沒執行的固定項 → `launch(url:)`（`NSWorkspace.openApplication`），啟動完成後 `didLaunchApplication` 通知觸發 refresh，小圓點自己亮
 - 固定的 .app 被挪走：按 bundle id 問 LaunchServices（`urlForApplication(withBundleIdentifier:)`）兜底；兩邊都找不到也留在條上，方便右鍵取消固定
 - 持久化：`dockPins` / `startPins` 是 `[PinnedApp]`（bundle id + 路徑 + 名稱）編碼成 JSON 存 UserDefaults；陣列順序即顯示順序
@@ -451,17 +429,9 @@ XTOPBAR_UPDATE_FEED=http://127.0.0.1:18777/feed.json \
 ```bash
 open Xtopbar.app --args --settings      # 直接拉起設定視窗
 open Xtopbar.app --args --test-login    # 跑一遍 SMAppService 註冊/取消註冊並記錄結果
-open Xtopbar.app --args --test-hotzone=0  # 模擬"在 0 號螢幕用過一次 ⌘Tab"，看熱區最終落在哪塊螢幕
-open Xtopbar.app --args --test-cycle=8    # 不開面板，把 ⌘Tab 會話連按 8 發，看反白是否一格一格連著
-open Xtopbar.app --args --test-quickswitch # 模擬"⌘Tab 叫出 → 選完"，看條是否當場消失、會不會被喚出區拉回來
 open Xtopbar.app --args --test-pins       # 列印固定 / 執行分組、兩種停靠邊的條 / 喚出區 / 開始選單位置、一次應用搜尋
 open Xtopbar.app --args --start-menu      # 啟動後直接彈開始選單
 ```
 
-`--test-hotzone=<螢幕序號>` 就是上面 5b 那個 bug 的迴歸入口：它會模擬 ⌘Tab 把面板釘到指定螢幕，再按正常流程收起，然後把面板停靠位置、熱區矩形、熱區落在哪塊螢幕一起寫進日誌。換個螢幕號再跑一次，就能看出熱區是否會被 ⌘Tab 帶跑。
-
-`--test-cycle=<次數>` 是 5c 的迴歸入口：它不開面板、不搶鍵，只用真實的 App 列表把會話走一遍，日誌裡每一步都帶「App 名 + 下標 / 總數」。下標必須是逐個 ±1 的（`1/8 → 2/8 → … → 0/8 → 1/8`），一旦出現跳號就說明迴圈序列又串了順序。
-
-`--test-quickswitch` 是"選完立刻消失"的迴歸入口：走一遍真實的 `revealAtMouse()`（釘在滑鼠位置叫出）+ 結束會話 + `dismissQuickSwitch()`，日誌給出 `isRevealed` / `panel.isVisible` / `suppressHotZone` 三個值，並在 +0.5s 再打一次 —— 該看到當場 `panel.isVisible=false`，且半秒後 `suppressHotZone` 已復位（指標不在喚出區時自然會解除），熱區矩形不變。
 
 判定"是否真的切到前景"要看視窗疊放序（`CGWindowListCopyWindowInfo` 的 layer 0 首條），別信 `NSWorkspace.frontmostApplication` —— 它返回快取值，會出現"日誌說成功、實際沒變"的假象。
