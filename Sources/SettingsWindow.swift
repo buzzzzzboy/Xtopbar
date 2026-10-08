@@ -64,7 +64,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .appearance: return "外觀"
         case .dock:       return "Dock 與開始選單"
         case .windows:    return "視窗"
-        case .about:      return "權限與關於"
+        case .about:      return "關於"
         }
     }
 
@@ -109,7 +109,7 @@ struct SettingsView: View {
         .onReceive(ticker) { _ in captureTick &+= 1 }
     }
 
-    /// 一般：启动、悬浮条总开关、多屏
+    /// 一般：启动、悬浮条总开关、多屏、权限
     @ViewBuilder
     private var generalPage: some View {
         Section("啟動") {
@@ -149,11 +149,88 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+
+        Section("權限") {
+            PermissionRow(
+                title: "螢幕錄製",
+                detail: "抓取視窗縮圖。沒授權時預覽只顯示 App 圖示。",
+                granted: ScreenCaptureEngine.hasPermission,
+                action: {
+                    CGRequestScreenCaptureAccess()
+                    ScreenCaptureEngine.requestPermissionIfNeeded()
+                    openSettingsPane("Privacy_ScreenCapture")
+                }
+            )
+
+            PermissionRow(
+                title: "輔助使用",
+                detail: "列舉每個 App 的真實視窗、點選縮圖精確切到那一個視窗。",
+                granted: WindowBridge.isTrusted,
+                action: {
+                    WindowBridge.requestAccessibilityPermission()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        WindowBridge.openAccessibilitySettings()
+                    }
+                }
+            )
+
+            Text("改動系統權限後需要重啟 Xtopbar 才會生效。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
     }
 
-    /// 外观：样式、大小、透明度与动画
+    /// 外观：位置、显示与隐藏、样式、大小、透明度与动画
     @ViewBuilder
     private var appearancePage: some View {
+        Section("位置") {
+            Picker("Dock 位置", selection: $prefs.dockEdge) {
+                ForEach(DockEdge.allCases) { edge in
+                    Text(edge.title).tag(edge)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(prefs.dockEdge.subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Toggle("隱藏系統 Dock", isOn: $prefs.hideSystemDock)
+                .toggleStyle(.switch)
+
+            Text("把系統 Dock 設為自動隱藏，讓 Xtopbar 接替它的位置；滑鼠頂到螢幕底邊仍可喚出 Dock，會蓋在條上面照常使用。會重啟一次 Dock；關掉即恢復原來的設定。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
+        Section("顯示與隱藏") {
+            Toggle("不擋視窗（常駐，視窗自動讓位）", isOn: $prefs.avoidWindows)
+                .toggleStyle(.switch)
+
+            Text("像 Windows 工作列：條一直顯示，壓到條上的視窗會被自動挪開或縮短，不會再蓋住視窗底部（停在頂部時是頂部）。有 App 全螢幕時條自動隱藏，滑鼠頂到螢幕邊緣仍可臨時喚出。需要「輔助使用」權限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Picker("自動隱藏", selection: $prefs.hideDelay) {
+                ForEach(Preferences.delayOptions, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                }
+            }
+
+            HStack {
+                Text("喚醒熱區寬度")
+                Slider(value: $prefs.hotZoneWidth, in: 60...400, step: 10)
+                Text("\(Int(prefs.hotZoneWidth)) pt")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, alignment: .trailing)
+            }
+
+            Text("停在頂部時：滑鼠頂到螢幕頂部中央多寬的範圍會喚出懸浮條（居中對齊），預設 120 pt ≈ 4 個狀態列圖示；外接螢幕上誤觸頻繁可調小，難喚出可調大。停在底部時：沿整條懸浮條的寬度頂底邊都能喚出，這裡的值只是下限。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
         Section("樣式") {
             Toggle("只顯示圖示（Dock 風格）", isOn: $prefs.iconOnly)
                 .toggleStyle(.switch)
@@ -217,57 +294,9 @@ struct SettingsView: View {
         }
     }
 
-    /// Dock 与开始菜单：位置、显示与隐藏、点击行为、开始菜单、固定 / 隐藏的 App
+    /// Dock 与开始菜单：点击行为、开始菜单、固定 / 隐藏的 App
     @ViewBuilder
     private var dockPage: some View {
-        Section("位置") {
-            Picker("Dock 位置", selection: $prefs.dockEdge) {
-                ForEach(DockEdge.allCases) { edge in
-                    Text(edge.title).tag(edge)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text(prefs.dockEdge.subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Toggle("隱藏系統 Dock", isOn: $prefs.hideSystemDock)
-                .toggleStyle(.switch)
-
-            Text("把系統 Dock 設為自動隱藏，讓 Xtopbar 接替它的位置；滑鼠頂到螢幕底邊仍可喚出 Dock，會蓋在條上面照常使用。會重啟一次 Dock；關掉即恢復原來的設定。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-
-        Section("顯示與隱藏") {
-            Toggle("不擋視窗（常駐，視窗自動讓位）", isOn: $prefs.avoidWindows)
-                .toggleStyle(.switch)
-
-            Text("像 Windows 工作列：條一直顯示，壓到條上的視窗會被自動挪開或縮短，不會再蓋住視窗底部（停在頂部時是頂部）。有 App 全螢幕時條自動隱藏，滑鼠頂到螢幕邊緣仍可臨時喚出。需要「輔助使用」權限。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            Picker("自動隱藏", selection: $prefs.hideDelay) {
-                ForEach(Preferences.delayOptions, id: \.value) { option in
-                    Text(option.label).tag(option.value)
-                }
-            }
-
-            HStack {
-                Text("喚醒熱區寬度")
-                Slider(value: $prefs.hotZoneWidth, in: 60...400, step: 10)
-                Text("\(Int(prefs.hotZoneWidth)) pt")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .trailing)
-            }
-
-            Text("停在頂部時：滑鼠頂到螢幕頂部中央多寬的範圍會喚出懸浮條（居中對齊），預設 120 pt ≈ 4 個狀態列圖示；外接螢幕上誤觸頻繁可調小，難喚出可調大。停在底部時：沿整條懸浮條的寬度頂底邊都能喚出，這裡的值只是下限。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-
         Section("行為") {
             Toggle("點選前景 App 最小化視窗", isOn: $prefs.clickToMinimize)
                 .toggleStyle(.switch)
@@ -335,38 +364,9 @@ struct SettingsView: View {
         }
     }
 
-    /// 权限与关于
+    /// 关于：版本、更新
     @ViewBuilder
     private var aboutPage: some View {
-        Section("權限") {
-            PermissionRow(
-                title: "螢幕錄製",
-                detail: "抓取視窗縮圖。沒授權時預覽只顯示 App 圖示。",
-                granted: ScreenCaptureEngine.hasPermission,
-                action: {
-                    CGRequestScreenCaptureAccess()
-                    ScreenCaptureEngine.requestPermissionIfNeeded()
-                    openSettingsPane("Privacy_ScreenCapture")
-                }
-            )
-
-            PermissionRow(
-                title: "輔助使用",
-                detail: "列舉每個 App 的真實視窗、點選縮圖精確切到那一個視窗。",
-                granted: WindowBridge.isTrusted,
-                action: {
-                    WindowBridge.requestAccessibilityPermission()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        WindowBridge.openAccessibilitySettings()
-                    }
-                }
-            )
-
-            Text("改動系統權限後需要重啟 Xtopbar 才會生效。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-
         Section("關於") {
             HStack(spacing: 12) {
                 Image(nsImage: NSApp.applicationIconImage ?? NSImage())
