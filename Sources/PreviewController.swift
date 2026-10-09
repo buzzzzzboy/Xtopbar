@@ -4,13 +4,32 @@ import CoreGraphics
 
 struct PreviewItem: Identifiable {
     let id: UInt32
-    let index: Int
+    var index: Int
     let title: String
     let frame: CGRect
     let isMinimized: Bool
-    let image: CGImage?
+    var image: CGImage?
     /// 原生分页（≥2 个才有）：卡片标题处改列分页名称
     var tabs: [WindowTab] = []
+    /// 浏览器设定档（标题前面的小标签）；认不出 / 不是浏览器为 nil
+    var profile: BrowserProfiles.WindowProfile? = nil
+    /// 同一设定档开了好几扇窗口时的编号（1、2…），标在标签后面；只有一扇为 nil
+    var profileNumber: Int? = nil
+
+    /// 按卡片顺序给同一设定档的窗口编号：只有一扇的不编
+    static func numberProfiles(_ items: inout [PreviewItem]) {
+        var total: [String: Int] = [:]
+        for item in items { if let name = item.profile?.name { total[name, default: 0] += 1 } }
+        var seen: [String: Int] = [:]
+        for i in items.indices {
+            guard let name = items[i].profile?.name, (total[name] ?? 0) > 1 else {
+                items[i].profileNumber = nil
+                continue
+            }
+            seen[name, default: 0] += 1
+            items[i].profileNumber = seen[name]
+        }
+    }
 }
 
 /// 指针落在哪张卡的哪个部位
@@ -155,15 +174,68 @@ struct PreviewCard: View {
     }
 
     private var titleText: some View {
-        Text(item.title)
-            // 字重固定：semibold 会让标题宽 1~2pt，截断位置跟着跳，
-            // 鼠标在几张卡之间扫过时看得见抖动。选中感交给不透明度 + 颜色。
-            .font(.system(size: TTLayout.font(10), weight: .medium))
-            .foregroundStyle(hot ? Color.primary : Color.primary.opacity(0.7))
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .frame(width: PreviewLayout.cardWidth)
-            .animation(.easeOut(duration: 0.1), value: hot)
+        HStack(spacing: TTLayout.s(4)) {
+            if let profile = item.profile {
+                profileTag(profile)
+            }
+            Text(item.title)
+                // 字重固定：semibold 会让标题宽 1~2pt，截断位置跟着跳，
+                // 鼠标在几张卡之间扫过时看得见抖动。选中感交给不透明度 + 颜色。
+                .font(.system(size: TTLayout.font(10), weight: .medium))
+                .foregroundStyle(hot ? Color.primary : Color.primary.opacity(0.7))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(width: PreviewLayout.cardWidth)
+        .animation(.easeOut(duration: 0.1), value: hot)
+    }
+
+    /// 设定档标签：彩色胶囊里放设定档名，同一设定档多扇窗口时后面跟编号。
+    /// 最多占卡片一半宽，名字太长截尾，标题照样看得到
+    private func profileTag(_ profile: BrowserProfiles.WindowProfile) -> some View {
+        let (fill, text) = PreviewCard.tagColors(profile)
+        return HStack(spacing: TTLayout.s(3)) {
+            Text(profile.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let n = item.profileNumber {
+                Text("\(n)")
+                    .monospacedDigit()
+                    .padding(.horizontal, TTLayout.s(3.5))
+                    .background(text.opacity(0.2), in: Capsule())
+            }
+        }
+        .font(.system(size: TTLayout.font(9), weight: .semibold))
+        .foregroundStyle(text)
+        .padding(.leading, TTLayout.s(5))
+        .padding(.trailing, TTLayout.s(item.profileNumber == nil ? 5 : 2))
+        .padding(.vertical, TTLayout.s(1.5))
+        // 实心底 + 按底色深浅挑黑 / 白字：淡底配同色字在浅色毛玻璃上看不清
+        .background(fill, in: Capsule())
+        .frame(maxWidth: PreviewLayout.cardWidth * 0.5)
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
+    }
+
+    /// 标签底色：优先用浏览器里给这个设定档挑的主题色；
+    /// 没设就按设定档在列表里的顺序取（前几个保证不撞色），对不上就按名字算一个固定的。
+    /// 备用色板都是中等深度、配白字够清楚的颜色（固定 sRGB，不跟深浅色模式变，字色才算得准）
+    private static let tagPalette: [UInt32] = [
+        0x2F6FEB, 0x8250DF, 0xD9730D, 0x2DA44E, 0xD63384, 0x1B8A99, 0x5856D6, 0x9A6B3F,
+    ]
+    private static func tagColors(_ profile: BrowserProfiles.WindowProfile) -> (fill: Color, text: Color) {
+        let rgb: UInt32
+        if let argb = profile.color {
+            rgb = argb & 0xFF_FFFF
+        } else {
+            let i = profile.order ?? profile.name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+            rgb = tagPalette[i % tagPalette.count]
+        }
+        let r = Double((rgb >> 16) & 0xFF) / 255, g = Double((rgb >> 8) & 0xFF) / 255, b = Double(rgb & 0xFF) / 255
+        // 浅底（粉、浅黄、浅绿…）用深字，其余白字
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        let text = luminance > 0.62 ? Color.black.opacity(0.85) : Color.white
+        return (Color(.sRGB, red: r, green: g, blue: b), text)
     }
 
     /// 多分页窗口：标题处改列分页名称，当前分页前面一个小圆点、字最亮。
@@ -586,12 +658,9 @@ final class PreviewController {
         guard model.items.indices.contains(index) else { return }
         currentWindows.remove(at: index)
         model.items.remove(at: index)
-        for i in index..<model.items.count {
-            let old = model.items[i]
-            model.items[i] = PreviewItem(id: old.id, index: i, title: old.title,
-                                         frame: old.frame, isMinimized: old.isMinimized,
-                                         image: old.image, tabs: old.tabs)
-        }
+        for i in index..<model.items.count { model.items[i].index = i }
+        // 编号跟着重排：同设定档剩一扇就不再标数字
+        PreviewItem.numberProfiles(&model.items)
         // 下标整体左移，旧的悬停/按压态全部作废；鼠标轮询会立刻重建悬停
         model.hovered = nil
         model.pressed = nil
@@ -662,15 +731,21 @@ final class PreviewController {
         }
 
         // 先用缓存立刻铺满 —— 命中缓存时这里就是「零延迟」
-        model.items = windows.enumerated().map { idx, win in
-            PreviewItem(id: win.id,
-                        index: idx,
-                        title: win.title.isEmpty ? "視窗 \(idx + 1)" : win.title,
-                        frame: win.frame,
-                        isMinimized: win.isMinimized,
-                        image: engine.cached(win.id, maxAge: 4.0),
-                        tabs: win.tabs)
+        var items = windows.enumerated().map { idx, win in
+            // 浏览器多设定档：标题里的「 - Google Chrome - 设定档」拆出来做成标签
+            let profile = BrowserProfiles.windowProfile(title: win.title, appName: entry.name, bundleID: entry.id)
+            let title = profile?.page ?? win.title
+            return PreviewItem(id: win.id,
+                               index: idx,
+                               title: title.isEmpty ? "視窗 \(idx + 1)" : title,
+                               frame: win.frame,
+                               isMinimized: win.isMinimized,
+                               image: engine.cached(win.id, maxAge: 4.0),
+                               tabs: win.tabs,
+                               profile: profile)
         }
+        PreviewItem.numberProfiles(&items)
+        model.items = items
 
         present(anchorInScreen: anchorInScreen, mainPanelFrame: mainPanelFrame)
 
@@ -699,11 +774,7 @@ final class PreviewController {
                 guard let self, self.token == myToken else { return }
                 guard self.model.items.indices.contains(idx),
                       self.model.items[idx].id == win.id else { return }
-                let old = self.model.items[idx]
-                self.model.items[idx] = PreviewItem(id: old.id, index: old.index,
-                                                    title: old.title, frame: old.frame,
-                                                    isMinimized: old.isMinimized,
-                                                    image: image.value, tabs: old.tabs)
+                self.model.items[idx].image = image.value
             }
         }
     }

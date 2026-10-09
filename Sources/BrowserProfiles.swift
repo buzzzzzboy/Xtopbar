@@ -11,6 +11,8 @@ enum BrowserProfiles {
         /// 数据目录下的子目录名（"Default"、"Profile 1"…），即 --profile-directory 的值
         let directory: String
         let name: String
+        /// 用户在浏览器里给这个设定档挑的主题色（0xAARRGGBB）；没挑 / 灰白黑这种分不出来的为 nil
+        var color: UInt32? = nil
         var id: String { directory }
     }
 
@@ -125,8 +127,63 @@ enum BrowserProfiles {
             let v = visible[dir] ?? [:]
             let name = (v["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 ?? (v["gaia_name"] as? String) ?? dir
-            return Profile(directory: dir, name: name)
+            return Profile(directory: dir, name: name, color: themeColor(v))
         }
+    }
+
+    /// 设定档的主题色：Chrome 存成有符号的 SkColor（ARGB）整数。
+    /// `profile_highlight_color` 是窗口框的颜色，没有就退到头像底色。
+    /// 默认主题是灰 / 白 / 黑 —— 每个设定档都一样，当标签色分不出谁是谁，算没设
+    private static func themeColor(_ info: [String: Any]) -> UInt32? {
+        guard let raw = (info["profile_highlight_color"] as? Int) ?? (info["default_avatar_fill_color"] as? Int)
+        else { return nil }
+        let argb = UInt32(truncatingIfNeeded: raw)
+        let r = Int((argb >> 16) & 0xFF), g = Int((argb >> 8) & 0xFF), b = Int(argb & 0xFF)
+        guard max(r, g, b) - min(r, g, b) >= 24 else { return nil }
+        return argb | 0xFF00_0000
+    }
+
+    /// 窗口属于哪个设定档（预览卡片上的标签用）
+    struct WindowProfile: Equatable {
+        /// 去掉「 - Google Chrome - 设定档」后的网页标题
+        let page: String
+        /// 设定档名称：对得上 Local State 里的设定档就用它的名字（同右键菜单），否则用标题里那段原文
+        let name: String
+        /// 在设定档列表里的位置（没有主题色时定标签颜色用）；对不上为 nil
+        let order: Int?
+        /// 浏览器里设的主题色（0xAARRGGBB）；对不上 / 没设为 nil
+        var color: UInt32? = nil
+    }
+
+    /// 从窗口标题认出设定档。有 ≥ 2 个设定档时浏览器会把设定档名放进窗口标题：
+    /// Chrome / Brave 是「网页 - Google Chrome - 设定档」（登录了账号是「账号名 (设定档名)」），
+    /// Edge 是「网页 - 设定档 - Microsoft Edge」—— 后者只能靠 Local State 里读到的名字去对。
+    /// 只读缓存，不碰文件（主线程调）。认不出返回 nil
+    static func windowProfile(title: String, appName: String, bundleID: String) -> WindowProfile? {
+        guard isBrowser(bundleID), !title.isEmpty else { return nil }
+        lock.lock()
+        let known = cache[bundleID] ?? []
+        lock.unlock()
+        // 名字长的先对：「Shane」和「Shane 工作」同时存在时别对错
+        let byLength = known.enumerated().sorted { $0.element.name.count > $1.element.name.count }
+
+        if let r = title.range(of: " - \(appName) - ", options: .backwards) {
+            let suffix = String(title[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard !suffix.isEmpty else { return nil }
+            let match = byLength.first { suffix.contains($0.element.name) }
+            return WindowProfile(page: String(title[..<r.lowerBound]),
+                                 name: match?.element.name ?? suffix,
+                                 order: match?.offset,
+                                 color: match?.element.color)
+        }
+        if known.count >= 2, title.hasSuffix(" - \(appName)") {
+            let rest = title.dropLast(" - \(appName)".count)
+            for (i, p) in byLength where rest.hasSuffix(" - \(p.name)") {
+                return WindowProfile(page: String(rest.dropLast(" - \(p.name)".count)),
+                                     name: p.name, order: i, color: p.color)
+            }
+        }
+        return nil
     }
 
     /// 用指定设定档开一扇新窗口。浏览器已经在跑时，新起的进程会把参数转给正在跑的那个后退出
