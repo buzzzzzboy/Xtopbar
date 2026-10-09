@@ -639,7 +639,11 @@ final class PreviewController {
         // 一扇都对不上（窗口刚挪过屏、快照还没跟上）就全列，别让悬停落空
         let here = region.map { r in everywhere.filter { r.contains($0.frame) } } ?? everywhere
         let all = here.isEmpty ? everywhere : here
-        let windows = hideMinimized ? all.filter { !$0.isMinimized } : all
+        // 「只顯示已開啟的視窗」只在开着的窗口还够弹预览（≥ 2）时生效：
+        // 否则一藏，最小化的窗口就再也没地方点回来（剩 1 扇不弹、0 扇更不弹）——
+        // 这时照列最小化的，让卡片把它们放回来
+        let open = all.filter { !$0.isMinimized }
+        let windows = hideMinimized && open.count >= 2 ? open : all
         currentWindows = windows
 
         // 先记一笔再分流：空列表 / 无权限也是有用的信号，不能只在成功路径打日志

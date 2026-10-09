@@ -121,6 +121,28 @@ enum WindowBridge {
         if attempts > 1 { TTLog("focus 重發 raise \(attempts) 次") }
     }
 
+    /// 预览里点中「当前窗口」—— App 在前台、目标就是它的焦点窗口 —— 就把它最小化
+    /// （同 Windows 任务栏缩图：点正在用的那扇 = 收起）。
+    /// 返回 true = 收了；false = 不是当前窗口 / 判断不了，调用方照常切过去。
+    static func minimizeIfCurrent(pid: pid_t, axIndex: Int?, frame: CGRect, title: String, cgID: UInt32?) -> Bool {
+        guard isTrusted, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return false }
+        return axGate(for: pid) { () -> Bool in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.25)
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
+                  let v = value, CFGetTypeID(v) == AXUIElementGetTypeID() else { return false }
+            let focused = v as! AXUIElement
+            guard boolAttribute(focused, kAXMinimizedAttribute as String) != true,
+                  let target = locateTarget(pid: pid, app: app, axIndex: axIndex,
+                                            frame: frame, title: title, cgID: cgID),
+                  CFEqual(target, focused) else { return false }
+            AXUIElementSetAttributeValue(target, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            TTLog("preview-minimize pid=\(pid) title=\"\(title)\"")
+            return true
+        }
+    }
+
     /// 按 **CG 编号位置配对 → AX 下标 → 标题几何** 的顺序在最新窗口列表里定位目标元素
     private static func locateTarget(pid: pid_t, app: AXUIElement, axIndex: Int?,
                                      frame: CGRect, title: String, cgID: UInt32?) -> AXUIElement? {

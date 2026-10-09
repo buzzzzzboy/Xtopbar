@@ -231,6 +231,12 @@ final class TabBarController: TabBarHost {
         preview.onSelectWindow = { [weak self] pid, win in
             // AX 配对可能阻塞到 0.25s 超时，挪到后台线程，别卡住鼠标
             Task.detached(priority: .userInitiated) {
+                // 点的就是眼下正在用的那扇窗口 → 收进 Dock（同 Windows 任务栏缩图）
+                if !win.isMinimized,
+                   WindowBridge.minimizeIfCurrent(pid: pid, axIndex: win.axIndex,
+                                                  frame: win.frame, title: win.title, cgID: win.id) {
+                    return
+                }
                 // cgID = 卡片缩略图像素的来源窗口，是唯一不会错位的锚点
                 WindowBridge.focusWindow(pid: pid, axIndex: win.axIndex,
                                          frame: win.frame, title: win.title, cgID: win.id)
@@ -991,11 +997,26 @@ final class TabBarController: TabBarHost {
                 width: labelRect.width,
                 height: labelRect.height
             )
-            self.preview.show(for: entry,
-                              anchorInScreen: screenRect,
-                              mainPanelFrame: self.panel.frame,
-                              hideMinimized: self.prefs.hideMinimizedWindows,
-                              region: self.catalog.screenRegion)
+            let show = {
+                self.preview.show(for: entry,
+                                  anchorInScreen: screenRect,
+                                  mainPanelFrame: self.panel.frame,
+                                  hideMinimized: self.prefs.hideMinimizedWindows,
+                                  region: self.catalog.screenRegion)
+            }
+            // 先用快照立刻弹（零延迟），再现查一遍：快照最多落后 3 秒，
+            // 刚最小化 / 放回的窗口状态常常还是旧的，会弹错卡片甚至该弹不弹。
+            // 查完窗口集合或最小化状态变了、光标还停在这个标签上，就按新的重弹。
+            show()
+            let signature = { self.engine.windows(of: entry.pid).map { "\($0.id):\($0.isMinimized)" } }
+            let before = signature()
+            let pids = self.catalog.groups.flatMap { $0.entries }.map(\.pid).filter { $0 > 0 }
+            Task { [weak self] in
+                guard let self else { return }
+                await self.engine.refresh(minInterval: 0.3, pids: pids)
+                guard self.hoveredEntry?.id == entry.id, signature() != before else { return }
+                show()
+            }
         }
         previewWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + previewDelay, execute: work)
