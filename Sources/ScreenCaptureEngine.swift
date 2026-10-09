@@ -85,6 +85,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
     @discardableResult
     func refresh(minInterval: TimeInterval, pids: [pid_t]) async -> Bool {
         guard isStale(minInterval) else { return false }
+        let started = Date()
 
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: false
@@ -142,8 +143,7 @@ final class ScreenCaptureEngine: @unchecked Sendable {
             }
         }
 
-        store(handles: freshHandles, grouped: grouped)
-        return true
+        return store(handles: freshHandles, grouped: grouped, startedAt: started)
     }
 
     /// SC 会把大量不可见的小辅助表面（输入法候选框、tooltip、状态条，常见 100×30 / 1470×33）
@@ -327,11 +327,16 @@ final class ScreenCaptureEngine: @unchecked Sendable {
         return map
     }
 
-    private func store(handles: [UInt32: SCWindow], grouped: [pid_t: [WindowInfo]]) {
+    /// 几轮刷新可能并发（定时预热 + 悬停现查），晚开始的才算新：
+    /// 早开始、晚回来的那轮读到的是旧状态（比如窗口刚放回来之前的「已最小化」），不能盖掉新的。
+    private func store(handles: [UInt32: SCWindow], grouped: [pid_t: [WindowInfo]],
+                       startedAt started: Date) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        guard started >= lastEnumerated else { return false }
         windowsByID = handles
         byPID = grouped
-        lastEnumerated = Date()
+        lastEnumerated = started
+        return true
     }
 
     private func isStale(_ minInterval: TimeInterval) -> Bool {

@@ -210,6 +210,7 @@ final class TabBarController: TabBarHost {
             self.catalog.handleRelease(at: self.viewPoint(fromWindow: locationInWindow))
             // 拖着拖着指针可能已经离开条了，从松手这一刻重新计时
             self.lastInteraction = Date()
+            self.refreshPreviewAfterClick()
         }
 
         catalog.onLayoutNeeded = { [weak self] in self?.relayout() }
@@ -989,37 +990,51 @@ final class TabBarController: TabBarHost {
 
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.hoveredEntry?.id == entry.id else { return }
-            guard let labelRect = self.catalog.tabFrames[entry.id] else { return }
-            // SwiftUI 坐标（原点上左）→ 屏幕坐标
-            let screenRect = NSRect(
-                x: self.panel.frame.minX + labelRect.minX,
-                y: self.panel.frame.maxY - labelRect.maxY,
-                width: labelRect.width,
-                height: labelRect.height
-            )
-            let show = {
-                self.preview.show(for: entry,
-                                  anchorInScreen: screenRect,
-                                  mainPanelFrame: self.panel.frame,
-                                  hideMinimized: self.prefs.hideMinimizedWindows,
-                                  region: self.catalog.screenRegion)
-            }
-            // 先用快照立刻弹（零延迟），再现查一遍：快照最多落后 3 秒，
-            // 刚最小化 / 放回的窗口状态常常还是旧的，会弹错卡片甚至该弹不弹。
-            // 查完窗口集合或最小化状态变了、光标还停在这个标签上，就按新的重弹。
-            show()
-            let signature = { self.engine.windows(of: entry.pid).map { "\($0.id):\($0.isMinimized)" } }
-            let before = signature()
-            let pids = self.catalog.groups.flatMap { $0.entries }.map(\.pid).filter { $0 > 0 }
-            Task { [weak self] in
-                guard let self else { return }
-                await self.engine.refresh(minInterval: 0.3, pids: pids)
-                guard self.hoveredEntry?.id == entry.id, signature() != before else { return }
-                show()
-            }
+            self.showPreview(for: entry)
         }
         previewWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + previewDelay, execute: work)
+    }
+
+    /// 先用快照立刻弹（零延迟），再现查一遍：快照最多落后 3 秒，
+    /// 刚最小化 / 放回的窗口状态常常还是旧的，会弹错卡片甚至该弹不弹。
+    /// 查完窗口集合或最小化状态变了、光标还停在这个标签上，就按新的重弹。
+    private func showPreview(for entry: AppEntry) {
+        guard let labelRect = self.catalog.tabFrames[entry.id] else { return }
+        // SwiftUI 坐标（原点上左）→ 屏幕坐标
+        let screenRect = NSRect(
+            x: self.panel.frame.minX + labelRect.minX,
+            y: self.panel.frame.maxY - labelRect.maxY,
+            width: labelRect.width,
+            height: labelRect.height
+        )
+        let show = {
+            self.preview.show(for: entry,
+                              anchorInScreen: screenRect,
+                              mainPanelFrame: self.panel.frame,
+                              hideMinimized: self.prefs.hideMinimizedWindows,
+                              region: self.catalog.screenRegion)
+        }
+        show()
+        let signature = { self.engine.windows(of: entry.pid).map { "\($0.id):\($0.isMinimized)" } }
+        let before = signature()
+        let pids = self.catalog.groups.flatMap { $0.entries }.map(\.pid).filter { $0 > 0 }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.engine.refresh(minInterval: 0.3, pids: pids)
+            guard self.hoveredEntry?.id == entry.id, signature() != before else { return }
+            show()
+        }
+    }
+
+    /// 预览开着时点了标签（收起 / 放回窗口）：卡片还是点之前的状态，会把「已最小化」
+    /// 挂在已经放回来的窗口上。等动作落地后按新状态重弹（只剩一扇开着的窗口就自己收掉）
+    private func refreshPreviewAfterClick() {
+        guard preview.isVisible, let entry = hoveredEntry else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.hoveredEntry?.id == entry.id else { return }
+            self.showPreview(for: entry)
+        }
     }
 
     private func hidePreview() {
