@@ -174,6 +174,13 @@ struct SettingsView: View {
                 }
             )
 
+            PermissionRow(
+                title: "完整磁碟取用",
+                detail: "讀取瀏覽器的設定檔清單（右鍵 Chrome / Edge 等 →「開啟設定檔」）。macOS 把它算作其他 App 的資料，沒授權時這個選單不會出現。",
+                granted: BrowserProfiles.hasDataAccess,
+                action: { openSettingsPane("Privacy_AllFiles") }
+            )
+
             Text("改動系統權限後需要重啟 Xtopbar 才會生效。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

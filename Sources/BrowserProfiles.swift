@@ -48,6 +48,23 @@ enum BrowserProfiles {
 
     static func isBrowser(_ bundleID: String) -> Bool { dataDirs[bundleID] != nil }
 
+    /// 至少读到过一次某个浏览器的 Local State（用户在弹窗里点了允许，或给了完整磁盘访问）
+    private static var everRead = false
+
+    /// 设置页「完整磁碟取用」那行的状态：读得到浏览器数据就算有。
+    /// 没读到过就看有没有完整磁盘访问 —— 打开 TCC.db 只有它才行，被拒是直接 EPERM、不弹窗，
+    /// 所以主线程每秒问一次也不会卡（Local State 那边第一次读会弹窗卡住线程，绝不能在这里读）
+    static var hasDataAccess: Bool {
+        lock.lock()
+        let read = everRead
+        lock.unlock()
+        if read { return true }
+        guard let handle = FileHandle(forReadingAtPath: "/Library/Application Support/com.apple.TCC/TCC.db")
+        else { return false }
+        try? handle.close()
+        return true
+    }
+
     /// 菜单用：只读缓存，不碰文件。至少两个设定档才有意义（只有一个时就是普通的「开新窗口」）；
     /// 不是 Chromium 系浏览器 / 还没读到返回空
     static func profiles(for bundleID: String) -> [Profile] {
@@ -76,6 +93,7 @@ enum BrowserProfiles {
             lock.lock()
             let old = cache[bundleID]
             cache[bundleID] = profiles
+            if !profiles.isEmpty { everRead = true }
             lock.unlock()
             if old != profiles { DispatchQueue.main.async { changed.send() } }
         }
