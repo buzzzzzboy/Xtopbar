@@ -157,8 +157,9 @@ final class WindowPresence: ObservableObject {
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
                   let list = value as? [AXUIElement] else { return nil }
+            let hiddenTabs = ScreenCaptureEngine.hiddenTabIndices(list)
             var windows: [WindowSample] = []
-            for win in list {
+            for (index, win) in list.enumerated() where !hiddenTabs.contains(index) {
                 let role = ScreenCaptureEngine.stringAttr(win, kAXRoleAttribute as CFString) ?? ""
                 let subrole = ScreenCaptureEngine.stringAttr(win, kAXSubroleAttribute as CFString) ?? ""
                 guard let frame = ScreenCaptureEngine.axFrame(of: win),

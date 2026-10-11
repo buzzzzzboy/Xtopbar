@@ -161,8 +161,10 @@ enum SwitcherWindows {
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
                   let list = value as? [AXUIElement] else { return nil }
-            return list.compactMap { (win: AXUIElement) -> AXSnap? in
-                guard let role = ScreenCaptureEngine.stringAttr(win, kAXRoleAttribute as CFString),
+            let hiddenTabs = ScreenCaptureEngine.hiddenTabIndices(list)
+            return list.enumerated().compactMap { (index: Int, win: AXUIElement) -> AXSnap? in
+                guard !hiddenTabs.contains(index),
+                      let role = ScreenCaptureEngine.stringAttr(win, kAXRoleAttribute as CFString),
                       role == "AXWindow",
                       let frame = ScreenCaptureEngine.axFrame(of: win) else { return nil }
                 let subrole = ScreenCaptureEngine.stringAttr(win, kAXSubroleAttribute as CFString) ?? ""
