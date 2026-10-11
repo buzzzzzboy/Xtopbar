@@ -518,11 +518,13 @@ final class ScreenCaptureEngine: @unchecked Sendable {
             guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
                   let list = value as? [AXUIElement] else { return nil }
 
+            let hiddenTabs = hiddenTabIndices(list)
             return list.enumerated().map { index, win in
                 let rect = axFrame(of: win) ?? .zero
                 let role = stringAttr(win, kAXRoleAttribute as CFString) ?? ""
                 let subrole = stringAttr(win, kAXSubroleAttribute as CFString) ?? ""
                 let real = isRealWindow(role: role, subrole: subrole, size: rect.size)
+                    && !hiddenTabs.contains(index)
                 return AXWindow(index: index,
                                 title: stringAttr(win, kAXTitleAttribute as CFString) ?? "",
                                 frame: rect,
@@ -531,6 +533,25 @@ final class ScreenCaptureEngine: @unchecked Sendable {
                                 tabs: real ? nativeTabs(of: win) : [])
             }
         }
+    }
+
+    /// 分页群组被最小化后，AppKit 会把**背景分页**也当成独立窗口报进 `kAXWindowsAttribute`：
+    /// 实测访达 3 个分页的窗口最小化后报出 3 条 AXWindow（subrole 全变 AXDialog、
+    /// 全是 AXMinimized=1），背景分页那两条没有 AXTabGroup，几何还是建分页前的旧值，
+    /// 窗口服务器里也各有一个表面 —— 座位检查拦不住，预览 / 切换器 / 窗口数就多出两扇。
+    /// 没最小化时背景分页不会出现在 AX 里，所以只在「同样最小化」的前提下剔除：
+    /// 标题等于某个最小化分页窗口里的**未选中**分页、自己又没有分页列的，就是背景分页。
+    /// 不比几何（旧几何对不上），也不碰没最小化的同名独立窗口。返回这些元素在 `list` 里的下标。
+    static func hiddenTabIndices(_ list: [AXUIElement]) -> Set<Int> {
+        let minimized = list.indices.filter { boolAttr(list[$0], kAXMinimizedAttribute as CFString) == true }
+        guard minimized.count >= 2 else { return [] }
+        let tabsByIndex = Dictionary(uniqueKeysWithValues: minimized.map { ($0, nativeTabs(of: list[$0])) })
+        let hiddenTitles = Set(tabsByIndex.values.flatMap { $0.filter { !$0.selected }.map(\.title) })
+        guard !hiddenTitles.isEmpty else { return [] }
+        return Set(minimized.filter { index in
+            tabsByIndex[index]?.isEmpty == true
+                && hiddenTitles.contains(stringAttr(list[index], kAXTitleAttribute as CFString) ?? "")
+        })
     }
 
     /// 原生分页列：AppKit 窗口分页（访达 / 终端机 / 预览程式 / 文字编辑…）在窗口的
