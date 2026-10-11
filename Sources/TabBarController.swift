@@ -57,6 +57,15 @@ enum DockGeometry {
         }
     }
 
+    /// 条后面要跟一截尾巴（「背景執行」资料夹）：条宽再收窄两截尾巴（左右对称，条仍居中），
+    /// 尾巴贴在右边也不会超出可用区
+    static func leavingTail(bar: CGRect, visible: CGRect, tail: CGFloat) -> CGRect {
+        let maxWidth = visible.width - 24 - tail * 2
+        guard bar.width > maxWidth else { return bar }
+        let w = max(minBarWidth, maxWidth).rounded(.down)
+        return CGRect(x: (visible.midX - w / 2).rounded(), y: bar.minY, width: w, height: bar.height)
+    }
+
     /// 进出场位移方向：顶部从上方落下（+），底部从下方升起（−）
     static func slideSign(edge: DockEdge) -> CGFloat {
         edge == .top ? 1 : -1
@@ -150,6 +159,8 @@ final class TabBarController: TabBarHost {
 
     private let preview = PreviewController()
     private lazy var startMenu = StartMenuController(catalog: catalog)
+    /// 条尾巴后面的「背景執行」资料夹（没窗口的 App）
+    private lazy var folder = BackgroundFolderController(catalog: catalog)
     private var previewWork: DispatchWorkItem?
     private var hoveredEntry: AppEntry?
     /// 鼠标离开标签的时刻：留一点宽限期，让光标能顺利从标签滑进预览面板
@@ -250,6 +261,19 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.relayout() }
             .store(in: &cancellables)
 
+        // 资料夹有没有 / 收了几个变了：条让出（或收回）尾巴的位置，小方块跟着出现 / 消失
+        catalog.$backgroundApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncFolder() }
+            .store(in: &cancellables)
+        folder.onOpen = { [weak self] in
+            guard let self else { return }
+            self.hidePreview()
+            self.startMenu.close()
+            self.lastInteraction = Date()
+        }
+        folder.onClose = { [weak self] in self?.lastInteraction = Date() }
+
         // 隐藏列表 / 任务栏固定变化 → 立刻重采（否则要等 1.2s 兜底轮询）
         prefs.$hiddenApps
             .dropFirst()
@@ -283,6 +307,7 @@ final class TabBarController: TabBarHost {
             MainActor.assumeIsolated {
                 self?.menuTracking = true
                 self?.catalog.menuTracking = true
+                self?.folder.menuOpen = true
             }
         })
         menuObservers.append(nc.addObserver(
@@ -292,6 +317,7 @@ final class TabBarController: TabBarHost {
                 guard let self else { return }
                 self.menuTracking = false
                 self.catalog.menuTracking = false
+                self.folder.menuOpen = false
                 // 菜单开着期间暂停了重采，这里补一次（菜单项的动作也可能刚改了固定）
                 self.catalog.refresh()
                 // 从关菜单这一刻重新计时，别一关就瞬间消失
@@ -385,6 +411,7 @@ final class TabBarController: TabBarHost {
                 guard let self else { return }
                 self.hidePreview()
                 self.startMenu.close(animated: false)
+                self.folder.close(animated: false)
                 self.currentWidth = 0
                 self.relayout()
             }
@@ -435,6 +462,7 @@ final class TabBarController: TabBarHost {
         fixedDisplay = display
         hidePreview()
         startMenu.close(animated: false)
+        folder.close(animated: false)
         currentWidth = 0
         relayout()
     }
@@ -452,6 +480,7 @@ final class TabBarController: TabBarHost {
         previewWork?.cancel()
         preview.close()
         startMenu.close(animated: false)
+        folder.shutdown()
         isRevealed = false
         panel.orderOut(nil)
         catalog.stop()
@@ -594,6 +623,7 @@ final class TabBarController: TabBarHost {
             panel.setFrame(panel.frame, display: true)
             panel.alphaValue = idle
             panel.orderFrontRegardless()
+            folder.reveal(barFrame: panel.frame, dy: 0, alpha: idle, duration: nil)
             warmup()
             return
         }
@@ -608,6 +638,8 @@ final class TabBarController: TabBarHost {
         panel.setFrame(start, display: false)
         panel.orderFrontRegardless()
         animateWindow(to: target, alpha: idle, duration: fade ? 0.2 : 0.05, timing: .easeOut)
+        folder.reveal(barFrame: target, dy: start.minY - target.minY, alpha: idle,
+                      duration: fade ? 0.2 : 0.05)
         warmup()
     }
 
@@ -642,6 +674,7 @@ final class TabBarController: TabBarHost {
         guard animated, prefs.animationsEnabled else {
             panel.orderOut(nil)
             panel.alphaValue = 1
+            folder.conceal(dy: 0, duration: nil)
             parkOnAnchorScreen()
             return
         }
@@ -649,6 +682,7 @@ final class TabBarController: TabBarHost {
         // 反向滑回屏幕边缘 + 淡出（和呼出同级别的快，0.07s）
         var end = panel.frame
         end.origin.y += (fade ? 0 : 8) * DockGeometry.slideSign(edge: prefs.dockEdge)
+        folder.conceal(dy: end.minY - panel.frame.minY, duration: fade ? 0.2 : 0.07)
         animateWindow(to: end, alpha: 0, duration: fade ? 0.2 : 0.07) { [weak self] in
             guard let self, !self.isRevealed else { return }
             // 先离场再复位透明度，避免 orderOut 之前那一帧闪出全不透明的面板
@@ -865,6 +899,7 @@ final class TabBarController: TabBarHost {
         if active {
             hidePreview()
             startMenu.close(animated: false)
+            folder.close(animated: false)
             hide(fade: true)
         } else {
             // 从这一刻重新计时，别一回来就被判定为"闲置太久"立刻又收掉
@@ -898,6 +933,8 @@ final class TabBarController: TabBarHost {
 
         let panelZone = panel.frame.insetBy(dx: -1, dy: -1)
         let inPanel = isRevealed && panelZone.contains(mouse)
+        // 条尾巴后面的资料夹（小方块 / 弹出的网格）算条的一部分
+        let inFolder = isRevealed && folder.contains(mouse)
         let inPreview = preview.isVisible && preview.frame.insetBy(dx: -1, dy: -1).contains(mouse)
         let hot = hotZone
         let inHot = hot.contains(mouse)
@@ -917,13 +954,13 @@ final class TabBarController: TabBarHost {
             catalog.pointerOverBar = pointerNear
         }
 
-        if menuTracking || startMenu.isVisible || catalog.isPressing {
+        if menuTracking || startMenu.isVisible || folder.isOpen || catalog.isPressing {
             // 菜单开着：指针在菜单上（面板的子窗口），条不能收。
             // 开始菜单开着：它是贴着条弹出的，条收了菜单就悬空了。
             // 按住标签 / 拖动排序中：拖出条外也不能收，松手后再按正常延迟。
             // 持续续期，关菜单/会话结束后按正常延迟收起。
             lastInteraction = now
-        } else if inPanel || inPreview || inHot {
+        } else if inPanel || inFolder || inPreview || inHot {
             lastInteraction = now
             if !isRevealed {
                 TTLog("hotZone 喚出 mouse=\(mouse) zone=\(hot) screen=\(anchorScreen?.localizedName ?? "-")")
@@ -937,10 +974,12 @@ final class TabBarController: TabBarHost {
         guard isRevealed else { return }
 
         // 悬停时更实一点，便于阅读
-        let target: CGFloat = (inPanel || startMenu.isVisible) ? 1.0 : CGFloat(prefs.idleOpacity)
+        let target: CGFloat = (inPanel || inFolder || startMenu.isVisible || folder.isOpen)
+            ? 1.0 : CGFloat(prefs.idleOpacity)
         if abs(panel.alphaValue - target) > 0.02 {
             animateAlpha(to: target, duration: 0.12)
         }
+        folder.setAlpha(target)
 
         // 预览卡片的悬停高亮：复用这次轮询，和主面板高亮同一套坐标
         if preview.isVisible {
@@ -1073,6 +1112,7 @@ final class TabBarController: TabBarHost {
         // 从状态栏菜单 / 快捷入口打开时条可能还藏着：先把条唤出来，菜单要贴着开始按钮弹
         if !isRevealed { beginReveal(animated: false) }
         hidePreview()
+        folder.close(animated: false)
         lastInteraction = Date()
 
         let buttonRect = catalog.tabFrames[AppCatalog.startButtonID]
@@ -1132,13 +1172,18 @@ final class TabBarController: TabBarHost {
         else { return }
         // preferredWidth 已经优先返回 SwiftUI 实测的内容宽度，
         // 这样左右两边的 12pt 内边距才真的对称，最右边的标签不会被圆角切掉。
-        let target = TabBarController.targetFrame(
+        var target = TabBarController.targetFrame(
             for: screen,
             edge: prefs.dockEdge,
             width: catalog.preferredWidth,
             height: barHeight,
             inset: topInset
         )
+        // 有「背景執行」资料夹：条照样居中，两边各让出一截尾巴的宽度，小方块才不会挤出屏幕
+        if folder.hasApps {
+            target = DockGeometry.leavingTail(bar: target, visible: screen.visibleFrame,
+                                              tail: BackgroundFolderController.tailWidth)
+        }
 
         if abs(target.width - currentWidth) > 0.5 || abs(target.height - panel.frame.height) > 0.5 {
             currentWidth = target.width
@@ -1147,6 +1192,19 @@ final class TabBarController: TabBarHost {
             catalog.barWidth = target.width
         } else if panel.frame != target {
             panel.setFrame(target, display: true, animate: false)
+        }
+        if folder.isChipVisible { folder.place(barFrame: target) }
+    }
+
+    /// 资料夹里的 App 变了：条让位 / 收回，小方块跟着条的显示状态出现或消失
+    private func syncFolder() {
+        relayout()
+        folder.appsChanged()
+        if !folder.hasApps {
+            folder.conceal(dy: 0, duration: prefs.animationsEnabled ? 0.12 : nil)
+        } else if isRevealed, !folder.isChipVisible {
+            folder.reveal(barFrame: panel.frame, dy: 0, alpha: panel.alphaValue,
+                          duration: prefs.animationsEnabled ? 0.12 : nil)
         }
     }
 }

@@ -54,6 +54,9 @@ final class AppCatalog: ObservableObject {
 
     @Published private(set) var groups: [AppGroup] = []
     @Published private(set) var activePID: pid_t = -1
+    /// 「背景執行」资料夹：在跑、但一扇窗口都没有的 App（「只顯示有視窗的 App」关着时才有）。
+    /// 不上条，收进跟在条尾巴后面的小资料夹（见 BackgroundFolderController）
+    @Published private(set) var backgroundApps: [AppEntry] = []
     /// 面板实际可用宽度（由控制器算好后回填，视图据此布局）
     @Published var barWidth: CGFloat = 600
 
@@ -201,7 +204,7 @@ final class AppCatalog: ObservableObject {
     /// 采集：固定项（按固定顺序，合并运行实例）+ 其余运行中的 App。
     ///
     /// 固定项不受「隐藏此 App」影响 —— 固定本身就是"我要它在条上"的明确表态。
-    private func collect() -> (pinned: [AppEntry], running: [AppEntry]) {
+    private func collect() -> (pinned: [AppEntry], running: [AppEntry], background: [AppEntry]) {
         let prefs = Preferences.shared
         let running = collectRunning()
         var byID: [String: AppEntry] = [:]
@@ -233,16 +236,25 @@ final class AppCatalog: ObservableObject {
         }
 
         let hidden = prefs.hiddenApps
-        // 「只显示有窗口的 App」：没窗口的运行中 App 不上条（固定项上面已经收走了，不受影响）
-        let windowless: Set<pid_t> = prefs.onlyWindowedApps ? WindowPresence.shared.windowless : []
-        // 多屏各屏一条：只留窗口在这块屏上的。没有辅助功能权限就量不出窗口在哪，每条都放全部
+        // 没窗口的运行中 App 一律不上条（固定项上面已经收走了，不受影响）：
+        // 「只显示有窗口的 App」开着就直接不显示，关着就收进条尾巴后面的「背景執行」资料夹
+        // 收进资料夹时访达不算：它是桌面本身，没窗口是常态，留在条上（同开始菜单的「背景執行」）
+        let windowless = prefs.onlyWindowedApps
+            ? WindowPresence.shared.windowless
+            : WindowPresence.shared.windowless.subtracting(
+                NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder")
+                    .map(\.processIdentifier))
+        // 多屏各屏一条：只留窗口在这块屏上的。没有辅助功能权限就量不出窗口在哪，每条都放全部。
+        // 没窗口的 App 不在任何屏上，admits 只放进主屏那条 —— 资料夹也就只跟着主条
         let scope = WindowBridge.isTrusted ? screenScope : nil
         let live = Set(NSScreen.screens.compactMap(\.displayID))
         let screensByPID = WindowPresence.shared.screensByPID
-        let others = running.filter { e in
-            !pinnedIDs.contains(e.id) && hidden[e.id] == nil && !windowless.contains(e.pid)
+        let candidates = running.filter { e in
+            !pinnedIDs.contains(e.id) && hidden[e.id] == nil
                 && (scope?.admits(screensByPID[e.pid], live: live) ?? true)
         }
+        let others = candidates.filter { !windowless.contains($0.pid) }
+        let background = prefs.onlyWindowedApps ? [] : candidates.filter { windowless.contains($0.pid) }
         // 窗口数（图标角落的数字圆圈）：各屏一条数这块屏上的，单条模式数全部。
         // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面再带上这块屏上那扇窗口的分页标题
         let titles = WindowPresence.shared.frontTitles
@@ -254,7 +266,7 @@ final class AppCatalog: ObservableObject {
             copy.windowTitle = scope?.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid])
             return copy
         }
-        return (pinned.map(labeled), others.map(labeled))
+        return (pinned.map(labeled), others.map(labeled), background)
     }
 
     /// 固定项的 .app 位置：记下的路径还在就用它，App 被挪走了就按 bundle id 问 LaunchServices
@@ -358,6 +370,7 @@ final class AppCatalog: ObservableObject {
 
         let collected = collect()
         let newGroups = group(pinned: collected.pinned, running: collected.running)
+        let newBackground = sorted(collected.background)
         // 条上有 Chromium 系浏览器就先在后台把设定档读好（节流，非浏览器直接跳过）
         for g in newGroups { for e in g.entries { BrowserProfiles.prefetch(e.id) } }
 
@@ -366,12 +379,14 @@ final class AppCatalog: ObservableObject {
                 "\($0.id)#\($0.pid)#\($0.windowTitle ?? "")#\($0.windowCount)"
             }.joined(separator: ",")
         }.joined(separator: "|") + "|active:\(frontPID)"
+            + "|bg:" + newBackground.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")
 
         guard signature != lastSignature else { return }
         lastSignature = signature
 
         let countChanged = newGroups.map { $0.entries.count } != groups.map { $0.entries.count }
         groups = newGroups
+        if newBackground != backgroundApps { backgroundApps = newBackground }
         activePID = frontPID
         // 不经过悬浮条换的前台（点 Dock / 系统 ⌘Tab）也记进「最近使用」
         noteActive(frontPID)
