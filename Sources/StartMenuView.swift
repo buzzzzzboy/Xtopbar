@@ -106,7 +106,7 @@ struct StartMenuView: View {
         HStack(spacing: StartLayout.s(8)) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("搜尋應用", text: $model.query)
+            TextField("搜尋應用或系統設定", text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: StartLayout.font(14)))
                 .focused($searchFocused)
@@ -533,7 +533,7 @@ struct StartMenuView: View {
                         LazyVStack(alignment: .leading, spacing: StartLayout.s(2)) {
                             ForEach(Array(results.enumerated()), id: \.element.id) { i, app in
                                 StartRow(app: app, icon: library.icon(for: app.url),
-                                         subtitle: i == 0 ? "最佳匹配" : runningSubtitle(app),
+                                         subtitle: i == 0 ? (app.isSettingsPane ? "最佳匹配 · 系統設定" : "最佳匹配") : searchSubtitle(app),
                                          selected: i == model.selection) { onLaunch(app) }
                                     .id(app.id)
                                     .contextMenu { itemMenu(app) }
@@ -618,6 +618,10 @@ struct StartMenuView: View {
             .sorted { $0.app.name.localizedStandardCompare($1.app.name) == .orderedAscending }
     }
 
+    private func searchSubtitle(_ app: LibraryApp) -> String? {
+        app.isSettingsPane ? "系統設定" : runningSubtitle(app)
+    }
+
     private func runningSubtitle(_ app: LibraryApp) -> String? {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
         return running.isEmpty ? nil : "正在執行"
@@ -638,6 +642,12 @@ struct StartMenuView: View {
     @ViewBuilder
     private func itemMenu(_ app: LibraryApp) -> some View {
         Button("開啟") { onLaunch(app) }
+        // 系统设置面板不是 App：不能固定、不能进文件夹
+        if !app.isSettingsPane { appMenu(app) }
+    }
+
+    @ViewBuilder
+    private func appMenu(_ app: LibraryApp) -> some View {
         let profiles = BrowserProfiles.profiles(for: app.bundleID)
         if !profiles.isEmpty {
             Menu("開啟設定檔") {

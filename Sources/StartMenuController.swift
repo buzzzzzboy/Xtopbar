@@ -256,6 +256,7 @@ final class StartMenuController {
 
     private func launch(_ app: LibraryApp) {
         close()
+        if app.isSettingsPane { SettingsPanes.open(app); return }
         catalog.launch(url: app.url, bundleID: app.bundleID)
     }
 
