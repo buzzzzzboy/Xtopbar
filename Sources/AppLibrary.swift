@@ -11,8 +11,12 @@ struct LibraryApp: Identifiable, Equatable, Hashable {
     var added: Date? = nil
     /// 最近一次安装 / 更新的时间（「最近更新」排序用）
     var updated: Date? = nil
+    /// 系统设置面板（见 `SettingsPanes`），不是 App：打开走 URL，不能固定 / 加文件夹
+    var isSettingsPane = false
+    /// 搜索时额外比对的名字（面板的英文名）
+    var aliases: [String] = []
 
-    var id: String { bundleID }
+    var id: String { isSettingsPane ? "pane:" + bundleID : bundleID }
 
     var pinned: PinnedApp { PinnedApp(bundleID: bundleID, path: url.path, name: name) }
 }
@@ -28,6 +32,8 @@ final class AppLibrary: ObservableObject {
     static let shared = AppLibrary()
 
     @Published private(set) var apps: [LibraryApp] = []
+    /// 系统设置面板，只给搜索用
+    @Published private(set) var settingsPanes: [LibraryApp] = []
 
     private var lastScan = Date.distantPast
     private var scanning = false
@@ -83,13 +89,15 @@ final class AppLibrary: ObservableObject {
         scanning = true
         Task.detached(priority: .utility) {
             let found = AppLibrary.scan()
+            let panes = SettingsPanes.scan()
             await MainActor.run {
                 let lib = AppLibrary.shared
+                if panes != lib.settingsPanes { lib.settingsPanes = panes }
                 lib.scanning = false
                 lib.lastScan = Date()
                 let merged = lib.applyFirstSeen(found)
                 if merged != lib.apps { lib.apps = merged }
-                TTLog("AppLibrary 掃描完成 \(found.count) 個 App")
+                TTLog("AppLibrary 掃描完成 \(found.count) 個 App、\(panes.count) 個設定面板")
             }
         }
     }
@@ -201,26 +209,31 @@ final class AppLibrary: ObservableObject {
         return image
     }
 
+    /// 搜 App 和系统设置面板；同分时 App 排前面
     func search(_ query: String) -> [LibraryApp] {
-        AppLibrary.search(query, in: apps)
+        AppLibrary.search(query, in: apps + settingsPanes)
     }
 
-    /// 搜索：名称前缀 > 名称里某个词的前缀 > 名称包含 > bundle id 包含。
+    /// 搜索：名称完全相同 > 名称前缀 > 名称里某个词的前缀 > 名称包含 > 别名（同样四档）> bundle id 包含。
     /// 忽略大小写和变音符号。纯函数，不碰 UI，可离线回归（`--test-pins` 会打一次）。
     nonisolated static func search(_ query: String, in apps: [LibraryApp]) -> [LibraryApp] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return apps }
         let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
+        func match(_ name: String) -> Int? {
+            guard let r = name.range(of: q, options: opts) else { return nil }
+            if r == name.startIndex..<name.endIndex { return 0 }
+            if r.lowerBound == name.startIndex { return 1 }
+            let before = name[name.index(before: r.lowerBound)]
+            if before == " " || before == "-" || before == "." { return 2 }
+            return 3
+        }
+
         func score(_ app: LibraryApp) -> Int? {
-            let name = app.name
-            if let r = name.range(of: q, options: opts) {
-                if r.lowerBound == name.startIndex { return 0 }
-                let before = name[name.index(before: r.lowerBound)]
-                if before == " " || before == "-" || before == "." { return 1 }
-                return 2
-            }
-            if app.bundleID.range(of: q, options: opts) != nil { return 3 }
+            if let s = match(app.name) { return s }
+            if let s = app.aliases.compactMap(match).min() { return 4 + s }
+            if !app.isSettingsPane, app.bundleID.range(of: q, options: opts) != nil { return 8 }
             return nil
         }
 
@@ -230,6 +243,7 @@ final class AppLibrary: ObservableObject {
         }
         scored.sort { a, b in
             if a.score != b.score { return a.score < b.score }
+            if a.app.isSettingsPane != b.app.isSettingsPane { return !a.app.isSettingsPane }
             return a.app.name.localizedStandardCompare(b.app.name) == .orderedAscending
         }
         return scored.map { $0.app }

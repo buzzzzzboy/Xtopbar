@@ -542,6 +542,8 @@ final class TabBarController: TabBarHost {
               + "已知視窗分佈的 App \(WindowPresence.shared.screensByPID.count) 個")
         let lib = AppLibrary.shared
         TTLog("  應用索引 \(lib.apps.count) 個；搜尋「saf」→ \(lib.search("saf").prefix(3).map(\.name))")
+        TTLog("  設定面板 \(lib.settingsPanes.count) 個；搜尋「藍牙」→ \(lib.search("藍牙").prefix(3).map(\.name))，"
+              + "「display」→ \(lib.search("display").prefix(3).map(\.name))")
     }
 
     /// 悬浮条总开关 + 常驻判断。状态栏菜单和设置窗口都会调它。
