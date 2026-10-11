@@ -37,6 +37,40 @@ struct PreviewSpot: Equatable {
     let index: Int
     /// true = 关闭按钮，false = 卡片本体
     let onClose: Bool
+    /// 播放条上的按钮（此时 index 为 -1，不对应任何卡片）
+    var control: MediaControl? = nil
+
+    static func media(_ c: MediaControl) -> PreviewSpot { PreviewSpot(index: -1, onClose: false, control: c) }
+}
+
+/// 播放条按钮
+enum MediaControl: String, CaseIterable {
+    case previous, playPause, next
+}
+
+/// 预览面板要带播放条的 App：Spotify / Apple Music 有曲目通知；
+/// Kaset（YouTube Music 客户端）没有广播，只能靠媒体键控制、窗口标题当曲名
+enum PreviewMedia: Equatable {
+    case player(MediaPlayer)
+    case kaset
+
+    init?(bundleID: String) {
+        if let p = MediaPlayer.allCases.first(where: { $0.bundleID == bundleID }) {
+            self = .player(p)
+        } else if ["com.sertacozercan.Kaset", "com.sertacozercan.KasetPlus"].contains(bundleID) {
+            self = .kaset
+        } else {
+            return nil
+        }
+    }
+}
+
+/// 播放条按钮的命中区域上报（key 是 MediaControl.rawValue）
+struct PreviewControlFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
 }
 
 /// 关闭按钮的命中区域上报（和卡片的 key 都是卡片下标）
@@ -53,6 +87,10 @@ final class PreviewModel: ObservableObject {
     @Published var icon: NSImage?
     @Published var items: [PreviewItem] = []
     @Published var hint: String = ""
+    /// 播放器类 App：卡片上方多一条播放控制（不管窗口有没有最小化都显示）
+    @Published var media: PreviewMedia?
+    /// Kaset 没有曲目通知：拿窗口标题凑合（和 App 名一样就是没信息）
+    @Published var mediaFallbackTitle: String = ""
     /// 每次重新拉取窗口就 +1：视图据此重播一次入场"弹一下"的小动效
     @Published var generation: Int = 0
 
@@ -339,6 +377,10 @@ enum PreviewLayout {
     static var tabRowStep: CGFloat { s(15) }
     static let maxTabRows = 4
 
+    /// 播放条：高度 + 和上面卡片的间距。宽度跟卡片排一样宽（没卡片时按一张卡算）
+    static var mediaBarHeight: CGFloat { s(40) }
+    static var mediaBarGap: CGFloat { s(8) }
+
     /// 卡片标题区占几行（整排卡片取最高的那张，面板高度按它算）
     static func titleRows(_ items: [PreviewItem]) -> Int {
         items.map { $0.tabs.isEmpty ? 1 : min($0.tabs.count, maxTabRows) }.max() ?? 1
@@ -357,6 +399,7 @@ struct PreviewView: View {
     @ObservedObject var prefs: Preferences
     var onCardFrames: ([String: CGRect]) -> Void
     var onCloseFrames: ([String: CGRect]) -> Void
+    var onControlFrames: ([String: CGRect]) -> Void
 
     /// 整块预览的入场弹性（锚在顶部，跟"从主面板下方落下"的方向一致）
     @State private var popped = true
@@ -368,25 +411,31 @@ struct PreviewView: View {
         PreviewView.size(for: model.items.count,
                          hasOverflow: overflow > 0,
                          hint: model.hint,
-                         titleRows: PreviewLayout.titleRows(visibleItems))
+                         titleRows: PreviewLayout.titleRows(visibleItems),
+                         media: model.media != nil)
     }
 
     /// 面板尺寸。
     ///
-    /// 没有窗口的 App 根本不弹预览（`PreviewController.show` 里直接 return），
-    /// 所以这里只需要算「有卡片」的尺寸；hint 是卡片下方那行橙色提示的高度。
+    /// 没有窗口的 App 一般不弹预览（`PreviewController.show` 里直接 return）；
+    /// 例外是播放器：0 扇窗口也弹，只剩标题行 + 播放条。hint 是卡片下方那行橙色提示的高度。
     /// 内部常量一律走 PreviewLayout（已含界面缩放）。
-    static func size(for itemCount: Int, hasOverflow: Bool, hint: String, titleRows: Int = 1) -> CGSize {
+    static func size(for itemCount: Int, hasOverflow: Bool, hint: String, titleRows: Int = 1,
+                     media: Bool = false) -> CGSize {
         let n = max(1, min(itemCount, PreviewLayout.maxCards))
         let cards = CGFloat(n) * PreviewLayout.cardWidth + CGFloat(n - 1) * PreviewLayout.spacing
         let overflowWidth: CGFloat = hasOverflow ? TTLayout.s(74) : 0
         let hintHeight: CGFloat = hint.isEmpty ? 0 : TTLayout.s(18)
+        let hasCards = itemCount > 0
 
-        let contentWidth = cards + overflowWidth
+        let contentWidth = hasCards ? cards + overflowWidth : PreviewLayout.cardWidth
+        let cardsHeight = hasCards
+            ? TTLayout.s(6) + PreviewLayout.imageHeight + TTLayout.s(5) + TTLayout.s(14) + hintHeight
+                + CGFloat(max(0, titleRows - 1)) * PreviewLayout.tabRowStep
+            : 0
+        let mediaHeight = media ? PreviewLayout.mediaBarGap + PreviewLayout.mediaBarHeight : 0
         return CGSize(width: PreviewLayout.padding * 2 + contentWidth,
-                      height: PreviewLayout.padding * 2 + TTLayout.s(16) + TTLayout.s(6)
-                              + PreviewLayout.imageHeight + TTLayout.s(5) + TTLayout.s(14) + hintHeight
-                              + CGFloat(max(0, titleRows - 1)) * PreviewLayout.tabRowStep)
+                      height: PreviewLayout.padding * 2 + TTLayout.s(16) + mediaHeight + cardsHeight)
     }
 
     var body: some View {
@@ -410,6 +459,9 @@ struct PreviewView: View {
             .onPreferenceChange(PreviewCloseFramesKey.self) { frames in
                 onCloseFrames(frames)
             }
+            .onPreferenceChange(PreviewControlFramesKey.self) { frames in
+                onControlFrames(frames)
+            }
     }
 
     private var cardList: some View {
@@ -430,31 +482,33 @@ struct PreviewView: View {
             }
             .padding(.horizontal, TTLayout.s(2))
 
-            HStack(alignment: .top, spacing: PreviewLayout.spacing) {
-                ForEach(Array(visibleItems.enumerated()), id: \.element.id) { offset, item in
-                    PreviewCard(item: item,
-                                icon: model.icon,
-                                appearIndex: offset,
-                                hovered: model.hovered?.index == offset,
-                                pressed: model.pressed?.index == offset,
-                                confirmed: model.confirmed == offset,
-                                closeHovered: model.hovered?.index == offset
-                                                && model.hovered?.onClose == true,
-                                canClose: WindowBridge.isTrusted)
-                }
-                if overflow > 0 {
-                    VStack {
-                        Text("+\(overflow)")
-                            .font(.system(size: TTLayout.font(13), weight: .semibold))
-                        Text("更多")
-                            .font(.system(size: TTLayout.font(9)))
+            if !visibleItems.isEmpty {
+                HStack(alignment: .top, spacing: PreviewLayout.spacing) {
+                    ForEach(Array(visibleItems.enumerated()), id: \.element.id) { offset, item in
+                        PreviewCard(item: item,
+                                    icon: model.icon,
+                                    appearIndex: offset,
+                                    hovered: model.hovered?.index == offset,
+                                    pressed: model.pressed?.index == offset,
+                                    confirmed: model.confirmed == offset,
+                                    closeHovered: model.hovered?.index == offset
+                                                    && model.hovered?.onClose == true,
+                                    canClose: WindowBridge.isTrusted)
                     }
-                    .foregroundStyle(Color.primary.opacity(0.6))
-                    .frame(width: TTLayout.s(64), height: PreviewLayout.imageHeight)
-                    .background(
-                        RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
-                            .fill(Color.primary.opacity(0.06))
-                    )
+                    if overflow > 0 {
+                        VStack {
+                            Text("+\(overflow)")
+                                .font(.system(size: TTLayout.font(13), weight: .semibold))
+                            Text("更多")
+                                .font(.system(size: TTLayout.font(9)))
+                        }
+                        .foregroundStyle(Color.primary.opacity(0.6))
+                        .frame(width: TTLayout.s(64), height: PreviewLayout.imageHeight)
+                        .background(
+                            RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                    }
                 }
             }
 
@@ -464,7 +518,104 @@ struct PreviewView: View {
                     .foregroundStyle(Color.orange.opacity(0.9))
                     .padding(.horizontal, TTLayout.s(2))
             }
+
+            // 播放条放在卡片下面（没卡片时就直接接在标题行下）
+            if let media = model.media {
+                PreviewMediaBar(media: media,
+                                fallbackTitle: model.mediaFallbackTitle,
+                                hovered: model.hovered?.control,
+                                pressed: model.pressed?.control)
+                    .padding(.top, PreviewLayout.mediaBarGap - TTLayout.s(6))
+            }
         }
+    }
+}
+
+/// 预览面板里的播放条：歌名 / 歌手 + 上一首 / 播放暂停 / 下一首。
+/// 按钮动作在窗口层处理（跟卡片一样），这里只画、上报命中区域。
+///
+/// 控制走媒体键：系统把它发给「正在播放」的 App，所以两个播放器都开着时，
+/// 控制的是最后放过的那个（不是一定是悬停的这个）
+struct PreviewMediaBar: View {
+    let media: PreviewMedia
+    let fallbackTitle: String
+    var hovered: MediaControl?
+    var pressed: MediaControl?
+
+    @ObservedObject private var nowPlaying = NowPlaying.shared
+
+    private var track: NowPlayingTrack? {
+        if case .player(let p) = media { return nowPlaying.states[p] }
+        return nil
+    }
+
+    private var title: String {
+        if let t = track, !t.title.isEmpty { return t.title }
+        if case .kaset = media, !fallbackTitle.isEmpty { return fallbackTitle }
+        return "未在播放"
+    }
+
+    private var subtitle: String {
+        switch media {
+        case .player(let p):
+            guard let t = track else { return p.title }
+            return t.artist.isEmpty ? p.title : t.artist
+        case .kaset:
+            return "YouTube Music"
+        }
+    }
+
+    /// 播放键的图标：知道状态就给播放 / 暂停，Kaset 不知道就用切换图标
+    private var playSymbol: String {
+        if case .kaset = media { return "playpause.fill" }
+        return track?.playing == true ? "pause.fill" : "play.fill"
+    }
+
+    var body: some View {
+        HStack(spacing: TTLayout.s(6)) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: TTLayout.font(11), weight: .medium))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: TTLayout.font(9.5)))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                button(.previous, "backward.fill")
+                button(.playPause, playSymbol, large: true)
+                button(.next, "forward.fill")
+            }
+        }
+        .padding(.leading, TTLayout.s(8))
+        .padding(.trailing, TTLayout.s(5))
+        .frame(height: PreviewLayout.mediaBarHeight)
+        .background(
+            RoundedRectangle(cornerRadius: TTLayout.s(8), style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+    }
+
+    private func button(_ c: MediaControl, _ symbol: String, large: Bool = false) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: TTLayout.font(large ? 14 : 11)))
+            .frame(width: TTLayout.s(large ? 26 : 22), height: TTLayout.s(28))
+            .background(
+                RoundedRectangle(cornerRadius: TTLayout.s(6), style: .continuous)
+                    .fill(Color.primary.opacity(pressed == c ? 0.16 : hovered == c ? 0.09 : 0))
+            )
+            .scaleEffect(pressed == c ? 0.92 : 1)
+            .animation(.easeOut(duration: 0.1), value: pressed == c)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: PreviewControlFramesKey.self,
+                        value: [c.rawValue: geo.frame(in: .named(PreviewView.space))]
+                    )
+                }
+            )
     }
 }
 
@@ -479,6 +630,7 @@ final class PreviewController {
 
     private var cardFrames: [String: CGRect] = [:]
     private var closeFrames: [String: CGRect] = [:]
+    private var controlFrames: [String: CGRect] = [:]
     private var currentPID: pid_t?
     private var currentWindows: [WindowInfo] = []
     /// 按下但还没抬起的部位：抬起来要落在同一个部位才算点击
@@ -508,7 +660,8 @@ final class PreviewController {
             model: model,
             prefs: .shared,
             onCardFrames: { [weak self] frames in self?.cardFrames = frames },
-            onCloseFrames: { [weak self] frames in self?.closeFrames = frames }
+            onCloseFrames: { [weak self] frames in self?.closeFrames = frames },
+            onControlFrames: { [weak self] frames in self?.controlFrames = frames }
         )
         let host = FirstMouseHostingView(rootView: view)
         host.frame = NSRect(origin: .zero, size: panel.frame.size)
@@ -552,6 +705,11 @@ final class PreviewController {
 
     /// 命中优先级：关闭按钮 > 卡片。关闭按钮在卡片内，必须先判它。
     private func hit(at point: NSPoint) -> PreviewSpot? {
+        if model.media != nil {
+            for (key, rect) in controlFrames where rect.contains(point) {
+                if let c = MediaControl(rawValue: key) { return .media(c) }
+            }
+        }
         for (key, rect) in closeFrames where rect.insetBy(dx: -2, dy: -2).contains(point) {
             if let index = Int(key) { return PreviewSpot(index: index, onClose: true) }
         }
@@ -584,12 +742,18 @@ final class PreviewController {
     /// （mouseDown 就变色，松手就切），动作本身松手即发生。
     private func confirm(_ target: PreviewSpot) {
         // 点中后卡片边框闪一下，纯视觉，不参与动作时序
-        model.confirmed = target.index
+        if target.control == nil { model.confirmed = target.index }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
             self?.model.confirmed = nil
         }
 
-        if target.onClose {
+        if let c = target.control {
+            switch c {
+            case .previous:  MediaKey.post(.previous)
+            case .playPause: MediaKey.post(.play)
+            case .next:      MediaKey.post(.next)
+            }
+        } else if target.onClose {
             closeWindow(at: target.index)
         } else {
             activateWindow(at: target.index)
@@ -628,7 +792,8 @@ final class PreviewController {
 
         // 乐观移除：不等后台结果，先让界面动起来
         removeItem(at: index)
-        if model.items.count < 2 { hide() }
+        // 播放器的面板还有播放条，卡片没了也留着
+        if model.items.count < 2, model.media == nil { hide() }
 
         Task { [weak self] in
             let ok = await Task.detached(priority: .userInitiated) {
@@ -701,6 +866,7 @@ final class PreviewController {
         model.appName = entry.name
         model.icon = entry.icon
         model.hint = ""
+        model.media = PreviewMedia(bundleID: entry.id)
         model.clearInteraction()
         model.generation &+= 1
 
@@ -724,7 +890,12 @@ final class PreviewController {
         // 再弹一张预览纯属打扰。例外是被最小化的窗口 —— 点图标把它收进去之后，
         // 预览卡片就是把它点回来的地方（Windows 任务栏同款），哪怕只有一个也要弹。
         // 其余窗口数 < 2 一律不弹（空态面板若还在屏上顺手收掉）。
-        guard windows.count >= 2 || windows.contains(where: \.isMinimized) else {
+        // 播放器另算：播放条要随时摸得到，不管几扇窗口、有没有最小化都弹。
+        if model.media == .kaset {
+            let title = everywhere.map(\.title).first { !$0.isEmpty && $0 != entry.name && !$0.hasPrefix("Kaset") }
+            model.mediaFallbackTitle = title ?? ""
+        }
+        guard windows.count >= 2 || windows.contains(where: \.isMinimized) || model.media != nil else {
             if panel.isVisible { hide() }
             TTLog("preview \(entry.name) → \(windows.count) 個視窗，不彈")
             return
@@ -821,7 +992,8 @@ final class PreviewController {
         let size = PreviewView.size(for: model.items.count,
                                     hasOverflow: model.items.count > PreviewLayout.maxCards,
                                     hint: model.hint,
-                                    titleRows: PreviewLayout.titleRows(Array(model.items.prefix(PreviewLayout.maxCards))))
+                                    titleRows: PreviewLayout.titleRows(Array(model.items.prefix(PreviewLayout.maxCards))),
+                                    media: model.media != nil)
         let visible = screen.visibleFrame
 
         // 条在上半屏 → 主面板正下方；条停在底部（Dock）→ 主面板正上方

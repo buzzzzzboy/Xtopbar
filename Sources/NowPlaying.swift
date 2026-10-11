@@ -82,7 +82,8 @@ final class NowPlaying: ObservableObject {
     @Published private(set) var track: NowPlayingTrack?
     @Published private(set) var artwork: NSImage?
 
-    private var states: [MediaPlayer: NowPlayingTrack] = [:]
+    /// 每个播放器各自的最新状态（预览面板的播放条按悬停的 App 取，不跟「当前显示哪个」走）
+    @Published private(set) var states: [MediaPlayer: NowPlayingTrack] = [:]
     private var lastActive: MediaPlayer?
     private var artworkKey: String?
     private var artworkCache: [String: NSImage] = [:]
