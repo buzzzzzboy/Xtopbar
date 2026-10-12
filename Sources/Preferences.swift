@@ -178,6 +178,7 @@ final class Preferences: ObservableObject {
         static let runningOrder  = "runningTabOrder"
         static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
+        static let startSearchHotKey = "startSearchHotKey"
         static let iconOnly      = "iconOnly"
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
@@ -343,6 +344,14 @@ final class Preferences: ObservableObject {
         didSet { d.set(recentApps, forKey: Key.recentApps) }
     }
 
+    /// 全局快捷键：直接打开开始菜单的搜索页（再按一次收起）。nil = 不用快捷键
+    @Published var startSearchHotKey: HotKey? = .defaultSearch {
+        didSet {
+            // 清除也要存（空 data），不然下次启动又回到预设
+            d.set(startSearchHotKey.flatMap { try? JSONEncoder().encode($0) } ?? Data(), forKey: Key.startSearchHotKey)
+        }
+    }
+
     /// 只显示图标（Dock 风格大图标，名字放到悬停提示里）。关掉 = 图标 + 名称的标签。
     @Published var iconOnly: Bool = false {
         didSet { d.set(iconOnly, forKey: Key.iconOnly) }
@@ -480,6 +489,9 @@ final class Preferences: ObservableObject {
         if let raw = d.string(forKey: Key.nowPlayingSource),
            let s = NowPlayingSource(rawValue: raw) { nowPlayingSource = s }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
+        if let data = d.data(forKey: Key.startSearchHotKey) {
+            startSearchHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultSearch
+        }
         if let list = d.stringArray(forKey: Key.startOrder) { startOrder = list }
         if let list = d.stringArray(forKey: Key.runningOrder) { runningOrder = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }

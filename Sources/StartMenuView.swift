@@ -8,7 +8,9 @@ import AppKit
 ///   ——————————————
 ///   用户名                    ⚙
 ///
-/// 有搜索词时整块内容换成结果列表（↑↓ 选、回车开，键盘由控制器的事件监听处理）。
+/// 点搜索框（或直接打字）进入搜索模式：整块换成 Raycast 式列表 ——
+/// 没打字时列「建議」（最近使用），打字后列结果；底栏换成动作提示。
+/// ↑↓ 选、回车开、Esc 退回首页（键盘由控制器的事件监听处理）。
 struct StartMenuView: View {
     @ObservedObject var model: StartMenuModel
     @ObservedObject var library: AppLibrary
@@ -63,8 +65,12 @@ struct StartMenuView: View {
                 .padding(.top, StartLayout.s(18))
                 .padding(.bottom, StartLayout.s(10))
 
+            if model.searching {
+                Divider().opacity(0.6)
+            }
+
             Group {
-                if !model.query.isEmpty {
+                if model.searching {
                     searchResults
                 } else if model.showAll {
                     allApps
@@ -77,7 +83,7 @@ struct StartMenuView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            footer
+            if model.searching { actionBar } else { footer }
         }
         .frame(width: StartMenuController.size.width, height: StartMenuController.size.height)
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: StartLayout.s(14)))
@@ -115,6 +121,24 @@ struct StartMenuView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("清除")
+            }
+            if model.searching {
+                // 回首页（同 Esc 退到底）
+                Button {
+                    model.query = ""
+                    model.searching = false
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "house")
+                        Text("首頁")
+                    }
+                    .font(.system(size: StartLayout.font(11), weight: .medium))
+                }
+                .buttonStyle(PillButtonStyle())
+                // 胶囊比文字高：抵掉多出来的高度，搜索框跟首页一样高
+                .padding(.vertical, -StartLayout.s(4))
+                .help("返回首頁")
             }
         }
         .padding(.horizontal, StartLayout.s(12))
@@ -127,6 +151,19 @@ struct StartMenuView: View {
             RoundedRectangle(cornerRadius: StartLayout.s(18), style: .continuous)
                 .strokeBorder(Color.primary.opacity(searchFocused ? 0.18 : 0.06), lineWidth: 1)
         )
+        // 首页时盖一层透明点击层：点搜索框进搜索模式。
+        // 不挂在 TextField 上的手势 —— 文本框会先吃掉鼠标按下，手势不一定收得到
+        .overlay {
+            if !model.searching {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        model.searching = true
+                        searchFocused = true
+                    }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: model.searching)
     }
 
     // MARK: - 首页：已固定 + 最近使用
@@ -517,38 +554,79 @@ struct StartMenuView: View {
         return date?.formatted(date: .abbreviated, time: .omitted)
     }
 
-    // MARK: - 搜索结果
+    // MARK: - 搜索模式（Raycast 式列表）
 
     private var searchResults: some View {
-        let results = model.results
+        let items = model.listed
         return Group {
-            if results.isEmpty {
-                Text(library.apps.isEmpty ? "正在建立應用索引…" : "沒有找到「\(model.query)」")
+            if items.isEmpty {
+                Text(library.apps.isEmpty ? "正在建立應用索引…"
+                     : model.query.isEmpty ? "還沒有最近使用的應用，輸入名稱開始搜尋。"
+                     : "沒有找到「\(model.query)」")
                     .font(.system(size: StartLayout.font(12)))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: StartLayout.s(120))
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: StartLayout.s(2)) {
-                            ForEach(Array(results.enumerated()), id: \.element.id) { i, app in
-                                StartRow(app: app, icon: library.icon(for: app.url),
-                                         subtitle: i == 0 ? (app.isSettingsPane ? "最佳匹配 · 系統設定" : "最佳匹配") : searchSubtitle(app),
-                                         selected: i == model.selection) { onLaunch(app) }
+                        LazyVStack(alignment: .leading, spacing: StartLayout.s(1)) {
+                            Text(model.query.isEmpty ? "建議" : "結果")
+                                .font(.system(size: StartLayout.font(11), weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, StartLayout.s(8))
+                                .padding(.top, StartLayout.s(10))
+                                .padding(.bottom, StartLayout.s(4))
+                            ForEach(Array(items.enumerated()), id: \.element.id) { i, app in
+                                LauncherRow(app: app, icon: library.icon(for: app.url),
+                                            detail: app.isSettingsPane ? nil : runningSubtitle(app),
+                                            selected: i == model.selection) { onLaunch(app) }
                                     .id(app.id)
                                     .contextMenu { itemMenu(app) }
                             }
                         }
-                        .padding(.horizontal, StartLayout.s(20))
-                        .padding(.bottom, StartLayout.s(12))
+                        .padding(.horizontal, StartLayout.s(12))
+                        .padding(.bottom, StartLayout.s(10))
                     }
                     .onChange(of: model.selection) { _, index in
-                        guard results.indices.contains(index) else { return }
-                        proxy.scrollTo(results[index].id)
+                        guard items.indices.contains(index) else { return }
+                        proxy.scrollTo(items[index].id)
                     }
                 }
             }
         }
+    }
+
+    /// 搜索模式的底栏：左边是选中项，右边是回车的动作提示
+    private var actionBar: some View {
+        let items = model.listed
+        let current = items.indices.contains(model.selection) ? items[model.selection] : nil
+        return HStack(spacing: StartLayout.s(8)) {
+            if let current {
+                Image(nsImage: library.icon(for: current.url))
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: StartLayout.s(16), height: StartLayout.s(16))
+                Text(current.name)
+                    .font(.system(size: StartLayout.font(11)))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if let current {
+                Button { onLaunch(current) } label: {
+                    HStack(spacing: StartLayout.s(6)) {
+                        Text(current.isSettingsPane ? "開啟系統設定" : "開啟應用程式")
+                            .font(.system(size: StartLayout.font(11), weight: .medium))
+                        KeyCap("↵")
+                    }
+                }
+                .buttonStyle(PillButtonStyle())
+            }
+        }
+        .padding(.horizontal, StartLayout.s(20))
+        .padding(.vertical, StartLayout.s(10))
+        .frame(minHeight: StartLayout.s(56))
+        .background(Color.primary.opacity(0.05))
     }
 
     // MARK: - 底栏
@@ -618,10 +696,6 @@ struct StartMenuView: View {
             .sorted { $0.app.name.localizedStandardCompare($1.app.name) == .orderedAscending }
     }
 
-    private func searchSubtitle(_ app: LibraryApp) -> String? {
-        app.isSettingsPane ? "系統設定" : runningSubtitle(app)
-    }
-
     private func runningSubtitle(_ app: LibraryApp) -> String? {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
         return running.isEmpty ? nil : "正在執行"
@@ -681,7 +755,7 @@ struct StartMenuView: View {
             Button("新增資料夾") {
                 let id = catalog.createStartFolder(with: app.pinned)
                 // 在「所有应用」/ 搜索里就原地建好，方便接着往里加；首页才直接进去改名
-                if model.showAll || !model.query.isEmpty { return }
+                if model.showAll || model.searching { return }
                 openFolder(id, rename: true)
             }
         }
@@ -865,6 +939,69 @@ private enum StartCell: Identifiable {
         case .app(let app): return app.bundleID
         case .folder(let folder): return AppCatalog.startFolderKey(folder.id)
         }
+    }
+}
+
+/// 搜索模式的一行（Raycast 式）：图标 + 名字 + 灰色附注，右边类型标签。
+/// 选中 / 悬停整行高亮，配色沿用 StartRow
+private struct LauncherRow: View {
+    let app: LibraryApp
+    let icon: NSImage
+    var detail: String? = nil
+    var selected: Bool = false
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: StartLayout.s(10)) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: StartLayout.s(22), height: StartLayout.s(22))
+                Text(app.name)
+                    .font(.system(size: StartLayout.font(13)))
+                    .lineLimit(1)
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: StartLayout.font(12)))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: StartLayout.s(8))
+                Text(app.isSettingsPane ? "系統設定" : "應用程式")
+                    .font(.system(size: StartLayout.font(12)))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, StartLayout.s(10))
+            .frame(height: StartLayout.s(38))
+            .background(
+                RoundedRectangle(cornerRadius: StartLayout.s(8), style: .continuous)
+                    .fill(selected ? Color.accentColor.opacity(0.28)
+                          : Color.primary.opacity(hovering ? 0.08 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// 快捷键提示的小方块（↵）
+private struct KeyCap: View {
+    let key: String
+    init(_ key: String) { self.key = key }
+
+    var body: some View {
+        Text(key)
+            .font(.system(size: StartLayout.font(10), weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(minWidth: StartLayout.s(18), minHeight: StartLayout.s(16))
+            .background(
+                RoundedRectangle(cornerRadius: StartLayout.s(4), style: .continuous)
+                    .fill(Color.primary.opacity(0.10))
+            )
     }
 }
 

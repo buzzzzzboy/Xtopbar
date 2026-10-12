@@ -6,9 +6,17 @@ import Combine
 @MainActor
 final class StartMenuModel: ObservableObject {
     @Published var query = "" {
-        didSet { if query != oldValue { selection = 0 } }
+        didSet {
+            if query != oldValue { selection = 0 }
+            // 直接打字也进搜索模式；清空搜索词后留在搜索模式看「建議」，Esc 才回首页
+            if !query.isEmpty { searching = true }
+        }
     }
-    /// 搜索结果里键盘选中的下标（↑↓ 移动，回车打开）
+    /// 搜索模式（Raycast 式列表）：点搜索框或开始打字进入，Esc 退回首页
+    @Published var searching = false {
+        didSet { if searching != oldValue { selection = 0 } }
+    }
+    /// 列表里键盘选中的下标（↑↓ 移动，回车打开）
     @Published var selection = 0
     @Published var showAll = false
     /// 正在看的文件夹（nil = 没打开文件夹）
@@ -16,10 +24,33 @@ final class StartMenuModel: ObservableObject {
     /// 每次打开 +1，视图据此把焦点重新放回搜索框
     @Published var focusToken = 0
 
-    var results: [LibraryApp] { AppLibrary.shared.search(query) }
+    /// 搜索结果：以前用相近的词打开过的排最前（见 SearchHistory）
+    var results: [LibraryApp] {
+        SearchHistory.shared.rerank(AppLibrary.shared.search(query), query: query)
+    }
+
+    /// 还没打字时的「建議」：按搜索后打开的记录（frecency）排；
+    /// 记录不够 8 个时，用最近切到前台的 App、再用已固定的补上
+    var suggestions: [LibraryApp] {
+        let library = AppLibrary.shared
+        let prefs = Preferences.shared
+        var seen = Set<String>()
+        // 记录按 LibraryApp.id 存：系统设置面板是「pane:<bundle id>」
+        let ids = SearchHistory.shared.ranked() + prefs.recentApps + prefs.startPins.map(\.bundleID)
+        return ids.compactMap { id -> LibraryApp? in
+            guard seen.insert(id).inserted else { return nil }
+            return library.app(bundleID: id) ?? library.settingsPanes.first { $0.id == id }
+        }
+        .prefix(8)
+        .map { $0 }
+    }
+
+    /// 搜索模式里当前列出的项：有搜索词 = 结果，没有 = 建議
+    var listed: [LibraryApp] { query.isEmpty ? suggestions : results }
 
     func reset() {
         query = ""
+        searching = false
         selection = 0
         showAll = false
         openFolder = nil
@@ -65,6 +96,16 @@ final class StartMenuController {
     var onClose: (@MainActor () -> Void)?
 
     var isVisible: Bool { panel.isVisible && !closing }
+    var isSearching: Bool { model.searching }
+
+    /// 菜单开着时切到搜索页（焦点回搜索框）
+    func enterSearch() {
+        model.openFolder = nil
+        model.showAll = false
+        model.searching = true
+        model.focusToken &+= 1
+        panel.makeKey()
+    }
     var frame: NSRect { panel.frame }
 
     static var size: CGSize { CGSize(width: StartLayout.s(560), height: StartLayout.s(600)) }
@@ -112,11 +153,13 @@ final class StartMenuController {
     ///   - barFrame: 主面板 frame（决定向上还是向下弹）
     ///   - barWindow: 主面板窗口 —— 在它上面的点击不算"点外面"，
     ///     否则点开始按钮关菜单会先被外部点击关掉、再被按钮重新打开
-    func show(anchorInScreen: NSRect, barFrame: NSRect, barWindow: NSWindow) {
+    ///   - search: 直接开在搜索页（全局快捷键）
+    func show(anchorInScreen: NSRect, barFrame: NSRect, barWindow: NSWindow, search: Bool = false) {
         self.barWindow = barWindow
         AppLibrary.shared.refreshIfStale()
         NowPlaying.shared.menuDidOpen()
         model.reset()
+        model.searching = search
 
         let size = StartMenuController.size
         let screen = NSScreen.screens.first { $0.frame.intersects(barFrame) }
@@ -255,6 +298,8 @@ final class StartMenuController {
     }
 
     private func launch(_ app: LibraryApp) {
+        // 搜索模式里打开的才记（首页网格 / 所有应用里点开的不算）
+        if model.searching { SearchHistory.shared.record(id: app.id, query: model.query) }
         close()
         if app.isSettingsPane { SettingsPanes.open(app); return }
         catalog.launch(url: app.url, bundleID: app.bundleID)
@@ -317,9 +362,11 @@ final class StartMenuController {
         // 回车是确认选字、Esc 是取消组字、↑↓ 是挑候选，一个都不能截
         if let editor = panel.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
         switch keyCode {
-        case 53: // Esc：有搜索词先清空，再按一次收起
+        case 53: // Esc：有搜索词先清空，再退出搜索模式，再按一次收起
             if !model.query.isEmpty {
                 model.query = ""
+            } else if model.searching {
+                model.searching = false
             } else if model.showAll {
                 model.showAll = false
             } else if model.openFolder != nil {
@@ -329,15 +376,15 @@ final class StartMenuController {
             }
             return true
         case 125, 126: // ↓ ↑
-            guard !model.query.isEmpty else { return false }
-            let count = model.results.count
+            guard model.searching else { return false }
+            let count = model.listed.count
             guard count > 0 else { return true }
             let step = keyCode == 125 ? 1 : -1
             model.selection = min(max(model.selection + step, 0), count - 1)
             return true
-        case 36, 76: // 回车：只在搜索时截（打开选中项），其它时候放行给文本框（如文件夹改名）
-            guard !model.query.isEmpty else { return false }
-            let results = model.results
+        case 36, 76: // 回车：只在搜索模式截（打开选中项），其它时候放行给文本框（如文件夹改名）
+            guard model.searching else { return false }
+            let results = model.listed
             guard results.indices.contains(model.selection) else { return true }
             launch(results[model.selection])
             return true
