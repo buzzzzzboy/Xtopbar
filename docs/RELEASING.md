@@ -79,6 +79,19 @@ macOS 的 TCC（螢幕錄製 / 輔助使用授權）認的是簽名裡的 **desi
 
 所以：**別刪那個 keychain，也別在別的機器上重新生成憑證發版。**
 
+### 開發版自動換憑證，發版鎖死
+
+正式憑證（`1A51…`）的哈希寫死在 `build.sh` 的 `RELEASE_CERT_SHA1`。
+
+| 情況 | `build.sh` 用哪張 |
+|---|---|
+| 這台有正式憑證 | 正式憑證 |
+| 這台沒有（別台電腦） | 自動改用本機 keychain 裡那張同名「Xtopbar Self-Signed」簽**開發版**，並印出警告；不用再手打 `EXPECTED_CERT_SHA1` |
+| `XTOPBAR_RELEASE=1`（`make-release.sh` 會設） | 只認正式憑證，沒有就停 |
+| `EXPECTED_CERT_SHA1=<哈希>` | 只認指定那張（真要換正式憑證時才用） |
+
+`make-release.sh` 一開始就跑 `./build.sh --check-signing` 把關：沒有正式憑證會在**改版本號之前**停下，不會留下改了一半的 `Info.plist`。要在沒有正式憑證的電腦上發版，先用 `./scripts/sync-signing-cert.sh export` / `import` 把它搬過來。
+
 ## 使用者側的更新體驗
 
 - 啟動 3 秒後靜默檢查一次（每小時最多一次），沒新版本就毫無動靜
