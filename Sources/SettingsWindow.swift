@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 // MARK: - 窗口
 
@@ -54,7 +55,7 @@ final class SettingsWindowController {
 
 /// 设置页分类（侧栏）。同系统设定：左边选类别，右边是这一类的分组表单
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, appearance, dock, windows, about
+    case general, appearance, dock, apps, windows, about
 
     var id: String { rawValue }
 
@@ -63,6 +64,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general:    return "一般"
         case .appearance: return "外觀"
         case .dock:       return "Dock 與開始選單"
+        case .apps:       return "Apps"
         case .windows:    return "視窗"
         case .about:      return "關於"
         }
@@ -73,6 +75,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general:    return "gearshape"
         case .appearance: return "paintbrush"
         case .dock:       return "dock.rectangle"
+        case .apps:       return "app.dashed"
         case .windows:    return "macwindow.on.rectangle"
         case .about:      return "info.circle"
         }
@@ -97,6 +100,7 @@ struct SettingsView: View {
                 case .general:    generalPage
                 case .appearance: appearancePage
                 case .dock:       dockPage
+                case .apps:       appsPage
                 case .windows:    windowsPage
                 case .about:      aboutPage
                 }
@@ -371,6 +375,37 @@ struct SettingsView: View {
         }
     }
 
+    /// Apps：开始菜单索引扫哪些目录、哪些 App 不进搜索结果
+    @ViewBuilder
+    private var appsPage: some View {
+        Section {
+            AppSourcesList(sources: $prefs.appSources)
+        } header: {
+            Text("App 來源")
+        } footer: {
+            Text("開始選單的搜尋和「所有應用」從這些資料夾找 App（往下翻 \(AppLibrary.maxDepth) 層）。預設路徑包含 /Applications、~/Applications 和系統內建 App；放在其它地方的 App 用 + 加進來，關掉開關即暫時不掃。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
+        Section {
+            Toggle("在搜尋結果中顯示隱藏的 App", isOn: $prefs.showHiddenInSearch)
+                .toggleStyle(.switch)
+        } header: {
+            Text("隱藏的 App（\(prefs.searchHiddenApps.count)）")
+        }
+
+        Section {
+            SearchHiddenAppsList(prefs: prefs)
+                // 开始菜单还没打开过的话索引是空的，图标出不来
+                .onAppear { AppLibrary.shared.refreshIfStale() }
+        } footer: {
+            Text("在開始選單裡右鍵 App →「從搜尋結果隱藏」：搜尋結果和「建議」不再列出它，「所有應用」裡照常顯示。點 − 取消隱藏。這和右鍵懸浮條標籤的「隱藏此 App」是兩回事。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
     /// 视窗：悬停预览、⌥Tab 切换器
     @ViewBuilder
     private var windowsPage: some View {
@@ -496,7 +531,7 @@ private struct HiddenAppsRow: View {
     var body: some View {
         if !prefs.hiddenApps.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("已隱藏的 App（\(prefs.hiddenApps.count)）")
+                Text("從懸浮條隱藏的 App（\(prefs.hiddenApps.count)）")
                     .font(.system(size: 12, weight: .medium))
                 ForEach(prefs.hiddenApps.sorted { $0.value.localizedStandardCompare($1.value) == .orderedAscending }, id: \.key) { bid, name in
                     HStack(spacing: 8) {
@@ -518,6 +553,153 @@ private struct HiddenAppsRow: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 2)
+        }
+    }
+}
+
+/// 「App 來源」列表：第一行是内建的默认路径（不能删、不能关），下面是用户加的目录，
+/// 每个带开关；底部 + / − 增删（− 删选中的那行）。同系统设定里「登入項目」那种列表
+private struct AppSourcesList: View {
+    @Binding var sources: [AppSource]
+    @State private var selection: UUID?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SourceRow(name: "應用程式", detail: "預設路徑")
+                .help(AppLibrary.defaultRoots.map(\.path).joined(separator: "\n"))
+            ForEach($sources) { $source in
+                Divider()
+                SourceRow(name: FileManager.default.displayName(atPath: source.path),
+                          detail: (source.path as NSString).abbreviatingWithTildeInPath,
+                          missing: !FileManager.default.fileExists(atPath: source.path)) {
+                    Toggle("", isOn: $source.enabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+                .background(selection == source.id ? Color.accentColor.opacity(0.18) : .clear)
+                .contentShape(Rectangle())
+                .onTapGesture { selection = selection == source.id ? nil : source.id }
+            }
+            Divider()
+            HStack(spacing: 0) {
+                Button { add() } label: {
+                    Image(systemName: "plus").frame(width: 24, height: 20)
+                }
+                .help("加入資料夾")
+                Divider().frame(height: 14)
+                Button { remove() } label: {
+                    Image(systemName: "minus").frame(width: 24, height: 20)
+                }
+                .disabled(selection == nil)
+                .help("移除選中的資料夾")
+                Spacer()
+            }
+            .buttonStyle(.borderless)
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func add() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "加入"
+        panel.message = "選擇要掃描 App 的資料夾"
+        // accessory App：不先激活的话面板会躲在别的窗口后面
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK else { return }
+        let existing = Set((AppLibrary.defaultRoots.map(\.path) + sources.map(\.path))
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        var added = Set<String>()
+        for url in panel.urls {
+            let path = url.standardizedFileURL.path
+            guard !existing.contains(path), added.insert(path).inserted else { continue }
+            sources.append(AppSource(path: path))
+        }
+    }
+
+    private func remove() {
+        guard let selection else { return }
+        sources.removeAll { $0.id == selection }
+        self.selection = nil
+    }
+}
+
+private struct SourceRow<Accessory: View>: View {
+    let name: String
+    let detail: String
+    var missing = false
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: NSWorkspace.shared.icon(for: .folder))
+                .resizable()
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(.system(size: 12))
+                Text(missing ? "\(detail)（找不到這個資料夾）" : detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(missing ? Color.orange : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            accessory()
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+extension SourceRow where Accessory == EmptyView {
+    init(name: String, detail: String) {
+        self.init(name: name, detail: detail, accessory: { EmptyView() })
+    }
+}
+
+/// 「從搜尋結果隱藏」的 App：图标 + 名字 + −。App 已经卸载的话只剩名字（图标给个通用的）
+private struct SearchHiddenAppsList: View {
+    @ObservedObject var prefs: Preferences
+    @ObservedObject private var library = AppLibrary.shared
+
+    var body: some View {
+        let items = prefs.searchHiddenApps
+            .sorted { $0.value.localizedStandardCompare($1.value) == .orderedAscending }
+        if items.isEmpty {
+            Text("還沒有。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        ForEach(items, id: \.key) { bid, name in
+            let app = library.app(bundleID: bid)
+            HStack(spacing: 8) {
+                Group {
+                    if let app {
+                        Image(nsImage: library.icon(for: app.url)).resizable()
+                    } else {
+                        Image(nsImage: NSWorkspace.shared.icon(for: .applicationBundle))
+                            .resizable()
+                            .opacity(0.5)
+                    }
+                }
+                .frame(width: 18, height: 18)
+                Text(app?.name ?? name)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Button {
+                    prefs.searchHiddenApps.removeValue(forKey: bid)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("取消隱藏")
+            }
         }
     }
 }

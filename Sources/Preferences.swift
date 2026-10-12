@@ -136,6 +136,16 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     var url: URL { URL(fileURLWithPath: path) }
 }
 
+/// 开始菜单索引额外扫描的目录（设置「Apps」→「App 來源」里加的）。
+/// 内建的那几个目录（见 `AppLibrary.defaultRoots`）不在这里，总是会扫
+struct AppSource: Codable, Equatable, Identifiable {
+    var id = UUID()
+    let path: String
+    var enabled = true
+
+    var url: URL { URL(fileURLWithPath: path) }
+}
+
 /// 开始菜单里的一个文件夹：自己起名、自己往里放 App，和「已固定」各管各的
 struct StartFolder: Codable, Equatable, Identifiable {
     var id = UUID()
@@ -190,6 +200,9 @@ final class Preferences: ObservableObject {
         static let clickToMinimize = "clickToMinimize"
         static let startMenuSort = "startMenuSort"
         static let appFirstSeen  = "appFirstSeen"
+        static let appSources    = "appSources"
+        static let searchHiddenApps = "searchHiddenApps"
+        static let showHiddenInSearch = "showHiddenInSearch"
         static let savedDockAutohide = "savedSystemDockAutohide"
         static let savedDockDelay    = "savedSystemDockDelay"
     }
@@ -411,6 +424,24 @@ final class Preferences: ObservableObject {
         didSet { d.set(startMenuSort.rawValue, forKey: Key.startMenuSort) }
     }
 
+    /// 开始菜单索引额外扫描的目录（每个有自己的开关）。变了 AppLibrary 会立刻重扫
+    @Published var appSources: [AppSource] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(appSources) { d.set(data, forKey: Key.appSources) }
+        }
+    }
+
+    /// 从开始菜单搜索里隐藏的 App（bundle id → 显示名）。和 `hiddenApps`（从悬浮条隐藏）是两份：
+    /// 这里只是搜索结果 / 建議里不列，「所有應用」里照样有（从那里右键可以取消隐藏）
+    @Published var searchHiddenApps: [String: String] = [:] {
+        didSet { d.set(searchHiddenApps, forKey: Key.searchHiddenApps) }
+    }
+
+    /// 搜索时也列出 `searchHiddenApps` 里的 App
+    @Published var showHiddenInSearch: Bool = false {
+        didSet { d.set(showHiddenInSearch, forKey: Key.showHiddenInSearch) }
+    }
+
     /// 每个 App 第一次被开始菜单索引看到的时间（bundle id → 秒），「最近加入」排序用。
     /// 不发布：只有索引扫描在读写，变了也不需要重绘任何东西。
     var appFirstSeen: [String: Double] {
@@ -520,6 +551,10 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.allScreens) != nil { allScreens = d.bool(forKey: Key.allScreens) }
         if d.object(forKey: Key.clickToMinimize) != nil { clickToMinimize = d.bool(forKey: Key.clickToMinimize) }
         if let raw = d.string(forKey: Key.startMenuSort), let s = StartMenuSort(rawValue: raw) { startMenuSort = s }
+        if let data = d.data(forKey: Key.appSources),
+           let list = try? JSONDecoder().decode([AppSource].self, from: data) { appSources = list }
+        if let map = d.dictionary(forKey: Key.searchHiddenApps) as? [String: String] { searchHiddenApps = map }
+        if d.object(forKey: Key.showHiddenInSearch) != nil { showHiddenInSearch = d.bool(forKey: Key.showHiddenInSearch) }
 
         // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
         if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }

@@ -37,13 +37,27 @@ final class AppLibrary: ObservableObject {
 
     private var lastScan = Date.distantPast
     private var scanning = false
+    /// 扫描途中来源又变了：这轮扫完马上再扫一次
+    private var rescanPending = false
     private var iconCache: [String: NSImage] = [:]
+    private var cancellables = Set<AnyCancellable>()
 
-    private init() {}
+    private init() {
+        // 设置里加 / 删 / 开关「App 來源」：立刻重扫，不等 60 秒的过期
+        Preferences.shared.$appSources
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                // @Published 在 willSet 时发：等这一拍过去 prefs 里才是新值
+                DispatchQueue.main.async { self?.rescan() }
+            }
+            .store(in: &cancellables)
+    }
 
-    /// 扫描根目录（每个都往下翻 `maxDepth` 层，Utilities 这类子目录不用单列）。
+    /// 内建的扫描根目录（每个都往下翻 `maxDepth` 层，Utilities 这类子目录不用单列）。
     /// ~/Applications 放用户自装的（比如 Chrome 的 Web App）。
-    nonisolated static var roots: [URL] {
+    /// 用户在设置里另加的目录见 `roots`。
+    nonisolated static var defaultRoots: [URL] {
         var list = [
             "/Applications",
             "/System/Applications",
@@ -55,6 +69,13 @@ final class AppLibrary: ObservableObject {
         list.append(FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Applications"))
         return list
+    }
+
+    /// 实际扫描的根目录：内建的 + 设置里加的、开着的「App 來源」（重复的只留一个）
+    static var roots: [URL] {
+        var seen = Set<String>()
+        let custom = Preferences.shared.appSources.filter(\.enabled).map(\.url)
+        return (defaultRoots + custom).filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
 
     /// 不在上面任何目录里、但开始菜单必须有的 App：访达住在 CoreServices 根下，
@@ -87,8 +108,9 @@ final class AppLibrary: ObservableObject {
     func refreshIfStale(maxAge: TimeInterval = 60) {
         guard !scanning, Date().timeIntervalSince(lastScan) > maxAge else { return }
         scanning = true
+        let roots = AppLibrary.roots
         Task.detached(priority: .utility) {
-            let found = AppLibrary.scan()
+            let found = AppLibrary.scan(roots: roots)
             let panes = SettingsPanes.scan()
             await MainActor.run {
                 let lib = AppLibrary.shared
@@ -98,8 +120,17 @@ final class AppLibrary: ObservableObject {
                 let merged = lib.applyFirstSeen(found)
                 if merged != lib.apps { lib.apps = merged }
                 TTLog("AppLibrary 掃描完成 \(found.count) 個 App、\(panes.count) 個設定面板")
+                if lib.rescanPending {
+                    lib.rescanPending = false
+                    lib.refreshIfStale(maxAge: 0)
+                }
             }
         }
+    }
+
+    /// 不管多久前扫过都重扫一次（「App 來源」变了的时候）
+    func rescan() {
+        if scanning { rescanPending = true } else { refreshIfStale(maxAge: 0) }
     }
 
     /// 「最近加入」要的是**第一次装上**的时间，可目录的加入时间在 App 每次更新
@@ -128,7 +159,7 @@ final class AppLibrary: ObservableObject {
 
     /// 纯文件系统扫描：根目录下 `maxDepth` 层以内的 .app，外加套在 App 包里的独立 App；
     /// 按 bundle id 去重，按名称排序
-    nonisolated static func scan() -> [LibraryApp] {
+    nonisolated static func scan(roots: [URL]) -> [LibraryApp] {
         let fm = FileManager.default
         var seen = Set<String>()
         var result: [LibraryApp] = []
@@ -209,9 +240,17 @@ final class AppLibrary: ObservableObject {
         return image
     }
 
-    /// 搜 App 和系统设置面板；同分时 App 排前面
+    /// 搜 App 和系统设置面板；同分时 App 排前面。
+    /// 设置里「從搜尋隱藏」的 App 不列，除非开了「在搜尋結果中顯示隱藏的 App」
     func search(_ query: String) -> [LibraryApp] {
-        AppLibrary.search(query, in: apps + settingsPanes)
+        AppLibrary.search(query, in: apps.filter { !isHiddenFromSearch($0) } + settingsPanes)
+    }
+
+    /// 这个 App 在搜索结果 / 建議里该不该藏起来
+    func isHiddenFromSearch(_ app: LibraryApp) -> Bool {
+        let prefs = Preferences.shared
+        return !app.isSettingsPane && !prefs.showHiddenInSearch
+            && prefs.searchHiddenApps[app.bundleID] != nil
     }
 
     /// 搜索：名称完全相同 > 名称前缀 > 名称里某个词的前缀 > 名称包含 > 别名（同样四档）> bundle id 包含。
