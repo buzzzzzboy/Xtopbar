@@ -179,6 +179,8 @@ final class Preferences: ObservableObject {
         static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let startSearchHotKey = "startSearchHotKey"
+        static let emojiHotKey   = "emojiHotKey"
+        static let emojiDoubleOption = "emojiDoubleOption"
         static let iconOnly      = "iconOnly"
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
@@ -352,6 +354,18 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// 全局快捷键：打开表情符號選擇器（再按一次收起）。nil = 不用快捷键
+    @Published var emojiHotKey: HotKey? = .defaultEmoji {
+        didSet {
+            d.set(emojiHotKey.flatMap { try? JSONEncoder().encode($0) } ?? Data(), forKey: Key.emojiHotKey)
+        }
+    }
+
+    /// 连按两下 ⌥ 也能打开表情符號選擇器（需要辅助使用权限）
+    @Published var emojiDoubleOption: Bool = true {
+        didSet { d.set(emojiDoubleOption, forKey: Key.emojiDoubleOption) }
+    }
+
     /// 只显示图标（Dock 风格大图标，名字放到悬停提示里）。关掉 = 图标 + 名称的标签。
     @Published var iconOnly: Bool = false {
         didSet { d.set(iconOnly, forKey: Key.iconOnly) }
@@ -491,6 +505,10 @@ final class Preferences: ObservableObject {
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }
         if let data = d.data(forKey: Key.startSearchHotKey) {
             startSearchHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultSearch
+        }
+        if d.object(forKey: Key.emojiDoubleOption) != nil { emojiDoubleOption = d.bool(forKey: Key.emojiDoubleOption) }
+        if let data = d.data(forKey: Key.emojiHotKey) {
+            emojiHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultEmoji
         }
         if let list = d.stringArray(forKey: Key.startOrder) { startOrder = list }
         if let list = d.stringArray(forKey: Key.runningOrder) { runningOrder = list }

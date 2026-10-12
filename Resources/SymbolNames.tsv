@@ -1,0 +1,407 @@
+!	exclamation mark	bang|exclamation|mark|point	驚嘆符號	驚嘆|驚訝	感叹号	惊叹号|惊心动魄|感叹
+#	hash sign	hash|hashtag|lb|number|pound|sign	井字號	#|# 標籤|井號|雜湊|雜湊標記	井号	主题符号|编号
+$	dollar	money|peso|USD	美元	元|比索|錢	美元符号	比索|美元|金钱
+%	percent	cent|per|per-cent	百分率	百分|百分比	百分号	百分比
+&	ampersand	and|et	& 符號	&|且|及|和	与号	和|等
+'	typewriter apostrophe	apostrophe|quote|single|typewriter	撇號	單引號|引號	打字机撇号	单引号|引号|撇号
+)	close parenthesis	bracket|close|paren|parens|parenthesis|round	右括號	圓括弧|圓括號|括弧|括號	右括号	圆括号|括号|括弧
+*	asterisk	star|wildcard	星號	星星|萬用字元	星号	星形|通配符
++	plus sign	add|plus|sign	加號	加|加法	加号	加|相加
+,	comma		逗點	逗號	逗号	
+-	hyphen-minus	dash|hyphen|minus	連字暨減號	一槓|一橫|減號|連字號	连字符-负号	横线|负号|连字符
+.	period	dot|full|stop	句點	點	句点	圆点
+/	slash	oblique|solidus|stroke|virgule|whack	正斜線	斜線	斜杠	倾斜|划掉|斜线符号|短斜线
+:	colon		冒號		冒号	
+;	semicolon	semi-colon	分號		分号	
+<	less-than	less|open|tag|than	小於	標籤|開始標籤	小于	标记|起始标记
+=	equal	equals	等號	相等|等於	等号	相等|等于
+>	greater-than	close|greater|tag|than	大於	標籤|結束標籤	大于	标记|结束标记
+?	question mark	mark|question	問號	疑問	问号	
+@	at-sign	ampersat|arobase|arroba|at|commercial|mark|sign|strudel	小老鼠符號	小老鼠	@ 符号	单价记号
+[	open square bracket	bracket|crotchet|open|square	左方括號	括弧|括號|方型括弧	左方括号	四分音符|括号|方括号
+\	backslash	reverse|solidus|whack	反斜線	反|斜線	反斜杠	反向斜线
+]	close square bracket	bracket|close|crotchet|square	右方括號	括弧|括號|方型括弧	右方括号	四分音符|括号|方括号
+^	circumflex accent	accent|caret|chevron|circumflex|control|hat|pointer|power|sign|wedge|xor	脫字號	插入符|插入號|脫字元|脫字符|脫字符號	抑扬音符号	人字形标记|帽子|幂|抑扬音|指针|按位异或符号|控制|楔子|补字符|重音
+_	low line	dash|line|low|underdash|underline	底線	底橫線|橫線|線	低线	下划线|下横线|横线|线条
+`	grave accent	accent|grave|tone	重音符	抑音符|音符	抑音符	沉重|语调|重音符号
+{	open curly bracket	brace|bracket|curly|gullwing|open	左大括號	大括孤|大括號|花括弧|花括號	左花括号	大括号|括号|花括号|鸥翼
+|	vertical line	bar|line|pike|pipe|sheffer|stick|stroke|vbar|vertical	豎線	分隔號|垂直|謝費爾|豎	竖线	杆|竖条|管线|线|线条|谢费尔竖线
+}	close curly bracket	brace|bracket|close|curly|gullwing	右大括號	大括孤|大括號|花括弧|花括號	右花括号	大括号|括号|花括号|鸥翼
+~	tilde		波狀符號	波浪號|波狀	波浪号	
+¡	inverted exclamation mark	bang|exclamation|inverted|mark|point	倒驚嘆號	倒置|驚嘆號|驚訝	倒置的感叹号	倒置|惊叹号|感叹|感叹号|猛撞
+¢	cent		分		美分	
+£	pound	currency|EGP|GBP	英鎊符號	英國|英鎊|貨幣	英镑符号	英镑|货币|镑
+¤	Unknown Currency		未知貨幣		未知货币	
+¥	yen	CNY|currency|JPY|yuan	日幣符號	日圓|日幣|日本|貨幣	元符号	中国|人民币|元|日元|日本|货币
+§	section	paragraph|part|silcrow	分節符號	段落|部分|章節	章节符号	双S|段落|部分|章节
+¨	diaeresis	tréma|umlaut	分音符	元音變化符	分音符号	元音变音|分音符
+«	left guillemet	angle|brackets|carets|chevron|guillemet|left|quote	左書名號	左|括號|角形	左燕尾号	尾巴|左|引用|方框|燕子|角
+¬	negation	not	非	否定	非	否
+°	degree	hour|proof	度	度數|度時|酒精度	度	度数|时角|标准酒精度
+±	plus-minus		正負號	加減	正负	
+²	superscript two	squared|superscript|two	上標數字 2	2|上標|平方	上标2	2|上标|平方
+³	superscript three	cubed|superscript|three	上標數字 3	3|上標|立方	上标3	3|上标|立方
+´	acute accent	accent|acute|tone	尖音符	銳音符|音符	重音符号	尖锐|语调
+µ	micro sign	measure|micro|sign	微米符號	測量	微符号	度量
+¶	paragraph mark	alinea|mark|paragraph|paraph|pilcrow	段落標記	標記|段落|段落符號	段落标记	段落|段落符号
+·	middle dot	dot|interpunct|middle|middot	間隔號	中點|點	间隔号	中点|中间|点
+¹	superscript one	one|superscript	上標數字 1	1|上標	上标1	1|上标
+»	right guillemet	angle|brackets|carets|chevron|guillemet|quote|right	右書名號	右|括號|角形	右燕尾号	右|尾巴|引用|方框|燕子|角
+¿	inverted question mark	inverted|mark|question	倒問號	倒置|問號|疑問	倒置的问号	倒置|疑问|问号
+×	multiplication sign	multiplication|multiply|sign|times	乘號	乘|乘法	乘号	乘以|乘法|乘积|倍数
+÷	division sign	divide|division|obelus|sign	除法符號	除|除法|除號	除号	商数|除以|除商|除法
+֏	Armenian Dram		亞美尼亞德拉姆		亚美尼亚德拉姆	
+؋	Afghan Afghani		阿富汗尼		阿富汗尼	
+،	arabic comma	arabic|comma	阿拉伯逗號	逗號|阿拉伯	阿拉伯文逗号	逗号|阿拉伯
+؛	arabic semicolon	arabic|semi-colon|semicolon	阿拉伯冒號	冒號|阿拉伯	阿拉伯文分号	分号|阿拉伯
+؟	arabic question mark	arabic|mark|question	阿拉伯問號	問號|疑問|阿拉伯	阿拉伯文问号	疑问|问号|阿拉伯
+৳	Bangladeshi Taka		孟加拉塔卡		孟加拉塔卡	
+฿	Thai Baht		泰銖		泰铢	
+៛	Cambodian Riel		柬埔寨瑞爾		柬埔寨瑞尔	
+‐	hyphen	dash	連字符	破折號|連字號	连字符	横线
+–	en dash	dash|en	連接號	標點	连接号	横线|短划线
+—	em dash	dash|em	破折號	標點	破折号	横线|长划线
+―	horizontal bar	bar|dash|horizontal|line	橫線	橫槓|破折號	横条	条形|横线|线条
+‘	left apostrophe	apostrophe|left|quote|single|smart	左單引號	單引號|引號|撇號|智慧引號	左撇号	单引号|引号|撇号|花引号
+’	right apostrophe	apostrophe|quote|right|single|smart	右單引號	單引號|引號|撇號|智慧引號	右撇号	单引号|引号|撇号|花引号
+‚	low right apostrophe	apostrophe|low|quote|right	半形逗號	撇號|逗號	低右撇号	低引号|引号|撇号
+“	left quotation mark	double|left|mark|quotation|quote|smart	左雙引號	引號|智慧引號|雙引號	左双引号	双引号|引号|引用|花引用
+”	right quotation mark	double|mark|quotation|quote|right|smart	右雙引號	引號|智慧引號|雙引號	右双引号	双引号|引号|引用|花引号
+„	low right quotation mark	double|low|mark|quotation|quote|right|smart	右低雙引號	低雙引號|引號|智慧引號|雙引號	低右双引号	低引号|双引号|引号|引用|花引号
+†	dagger sign	dagger|obelisk|obelus|sign	劍標	短劍號	剑号	剑|十字架
+‡	double dagger sign	dagger|double|obelisk|obelus|sign	雙劍標	劍標|短劍號|雙	双剑号	剑|剑号|双
+•	bullet	dot	項目號	點	项目符号	圆点
+…	ellipsis	dots|omission	省略號	點點點	省略号	多个圆点|省略
+‧	hyphenation point	dash|hyphen|hyphenation|point	連字點	連字號|間隔號	连字符点	点|破折号|连字符
+‰	per mille	mil|mille|per|permil|permille	千分率	千分比	千分号	千分比
+′	prime		角分符號		角分符号	
+″	double prime	double|prime	角秒符號	角分符號	角秒符号	
+‴	triple prime	prime|triple	三上標	角分符號	三撇	
+‸	caret		脱字符		脱字符	
+※	reference mark	mark|reference	參照標記	參照|參照符號	参考标记	
+‽	interrobang	interabang	疑問驚歎號		疑问惊叹号	
+‾	overline	overstrike|vinculum	頂線		上划线	
+⁂	asterism	dinkus|stars	星群符號		星群	
+⁄	fraction slash	fraction|slash|stroke|virgule	分數斜線		分数斜线	
+⁻	superscript minus	minus|superscript	上標負數	上標|負數	上标减号	上标|减号
+₡	Costa Rican Colón		哥斯大黎加科朗		哥斯达黎加科朗	
+₢	cruzeiro	BRB|currency	克魯塞羅		克鲁赛罗	
+₣	french franc	currency|franc|french	法國法郎		法国法郎	
+₤	lira	currency	里拉		里拉	
+₥	mill	mil	密爾		密尔	
+₦	Nigerian Naira		奈及利亞奈拉		尼日利亚奈拉	
+₧	Spanish Peseta		西班牙陪士特		西班牙比塞塔	
+₨	rupee	currency	盧比		卢比	
+₩	won	KPW|KRW	韓元	韓圓	韩元	朝鲜元
+₪	Israeli New Shekel		以色列新謝克爾		以色列新谢克尔	
+₫	Vietnamese Dong		越南盾		越南盾	
+€	euro	currency|EUR	歐元符號	歐元|歐洲|貨幣	欧元符号	欧元|欧元区|欧洲|货币
+₭	Laotian Kip		寮國基普		老挝基普	
+₮	Mongolian Tugrik		蒙古圖格里克		蒙古图格里克	
+₰	german penny	currency|german|penny|pfennig	德國便士		德国便士	
+₱	peso		比索	披索	比索	
+₲	Paraguayan Guarani		巴拉圭瓜拉尼		巴拉圭瓜拉尼	
+₳	austral	ARA|currency	奧斯特拉爾		奥斯特拉尔	
+₴	Ukrainian Hryvnia		烏克蘭格里夫納		乌克兰格里夫纳	
+₵	Ghanaian Cedi		迦納塞地		加纳塞地	
+₶	livre tournois	currency|livre|tournois	圖爾里弗爾		里弗尔	
+₷	spesmilo	currency	斯貝斯米羅		斯佩斯米洛	
+₸	Kazakhstani Tenge		哈薩克堅戈		哈萨克斯坦坚戈	
+₹	indian rupee	currency|indian|rupee	印度盧比	盧比|貨幣	印度卢比符号	卢比|印度卢比|货币
+₺	Turkish Lira		土耳其里拉		土耳其里拉	
+₼	Azerbaijani Manat		亞塞拜然馬納特		阿塞拜疆马纳特	
+₽	ruble	currency	盧布	貨幣	卢布符号	俄罗斯|俄罗斯卢布|卢布|货币
+₾	Georgian Lari		喬治亞拉里		格鲁吉亚拉里	
+₿	bitcoin	BTC	比特幣		比特币	BTC
+℗	sound recording copyright	copyright|recording|sound	錄音著作權	著作權|錄音	录音版权	录音|版权|音频
+←	left-pointing arrow	arrow|left|left-pointing	朝左箭頭	朝左|箭頭	向左的箭头	左|箭头
+↑	up-pointing arrow	arrow|up|up-pointing	朝上箭頭	朝上|箭頭	向上的箭头	上|箭头
+→	right-pointing arrow	arrow|right|right-pointing	朝右箭頭	朝右|箭頭	向右的箭头	右|箭头
+↓	down-pointing arrow	arrow|down|down-pointing	朝下箭頭	朝下|箭頭	向下的箭头	下|箭头
+↚	leftwards arrow stroke	arrow|leftwards|stroke	帶有刪除線的向左箭頭		带删除线的向左箭头	
+↛	rightwards arrow stroke	arrow|rightwards|stroke	帶有刪除線的向右箭頭		带删除线的向右箭头	
+↜	leftwards wave arrow	arrow|leftwards|wave	向左波浪箭頭		向左波浪箭头	
+↝	rightwards wave arrow	arrow|rightwards|wave	向右波浪箭頭		向右波浪箭头	
+↞	leftwards two headed arrow	arrow|headed|leftwards|two	向左雙頭箭頭		向左双头箭头	
+↟	upwards two headed arrow	arrow|headed|two|upwards	向上雙頭箭頭		向上双头箭头	
+↠	rightwards two headed arrow	arrow|headed|rightwards|two	向右雙頭箭頭		向右双头箭头	
+↡	downwards two headed arrow	arrow|downwards|headed|two	向下雙頭箭頭		向下双头箭头	
+↢	leftwards arrow tail	arrow|leftwards|tail	帶有尾巴的向左箭頭		带尾的向左箭头	
+↣	rightwards arrow tail	arrow|rightwards|tail	帶有尾巴的向右箭頭		带尾的向右箭头	
+↤	leftwards arrow from bar	arrow|bar|from|leftwards	尾部帶槓的向左箭頭		尾部带杠的向左箭头	
+↥	upwards arrow from bar	arrow|bar|from|upwards	尾部帶槓的向上箭頭		尾部带杠的向上箭头	
+↦	rightwards arrow from bar	arrow|bar|from|rightwards	尾部帶槓的向右箭頭		尾部带杠的向右箭头	
+↧	downwards arrow from bar	arrow|bar|downwards|from	尾部帶槓的向下箭頭		尾部带杠的向下箭头	
+↨	up down arrow with base	arrow|base|down|up|with	處於基線的上下箭頭		带底边的上下箭头	
+↫	leftwards arrow loop	arrow|leftwards|loop	尾部帶環的向左箭頭		尾部带环的向左箭头	
+↬	rightwards arrow loop	arrow|loop|rightwards	尾部帶環的向右箭頭		尾部带环的向右箭头	
+↭	left right wave arrow	arrow|left|right|wave	左右波浪箭頭		左右波浪箭头	
+↮	left right arrow stroke	arrow|left|right|stroke	帶有刪除線的左右箭頭		带删除线的左右箭头	
+↯	downwards zigzag arrow	arrow|downwards|zigzag	向下鋸齒形箭頭		向下锯齿形箭头	
+↰	upwards arrow tip leftwards	arrow|leftwards|tip|upwards	頭朝左的向上箭頭		头朝左的向上箭头	
+↱	upwards arrow tip rightwards	arrow|rightwards|tip|upwards	頭朝右的向上箭頭		头朝右的向上箭头	
+↲	downwards arrow tip leftwards	arrow|downwards|leftwards|tip	頭朝左的向下箭頭		头朝左的向下箭头	
+↳	downwards arrow tip rightwards	arrow|downwards|rightwards|tip	頭朝右的向下箭頭		头朝右的向下箭头	
+↴	rightwards arrow corner downwards	arrow|corner|downwards|rightwards	角朝下的向右箭頭		下拐的向右箭头	
+↵	downwards arrow corner leftwards	arrow|corner|downwards|leftwards	角朝左的向下箭頭		左拐的向下箭头	
+↶	anticlockwise top semicircle arrow	anticlockwise|arrow|semicircle|top	逆時針上半圓箭頭		逆时针上半圆箭头	
+↷	clockwise top semicircle arrow	arrow|clockwise|semicircle|top	順時針上半圓箭頭		顺时针上半圆箭头	
+↸	north west arrow long bar	arrow|bar|long|north|west	指向長槓的西北箭頭		指向长杠的西北箭头	
+↹	leftwards over rightwards arrow bars	arrow|bar|bars|leftwards|over|rightwards	頭部帶槓的向左箭頭在上，頭部帶槓的向右箭頭在下		上面是头带杠的向左箭头，下面是头带杠的向右箭头	
+↺	anticlockwise open circle arrow	anticlockwise|arrow|circle|open	逆時針開口循環箭頭		逆时针开口圆箭头	
+↻	clockwise open circle arrow	arrow|circle|clockwise|open	順時針開口循環箭頭		顺时针开口圆箭头	
+↼	leftwards harpoon barb upwards	barb|harpoon|leftwards|upwards	倒鉤在上的向左魚叉		倒钩在上的向左鱼叉	
+↽	leftwards harpoon barb downwards	barb|downwards|harpoon|leftwards	倒鉤在下的向左魚叉		倒钩在下的向左鱼叉	
+↾	upwards harpoon barb rightwards	barb|harpoon|rightwards|upwards	倒鉤在右的向上魚叉		倒钩在右的向上鱼叉	
+↿	upwards harpoon barb leftwards	barb|harpoon|leftwards|upwards	倒鉤在左的向上魚叉		倒钩在左的向上鱼叉	
+⇀	rightwards harpoon barb upwards	barb|harpoon|rightwards|upwards	倒鉤在上的向右魚叉		倒钩在上的向右鱼叉	
+⇁	rightwards harpoon barb downwards	barb|downwards|harpoon|rightwards	倒鉤在下的向右魚叉		倒钩在下的向右鱼叉	
+⇂	downwards harpoon barb rightwards	barb|downwards|harpoon|rightwards	倒鉤在右的向下魚叉		倒钩在右的向下鱼叉	
+⇃	downwards harpoon barb leftwards	barb|downwards|harpoon|leftwards	倒鉤在左的向下魚叉		倒钩在左的向下鱼叉	
+⇄	rightwards arrow over leftwards arrow	arrow|leftwards|over|rightwards	向右箭頭在上，向左箭頭在下		上面是向右箭头，下面是向左箭头	
+⇅	up-pointing and down-pointing arrows	and|arrow|arrows|down|down-pointing|up|up-pointing	上下並列箭頭	朝上|朝下|箭頭	左上右下两个箭头	上|下|箭头
+⇆	left-pointing over right-pointing arrows	arrow|arrows|left|left-pointing|over|right|right-pointing	左右相疊箭頭	右|左|箭頭	上左下右两个箭头	右|左|箭头
+⇇	leftwards paired arrows	arrows|leftwards|paired	兩個向左箭頭		两个向左箭头	
+⇈	upwards paired arrows	arrows|paired|upwards	兩個向上箭頭		两个向上箭头	
+⇉	rightwards paired arrows	arrows|paired|rightwards	兩個向右箭頭		两个向右箭头	
+⇊	downwards paired arrows	arrows|downwards|paired	兩個向下箭頭		两个向下箭头	
+⇋	leftwards harpoon over rightwards harpoon	harpoon|leftwards|over|rightwards	向左魚叉在上，向右魚叉在下		上面是向左鱼叉，下面是向右鱼叉	
+⇌	rightwards harpoon over leftwards harpoon	harpoon|leftwards|over|rightwards	向右魚叉在上，向左魚叉在下		上面是向右鱼叉，下面是向左鱼叉	
+⇍	leftwards double arrow stroke	arrow|double|leftwards|stroke	帶有刪除線的向左雙箭頭		带删除线的向左双箭头	
+⇎	left right double arrow stroke	arrow|double|left|right|stroke	帶有刪除線的左右雙箭頭		带删除线的左右双箭头	
+⇏	rightwards double arrow stroke	arrow|double|rightwards|stroke	帶有刪除線的向右雙箭頭		带删除线的向右双箭头	
+⇐	leftwards double arrow	arrow|double|leftwards	向左雙箭頭		向左双箭头	
+⇑	upwards double arrow	arrow|double|upwards	向上雙箭頭		向上双箭头	
+⇒	rightwards double arrow	arrow|double|rightwards	向右雙箭頭		向右双箭头	
+⇓	downwards double arrow	arrow|double|downwards	向下雙箭頭		向下双箭头	
+⇔	left right double arrow	arrow|double|left|right	左右雙箭頭		左右双箭头	
+⇖	north west double arrow	arrow|double|north|west	西北雙箭頭		西北双箭头	
+⇗	north east double arrow	arrow|double|east|north	東北雙箭頭		东北双箭头	
+⇘	south east double arrow	arrow|double|east|south	東南雙箭頭		东南双箭头	
+⇙	south west double arrow	arrow|double|south|west	西南雙箭頭		西南双箭头	
+⇚	leftwards triple arrow	arrow|leftwards|triple	向左三箭頭		向左三箭头	
+⇛	rightwards triple arrow	arrow|rightwards|triple	向右三箭頭		向右三箭头	
+⇜	leftwards squiggle arrow	arrow|leftwards|squiggle	向左曲線箭頭		向左曲线箭头	
+⇝	rightwards squiggle arrow	arrow|rightwards|squiggle	向右曲線箭頭		向右曲线箭头	
+⇞	upwards arrow double stroke	arrow|double|stroke|upwards	帶有雙刪除線的向上箭頭		带双删除线的向上箭头	
+⇟	downwards arrow double stroke	arrow|double|downwards|stroke	帶有雙刪除線的向下箭頭		带双删除线的向下箭头	
+⇠	leftwards dashed arrow	arrow|dashed|leftwards	向左虛線箭頭		向左虚线箭头	
+⇡	upwards dashed arrow	arrow|dashed|upwards	向上虛線箭頭		向上虚线箭头	
+⇢	rightwards dashed arrow	arrow|dashed|rightwards	向右虛線箭頭		向右虚线箭头	
+⇣	downwards dashed arrow	arrow|dashed|downwards	向下虛線箭頭		向下虚线箭头	
+⇤	leftwards arrow bar	arrow|bar|leftwards	頭部帶槓的向左箭頭		头带杠的向左箭头	
+⇥	rightwards arrow bar	arrow|bar|rightwards	頭部帶槓的向右箭頭		头带杠的向右箭头	
+⇦	leftwards hollow arrow	arrow|hollow|leftwards	向左空心箭頭		向左空心箭头	
+⇧	upwards hollow arrow	arrow|hollow|upwards	向上空心箭頭		向上空心箭头	
+⇨	rightwards hollow arrow	arrow|hollow|rightwards	向右空心箭頭		向右空心箭头	
+⇩	downwards hollow arrow	arrow|downwards|hollow	向下空心箭頭		向下空心箭头	
+⇪	upwards hollow arrow from bar	arrow|bar|from|hollow|upwards	尾部帶槓的向上空心箭頭		尾部带杠的向上空心箭头	
+⇵	downwards arrow leftwards upwards arrow	arrow|downwards|leftwards|upwards	向下箭頭在左，向上箭頭在右		左边是向下箭头，右边是向上箭头	
+∀	for all	all|any|for|given|universal	全稱量詞符號		全称量词	
+∂	partial differential	differential|partial	偏導數符號		偏微分	
+∃	there exists	exists|there	存在量詞符號		存在量词	
+∅	empty set	empty|mathematics|operator|set	空集		空集	
+∆	increment	triangle	遞增	三角形	增量	三角
+∇	nabla	triangle	遞減	倒三角形	向量微分	倒三角
+∈	element of	contains|element|membership|of|set	屬於	包含	是...的元素	元素|包含|成员|集合
+∉	not an element	an|element|not	不屬於		不属于	
+∋	contains as member	as|contains|element|member	包含		包含为成员	
+∎	end proof	end|halmos|proof|q.e.d.|qed|tombstone	證明完畢		证明完毕	
+∏	n-ary product	logic|n-ary|product	n 元求積		N元乘积	
+∑	n-ary summation	mathematics|n-ary|summation	n 元求和		N元求和	
+−	minus sign	minus|sign|subtract	減號	減|減法	减号	减|减去
+∓	minus-or-plus	plus-minus	負正號		减或加	
+∕	division slash	division|slash|stroke|virgule	除法斜線		除号斜线	
+∗	asterisk operator	asterisk|operator|star	星號運算子		星号运算符	
+∘	ring operator	composition|operator|ring	環運算子		环运算符	
+∙	bullet operator	bullet|operator	項目符號運算子		项目符号运算符	
+√	square root	radical|radix|root|square|surd	平方根	基數|根號	平方根	不尽根|开平方|开根|根号
+∝	proportional	proportionality	正比		成比例	
+∞	infinity sign	infinity|sign	無限符號	無限	无穷大符号	无穷大
+∟	right angle	angle|mathematics|right	直角		直角	
+∠	angle	acute	銳角		角	
+∣	divides	divisor	整除		整除	
+∥	parallel		平行		平行	
+∧	logical and	ac|and|atque|logical|wedge	邏輯且		逻辑与	
+∩	intersection	set	交集	集	交集	集|集合
+∪	union	collection|set	聯集	集	并集	集|集合
+∫	integral	calculus	積分		积分	
+∬	double integral	calculus|double|integral	雙重積分		二重积分	
+∮	contour integral	contour|integral	路徑積分		曲线积分	
+∴	therefore	logic	所以		所以	
+∵	because	logic	因為		因为	
+∶	ratio		比率		比率	
+∷	proportion	proportionality	比例		比例	
+∼	tilde operator	operator|tilde	波浪號		波浪号运算符	
+∽	reversed tilde	reversed|tilde	反向波浪號		反转波浪号	
+∾	inverted lazy s	inverted|lazy|s	逆向橫躺式 S		倒置躺倒s	
+≃	asymptotically equal	asymptote|asymptotically|equal|mathematics	漸近相等		渐近相等	
+≅	approximately equal	approximately|congruence|equal|equality|isomorphism|mathematics	約等於		近似相等	
+≈	almost equal	almost|approximate|approximation|equal	約略等於	等於|約略	约等于	大概|近似值
+≌	all equal	all|equal|equality|mathematics	全等於		全等	
+≒	approximately equal the image	approximately|equal|image|the	大約等於		约等于或近似于	
+≖	ring in equal	equal|equality|in|mathematics|ring	有環的等號		环等于	
+≠	not equal	equal|inequality|inequation|not	不等號	不等|不等於	不等于	不相等|不等
+≡	identical to	exact|identical|to|triple	全等	同餘|恆等	等同于	三线|相同|等于|等同
+≣	strictly equivalent	equality|equivalent|mathematics|strictly	完全相等		严格等价于	
+≤	less-than or equal	equal|equals|inequality|less-than|or	小於或等於	不等於|等於	小于等于	不等式|小于|相等|等于
+≥	greater-than or equal	equal|equals|greater-than|inequality|or	大於或等於	不等於|等於	大于等于	不等|大于|相等|等于
+≦	less-than over equal	equal|inequality|less-than|mathematics|over	小於在等於上		小于或等于	
+≧	greater-than over equal	equal|greater-than|inequality|mathematics|over	大於在等於上		大于或等于	
+≪	much less-than	inequality|less-than|mathematics|much	遠小於		远小于	
+≫	much greater-than	greater-than|inequality|mathematics|much	遠大於		远大于	
+≬	between		之間		介于	
+≮	not less-than	inequality|less-than|mathematics|not	不小於		不小于	
+≯	not greater-than	greater-than|inequality|mathematics|not	不大於		不大于	
+≳	greater-than equivalent	equivalent|greater-than|inequality|mathematics	大於等於		大于或等价于	
+≺	precedes	mathematics|operator|set	先行於		先于	
+≻	succeeds	mathematics|operator|set	後接於		后于	
+⊁	does not succeed	does|mathematics|not|operator|set|succeed	不後接於		不后于	
+⊂	subset of	of|set|subset	子集	集	是...的子集	子集|集合
+⊃	superset	mathematics|operator|set	母集		超集	
+⊆	subset equal	equal|subset	子集等於		子集或等于	
+⊇	superset equal	equal|equality|mathematics|superset	母集等於		超集或等于	
+⊕	circled plus	circled|plus	帶圓圈的加號		带圆圈加号	
+⊖	circled minus	circled|difference|erosion|minus|symmetric	帶圓圈的減號		带圆圈减号	
+⊗	circled times	circled|product|tensor|times	帶圓圈的乘號		带圆圈乘号	
+⊘	circled division slash	circled|division|division-like|mathematics|slash	帶圓圈的除號		带圆圈除号斜线	
+⊙	circled dot operator	circled|dot|operator|XNOR	帶圓圈的句點運算子		带圆圈点运算符	
+⊚	circled ring operator	circled|operator|ring	帶圓圈的環運算子		带圆圈环运算符	
+⊛	circled asterisk operator	asterisk|circled|operator	帶圓圈的星號運算子		带圆圈星号运算符	
+⊞	squared plus	addition-like|mathematics|plus|squared	帶方框加號		带方框加号	
+⊟	squared minus	mathematics|minus|squared|subtraction-like	帶方框減號		带方框减号	
+⊥	up tack	eet|falsum|tack|up	倒 T		上丁字	
+⊮	does not force	does|force|not	不強制		不强制	
+⊰	precedes under relation	mathematics|operator|precedes|relation|set|under	關係下先行於		关系上先于	
+⊱	succeeds under relation	mathematics|operator|relation|set|succeeds|under	關係下後接於		关系上后于	
+⊶	original		原點		原	
+⊹	hermitian conjugate matrix	conjugate|hermitian|mathematics|matrix|self-adjoint|square	赫密特共軛矩陣		厄米共轭矩阵	
+⊿	right triangle	mathematics|right|right-angled|triangle	直角三角形		直角三角形	
+⋁	n-ary logical or	disjunction|logic|logical|n-ary|or	n 元邏輯或		N元逻辑或	
+⋂	n-ary intersection	intersection|mathematics|n-ary|operator|set	n 元交集		N元交集	
+⋃	n-ary union	mathematics|n-ary|operator|set|union	n 元聯集		N元并集	
+⋅	dot operator	dot|operator	句點運算子		点运算符	
+⋆	star operator	operator|star	星運算子		星运算符	
+⋈	natural join	binary|bowtie|join|natural|operator	自然合併		自然连接	
+⋒	double intersection	double|intersection|mathematics|operator|set	雙交集		双交集	
+⋘	very much less-than	inequality|less-than|mathematics|much|very	遠遠小於		极小于	
+⋙	very much greater-than	greater-than|inequality|mathematics|much|very	遠遠大於		极大于	
+⋭	does not contain as normal subgroup equal	as|contain|does|equal|group|mathematics|normal|not|subgroup|theory	不包含為正規子群或等於		不属于正规子群或等于	
+⋮	vertical ellipsis	ellipsis|mathematics|vertical	垂直省略號		垂直省略号	
+⋯	midline horizontal ellipsis	ellipsis|horizontal|midline	中線水平省略號		中线水平省略号	
+⋰	up right diagonal ellipsis	diagonal|ellipsis|mathematics|right|up	右上對角省略號		右上对角线省略号	
+⋱	down right diagonal ellipsis	diagonal|down|ellipsis|mathematics|right	右下對角省略號		右下对角线省略号	
+■	filled square	filled|square	實心方塊		实心方形	
+□	hollow square	hollow|square	空心方塊		空心方形	
+▢	hollow square with rounded corners	corners|hollow|rounded|square|with	空心圓角方塊		带圆角的空心方形	
+▣	hollow square containing filled square	containing|filled|hollow|square	空心方塊內有實心方塊		包含实心方形的空心方形	
+▤	square with horizontal fill	fill|horizontal|square|with	方塊內填滿水平線		带水平填充符的方形	
+▥	square with vertical fill	fill|square|vertical|with	方塊內填滿垂直線		带垂直填充符的方形	
+▦	square orthogonal crosshatch fill	crosshatch|fill|orthogonal|square	方塊內填滿交叉線		带直角交叉填充符的方形	
+▧	square upper left lower right fill	fill|left|lower|right|square|upper	方塊內填滿左上右下斜線		带左上到右下填充符的方形	
+▨	square upper right lower left fill	fill|left|lower|right|square|upper	方塊內填滿右上左下斜線		带右上到左下填充符的方形	
+▩	square diagonal crosshatch fill	crosshatch|diagonal|fill|square	方塊內填滿對角交叉線		带对角线交叉填充符的方形	
+▬	filled rectangle	filled|rectangle	實心矩形		实心矩形	
+▭	hollow rectangle	hollow|rectangle	空心矩形		空心矩形	
+▮	filled vertical rectangle	filled|rectangle|vertical	實心垂直矩形		实心垂直矩形	
+▰	filled parallelogram	filled|parallelogram	實心平行四邊形		实心平行四边形	
+▲	filled up-pointing triangle	arrow|filled|triangle|up|up-pointing	實心正三角形	三角形|實心|朝上|箭頭	实心向上三角	三角|上|填充|实心|实心向上箭头|箭头
+△	hollow up-pointing triangle	hollow|triangle|up-pointing	空心正三角形		空心向上三角	
+▴	filled up-pointing small triangle	filled|small|triangle|up-pointing	小實心正三角形		实心向上小型三角	
+▵	hollow up-pointing small triangle	hollow|small|triangle|up-pointing	小空心正三角形		空心向上小型三角	
+▷	hollow right-pointing triangle	hollow|right-pointing|triangle	空心右指三角形		空心向右三角	
+▸	filled right-pointing small triangle	filled|right-pointing|small|triangle	實心右指小三角形		实心向右小型三角	
+▹	hollow right-pointing small triangle	hollow|right-pointing|small|triangle	空心右指小三角形		空心向右小型三角	
+►	filled right-pointing pointer	filled|pointer|right-pointing	實心右指指標		实心向右指针	
+▻	hollow right-pointing pointer	hollow|pointer|right-pointing	空心右指指標		空心向右指针	
+▼	filled down-pointing triangle	arrow|down|down-pointing|filled|triangle	實心倒三角形	三角形|實心|朝下|箭頭	实心向下三角	三角|下|填充|实心|实心向下箭头|箭头
+▽	hollow down-pointing triangle	down-pointing|hollow|triangle	空心倒三角形		空心向下三角	
+▾	filled down-pointing small triangle	down-pointing|filled|small|triangle	小實心倒三角形		实心向下小型三角	
+▿	hollow down-pointing small triangle	down-pointing|hollow|small|triangle	小空心倒三角形		空心向下小型三角	
+◁	hollow left-pointing triangle	hollow|left-pointing|triangle	空心左指三角形		空心向左三角	
+◂	filled left-pointing small triangle	filled|left-pointing|small|triangle	實心左指小三角形		实心向左小型三角	
+◃	hollow left-pointing small triangle	hollow|left-pointing|small|triangle	空心左指小三角形		空心向左小型三角	
+◄	filled left-pointing pointer	filled|left-pointing|pointer	實心左指指標		实心向左指针	
+◅	hollow left-pointing pointer	hollow|left-pointing|pointer	空心左指指標		空心向左指针	
+◆	filled diamond	diamond|filled	實心菱形		实心菱形	
+◇	hollow diamond	diamond|hollow	空心菱形		空心菱形	
+◈	hollow diamond containing filled diamond	containing|diamond|filled|hollow	空心菱形內有實心菱形		包含实心菱形的空心菱形	
+◉	hollow circle containing filled circle	cicles|circle|circled|concentric|containing|dot|filled|fisheye|hollow|ward	空心圓內有實心圓		包含实心圆圈的空心圆圈	
+◊	lozenge	diamond|rhombus	菱形	鑽石	菱形	扑克|方块|钻石
+○	hollow circle	circle|hollow|ring	空心圓	圓|環	空心圆	圆|环形
+◌	dotted circle	circle|dotted	點線圓形		虚线圆圈	
+◍	circle with vertical fill	circle|fill|vertical|with	圓形內填滿垂直線		带垂直填充符的圆圈	
+◎	concentric circles	circle|circles|concentric|double|target	同心圓		同心圆	
+●	filled circle	circle|filled	實心圓	圓	实心圆	圆
+◐	circle left half filled	circle|filled|half|left	圓形左半填滿		左半实心的圆圈	
+◑	circle right half filled	circle|filled|half|right	圓形右半填滿		右半实心的圆圈	
+◒	circle lower half filled	circle|filled|half|lower	圓形下半填滿		下半实心的圆圈	
+◓	circle upper half filled	circle|filled|half|upper	圓形上半填滿		上半实心的圆圈	
+◔	circle upper right quadrant filled	circle|filled|quadrant|right|upper	圓形右上象限填滿		右上象限实心的圆圈	
+◕	circle all but upper left quadrant filled	all|but|circle|filled|left|quadrant|upper	圓形左上象限未填滿		除左上象限外均实心的圆圈	
+◖	left half filled circle	circle|filled|half|left	實心左半圓		左半实心圆圈	
+◗	right half filled circle	circle|filled|half|right	實心右半圓		右半实心圆圈	
+◘	inverse bullet	bullet|inverse	反白項目符號		反白项目符号	
+◙	filled square containing hollow circle	circle|containing|filled|hollow|inverse|square	實心方塊內有空心圓		包含空心圆圈的实心方形	
+◜	upper left quadrant circular arc	arc|circular|left|quadrant|upper	左上象限圓弧		左上象限圆弧	
+◝	upper right quadrant circular arc	arc|circular|quadrant|right|upper	右上象限圓弧		右上象限圆弧	
+◞	lower right quadrant circular arc	arc|circular|lower|quadrant|right	右下象限圓弧		右下象限圆弧	
+◟	lower left quadrant circular arc	arc|circular|left|lower|quadrant	左下象限圓弧		左下象限圆弧	
+◠	upper half circle	circle|half|upper	上半圓		上半圆圈	
+◡	lower half circle	circle|half|lower	下半圓		下半圆圈	
+◢	filled lower right triangle	filled|lower|right|triangle	實心右下三角形		实心右下三角	
+◣	filled lower left triangle	filled|left|lower|triangle	實心左下三角形		实心左下三角	
+◤	filled upper left triangle	filled|left|triangle|upper	實心左上三角形		实心左上三角	
+◥	filled upper right triangle	filled|right|triangle|upper	實心右上三角形		实心右上三角	
+◦	hollow bullet	bullet|hollow	空心項目符號		空心项目符号	
+◯	large hollow circle	circle|hollow|large|ring	大空心圓	圓|環	大空心圆	圆|环形
+◳	hollow square upper right quadrant	hollow|quadrant|right|square|upper	空心方塊右上象限		右上象限空心方形	
+◷	hollow circle with upper right quadrant	circle|hollow|quadrant|right|upper|with	空心圓右上象限		右上象限空心圆圈	
+◿	lower right triangle	lower|right|triangle	右下三角形		右下三角	
+♪	eighth note	eighth|music|note	八分音符	音樂|音符	八分音符	音乐|音符
+♭	flat	bemolle|music|note	降記號	符號|音樂	降音符	降号|音乐|音符
+♯	sharp	dièse|diesis|music|note	升記號	符號|音樂	升号	升音符|音乐|音符
+⨧	plus subscript two	plus|subscript|two	加號下標 2		带下标二的加号	
+⨯	vector cross product	cross|product|vector	向量外積		向量叉乘	
+⨼	interior product	interior|product	內積		内积	
+⩣	logical or double underbar	double|logical|or|underbar	邏輯或雙下横線		带双底线的逻辑或	
+⩽	less-than slanted equal	equal|less-than|slanted	小於斜等號		小于或倾斜等于	
+⪍	less-than above similar equal	above|equal|less-than|similar	小於在相似等上方		小于或相似	
+⪚	double-line equal greater-than	double-line|equal|greater-than|inequality|mathematics	雙線等號大於		双线等于或大于	
+⪺	succeeds above not almost equal	above|almost|equal|not|succeeds	後接於在幾乎不等於上		后于或不约等于	
+、	ideographic comma	comma|ideographic	頓號	表意	顿号	
+。	ideographic period	full|ideographic|period|stop	句號	全形句號|句點	表意文字的句号	句号|表意文字
+〈	open angle bracket	angle|bracket|brackets|chevron|diamond|open|pointy|tuple	左單書名號	單書名號|書名號|篇名號	左尖括号	人字形标记|元组|尖括号|尖角括号|括号|菱形括号
+〉	close angle bracket	angle|bracket|brackets|chevron|close|diamond|pointy|tuple	右單書名號	單書名號|書名號|篇名號	右尖括号	人字形标记|元组|尖括号|尖角括号|括号|菱形括号
+《	open double angle bracket	angle|bracket|double|open	左雙書名號	書名號|雙書名號	左双尖括号	双尖括号|括号
+》	close double angle bracket	angle|bracket|close|double	右雙書名號	書名號|雙書名號	右双尖括号	双尖括号|括号
+「	open corner bracket	bracket|corner|open	上引號	引號	左角括号	方括号|角括号
+」	close corner bracket	bracket|close|corner	下引號	引號	右角括号	方括号|角括号
+『	open hollow corner bracket	bracket|corner|hollow|open	雙上引號	雙引號	左中空角括号	中空角括号|方括号
+』	close hollow corner bracket	bracket|close|corner|hollow	雙下引號	雙引號	右中空角括号	中空角括号|方括号
+【	open black lens bracket	black|bracket|lens|lenticular|open	左方頭括號	夾注號|實心方頭括號|方頭括號	左黑色透镜状方括号	方括号|荚状方括号|透镜状方括号
+】	close black lens bracket	black|bracket|close|lens|lenticular	右方頭括號	夾注號|實心方頭括號|方頭括號	右黑色透镜状方括号	方括号|荚状方括号|透镜状方括号
+〔	open tortoise shell bracket	bracket|open|shell|tortoise	左六角括號	六角括弧|六角括號	左六角括号	六角括号|括号|龟壳形括号
+〕	close tortoise shell bracket	bracket|close|shell|tortoise	右六角括號	六角括弧|六角括號|左六角括號	右六角括号	六角括号|括号|龟壳形括号
+〖	open hollow lens bracket	bracket|hollow|lens|lenticular|open	左空心方頭括號	括號|方頭括號|空心方頭括號	左中空透镜状方括号	中空荚状方括号|中空透镜状方括号|方括号
+〗	close hollow lens bracket	bracket|close|hollow|lens|lenticular	右空心方頭括號	括號|方頭括號|空心方頭括號	右中空透镜状方括号	中空荚状方括号|中空透镜状方括号|方括号
+・	katakana middle dot	dot|dots|interpunct|katakana|middle|middot	片假名中點	中點|片假名|間隔號	片假名间隔号	圆点|片假名|间隔号
+﷼	rial	currency	里亞爾		里亚尔	
+🏻	light skin tone	1–2|light|skin|tone|type	白皮膚	膚色	较浅肤色	肤色
+🏼	medium-light skin tone	3|medium-light|skin|tone|type	黃皮膚	膚色	中等-浅肤色	肤色
+🏽	medium skin tone	4|medium|skin|tone|type	淺褐皮膚	膚色	中等肤色	肤色
+🏾	medium-dark skin tone	5|medium-dark|skin|tone|type	褐皮膚	膚色	中等-深肤色	肤色
+🏿	dark skin tone	6|dark|skin|tone|type	黑皮膚	膚色	较深肤色	肤色
+🛙	lighthouse	beacon|enlightenment|guidance|hope|light|maritime|navigation|sea|signal	燈塔	光明|導航|希望|指引|啟蒙|海事|海洋|訊號	灯塔	信号|信标|大海|导航|希望|引路|指引|海事|灯光|灯标|航海
+🦰	red hair	ginger|hair|red|redhead	紅髮	薑黃	红发	姜黄色
+🦱	curly hair	afro|curly|hair|ringlets	卷髮	圓蓬|捲髮|長捲髮	卷发	蓬松发|鬈发
+🦲	bald	chemotherapy|hair|hairless|no|shaven	禿頭	光頭|剃頭|化療|沒頭髮	秃顶	光头|化疗
+🦳	white hair	gray|hair|old|white	白髮	灰色|白色|老|頭髮	白发	头发|年老|灰色|白色
+🪋	meteor	apocalypse|falling|fireball|gravity|rock|space|star	隕星	墜落|太空|岩石|星星|末日|火球|重力	陨石	地心引力|坠落|天启|太空|星星|火球|石头|重力
+🪌	eraser	correction|delete|drawing|erase|error|mistake|remove|rub|undo|writing	橡皮擦	刪除|失誤|寫作|撤銷|擦拭|擦除|更正|移除|繪圖|錯誤	橡皮擦	删除|撤销|擦除|改正|移除|笔迹|绘图|错误
+🪍	net with handle	catch|collect|mesh|trap	帶柄的網子	捕捉|收集|網子|陷阱	抄网	捕捉|收集|网罗|诱捕
+🫌	monarch butterfly	caterpillar|change|fragile|hope|insect|metamorphosis|migration|transformation	帝王斑蝶	希望|昆蟲|毛毛蟲|脆弱|變化|變態|轉變|遷徙	帝王蝶	变化|希望|昆虫|毛毛虫|脆弱|蜕变|转变|迁徙
+🫝	pickle	brine|condiment|cucumber|ferment|gherkin|relish|trouble	醃黃瓜	佐料|小黃瓜|發酵|調味品|鹽水|麻煩|黃瓜	酸黄瓜	佐料|发酵|困境|小黄瓜|盐水|调味小菜|黄瓜
+🫫	cracking face	breaking|crumbling|masking|resilience|reveal|tension|transformation	裂開的臉	崩塌|掩蓋|揭開|破碎|緊張|變形|韌性	裂开	打破|掩饰|瓦解|紧张|蜕变|透露|韧性
+🫹	leftwards thumb sign	grip|left|neutral|point|that|this	拇指向左指	中立|左|握把|這|那|點	拇指左指	中性|四指握住|左侧|指向|这|那
+🫺	rightwards thumb sign	grip|neutral|point|right|that|this	拇指向右指	中立|右|握把|這|那|點	拇指右指	中性|右侧|四指握住|指向|这|那

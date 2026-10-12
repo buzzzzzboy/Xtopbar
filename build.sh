@@ -66,6 +66,8 @@ cp "build/${NAME}" "$APP/Contents/MacOS/${NAME}"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp "build/Xtopbar.icns" "$APP/Contents/Resources/Xtopbar.icns"
 cp Resources/Logo.png "$APP/Contents/Resources/Logo.png"
+cp Resources/Emoji.tsv "$APP/Contents/Resources/Emoji.tsv"
+cp Resources/SymbolNames.tsv "$APP/Contents/Resources/SymbolNames.tsv"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN" 2>/dev/null || true

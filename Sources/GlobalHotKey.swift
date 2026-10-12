@@ -9,6 +9,8 @@ struct HotKey: Codable, Equatable {
 
     /// 预设：⌥Space（同 Raycast）
     static let defaultSearch = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), display: "⌥Space")
+    /// 预设：⌃⌘E（E = Emoji）。系统自己的「表情與符號」是 ⌃⌘Space / 🌐E，不去抢
+    static let defaultEmoji = HotKey(keyCode: UInt32(kVK_ANSI_E), modifiers: UInt32(controlKey | cmdKey), display: "⌃⌘E")
 
     /// 录制：从按键事件取出快捷键。至少要带 ⌘ / ⌃ / ⌥ 之一（F 键除外），否则返回 nil
     init?(event: NSEvent) {
@@ -124,6 +126,8 @@ final class GlobalHotKeys {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             let id = hotKeyID.id
+            // ⌥Space 这类带 ⌥ 的快捷键：按键被系统拿走了，别让「连按两下 ⌥」当成点按
+            DoubleTapModifier.shared.cancel()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { GlobalHotKeys.shared.actions[id]?() }
             }

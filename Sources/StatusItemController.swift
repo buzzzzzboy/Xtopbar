@@ -63,6 +63,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if prefs.showStartButton {
             add(to: menu, title: "開始選單", action: #selector(openStartMenu))
         }
+        add(to: menu, title: "表情符號…", action: #selector(openEmojiPicker))
         add(to: menu, title: "設定…", action: #selector(openSettings), key: ",")
 
         // 有新版就把标题换成醒目的一行，点了直接弹更新框
@@ -143,6 +144,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func openStartMenu() {
         // 状态栏菜单还在收尾（模态跟踪刚结束），推到下一拍再弹，免得菜单一开就被当成"点外面"关掉
         DispatchQueue.main.async { [weak self] in self?.controller?.toggleStartMenu() }
+    }
+
+    @objc private func openEmojiPicker() {
+        // 同开始菜单：等状态栏菜单收完再弹，免得被当成"点外面"关掉
+        DispatchQueue.main.async { EmojiPickerController.shared.show() }
     }
 
     @objc private func openSettings() {

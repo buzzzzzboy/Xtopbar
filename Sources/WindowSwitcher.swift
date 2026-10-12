@@ -638,6 +638,8 @@ final class WindowSwitcherController {
 
     /// 第一次按下 ⌥Tab：列窗口、预选上一个（⌥⇧Tab 预选最后一个）、准备上屏
     private func activate(reverse: Bool) {
+        // Tab 被我们吞了，「连按两下 ⌥」的侦测看不到它，要主动告诉它这次 ⌥ 不算点按
+        DoubleTapModifier.shared.cancel()
         guard prefs.windowSwitcherEnabled else { return }
         if active {
             handle(.tab(reverse: reverse))

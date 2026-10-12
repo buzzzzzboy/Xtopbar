@@ -346,6 +346,19 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
 
+        Section("表情符號") {
+            LabeledContent("表情符號選擇器") {
+                HotKeyRecorder(key: $prefs.emojiHotKey)
+            }
+
+            Toggle("連按兩下 ⌥ 打開", isOn: $prefs.emojiDoubleOption)
+                .toggleStyle(.switch)
+
+            Text("在任何 App 裡按下快捷鍵，或快速連按兩下 ⌥（Option / Alt），彈出 Raycast 式的表情符號選擇器：打字搜尋（中英文都行），方向鍵選、↵ 直接貼進原來的 App，⌘↵ 只拷貝；Tab 切換分類、⌘⇧P 釘選，右鍵可選膚色。直接貼上需要「輔助使用」權限，沒有時 ↵ 只拷貝。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+
         Section("固定與隱藏的 App") {
             PinnedAppsRow(title: "固定到工作列", pins: $prefs.dockPins, reorderable: true)
             PinnedAppsRow(title: "固定到開始選單", pins: $prefs.startPins, reorderable: true)
