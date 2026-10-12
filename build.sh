@@ -22,7 +22,10 @@ fail_signing() {
   不会自动生成新证书，也不会退回 ad-hoc 签名 —— 那样签出来的 App
   在 macOS 看来是"另一个 App"，屏幕录制 / 辅助功能都要重新授权。
   · 在沙盒 / 别的会话里构建：改到能读 ~/Library/Keychains 的终端里跑
-  · 换了电脑：把原证书导出成 .p12，导入到 $KEYCHAIN
+  · 换了电脑 / 另一台电脑没这张证书：在有证书的那台跑
+      ./scripts/sync-signing-cert.sh export
+    把 .p12 搬过来后在这台跑
+      ./scripts/sync-signing-cert.sh import <文件.p12>
   · 第一次在这台机器上建证书：./scripts/make-signing-identity.sh，
     再用 EXPECTED_CERT_SHA1=新哈希 覆盖
 EOF
@@ -36,7 +39,7 @@ EOF
 # 与信任状态无关。
 security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null \
   | grep "\"$IDENTITY\"" | grep -q "$EXPECTED_CERT_SHA1" \
-  || fail_signing "keychain 里没有哈希为 $EXPECTED_CERT_SHA1 的「$IDENTITY」"
+  || fail_signing "keychain 里没有哈希为 $EXPECTED_CERT_SHA1 的「${IDENTITY}」"
 
 rm -rf "$APP" build
 mkdir -p build
