@@ -41,6 +41,7 @@ final class StartMenuModel: ObservableObject {
             guard seen.insert(id).inserted else { return nil }
             return library.app(bundleID: id) ?? library.settingsPanes.first { $0.id == id }
         }
+        .filter { !library.isHiddenFromSearch($0) }
         .prefix(8)
         .map { $0 }
     }

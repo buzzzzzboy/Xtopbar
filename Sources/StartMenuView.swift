@@ -698,7 +698,10 @@ struct StartMenuView: View {
 
     private func runningSubtitle(_ app: LibraryApp) -> String? {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
-        return running.isEmpty ? nil : "正在執行"
+        // 开了「在搜尋結果中顯示隱藏的 App」时才会列出隐藏的，标一下免得以为隐藏没生效
+        let hidden = prefs.searchHiddenApps[app.bundleID] != nil
+        let parts = [running.isEmpty ? nil : "正在執行", hidden ? "已隱藏" : nil].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     // MARK: - 小部件
@@ -760,6 +763,11 @@ struct StartMenuView: View {
             }
         }
         Divider()
+        if prefs.searchHiddenApps[app.bundleID] != nil {
+            Button("在搜尋結果中顯示") { prefs.searchHiddenApps.removeValue(forKey: app.bundleID) }
+        } else {
+            Button("從搜尋結果隱藏") { prefs.searchHiddenApps[app.bundleID] = app.name }
+        }
         Button("在 Finder 中顯示") { NSWorkspace.shared.activateFileViewerSelecting([app.url]) }
     }
 }
