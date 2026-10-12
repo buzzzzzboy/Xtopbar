@@ -40,6 +40,12 @@ VERSION="${VERSION#v}"
 TAG="v$VERSION"
 TITLE="${3:-Xtopbar $TAG}"
 
+# ── 0. 先确认这台有正式证书：没有就在改版本号之前停下 ──────────────────────
+#    （build.sh 平常会自动改用本机证书签开发版；发版设 XTOPBAR_RELEASE=1，只认正式证书，
+#    不然用户更新完屏幕录制 / 辅助功能都得重新授权）
+export XTOPBAR_RELEASE=1
+./build.sh --check-signing
+
 # ── 1. 写版本号（Info.plist 是唯一的版本来源） ────────────────────────────
 CURRENT_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"

@@ -179,6 +179,7 @@ Raycast 式的表情符號選擇器，分類同 macOS「字元檢視器」。在
 
 ```bash
 ./build.sh          # 生成圖示 + 雙架構（arm64 / x86_64）編譯 + 自簽名 + 驗證
+                    # 沒有正式簽名憑證的電腦會自動改用本機憑證簽開發版（發版仍只認正式憑證，見 RELEASING.md）
 open Xtopbar.app
 ```
 
