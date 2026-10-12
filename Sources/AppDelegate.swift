@@ -56,6 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // 全局快捷键（预设 ⌥Space）：直接打开开始菜单的搜索页。设置里改了就重新注册
+        Preferences.shared.$startSearchHotKey
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { key in
+                if let key {
+                    GlobalHotKeys.shared.register(id: 1, key) { fleet.toggleStartMenu(search: true) }
+                } else {
+                    GlobalHotKeys.shared.unregister(id: 1)
+                }
+            }
+            .store(in: &cancellables)
+
         // 调试用：`--start-menu` 启动后直接弹开始菜单
         if CommandLine.arguments.contains("--start-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {

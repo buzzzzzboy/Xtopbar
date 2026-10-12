@@ -1104,6 +1104,19 @@ final class TabBarController: TabBarHost {
     }
 
     func toggleStartMenu() {
+        toggleStartMenu(search: false)
+    }
+
+    /// 全局快捷键：开着且在搜索页 → 收起；开着在首页 → 切到搜索页；没开 → 直接开在搜索页
+    func toggleStartSearch() {
+        if startMenu.isVisible, !startMenu.isSearching {
+            startMenu.enterSearch()
+            return
+        }
+        toggleStartMenu(search: true)
+    }
+
+    private func toggleStartMenu(search: Bool) {
         if startMenu.isVisible {
             startMenu.close()
             return
@@ -1125,7 +1138,7 @@ final class TabBarController: TabBarHost {
             // 从关菜单这一刻重新计时，别一关条就瞬间消失
             self?.lastInteraction = Date()
         }
-        startMenu.show(anchorInScreen: buttonRect, barFrame: panel.frame, barWindow: panel)
+        startMenu.show(anchorInScreen: buttonRect, barFrame: panel.frame, barWindow: panel, search: search)
         catalog.startMenuOpen = true
         // 「背景執行」区要知道谁没窗口：开关关着时平时不查，这里立刻补查一轮
         catalog.scanWindows()

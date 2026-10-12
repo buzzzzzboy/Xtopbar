@@ -172,13 +172,14 @@ final class TabBarFleet {
     }
 
     /// 开在鼠标所在屏的那条上（找不到就主条）；别的条上开着的先收掉
-    func toggleStartMenu() {
+    /// - Parameter search: 全局快捷键：直接进搜索页（菜单已开在首页时切到搜索页，已在搜索页就收起）
+    func toggleStartMenu(search: Bool = false) {
         let mouse = NSEvent.mouseLocation
         let target = secondaries.first { bar in
             NSScreen.screens.first { $0.displayID == bar.key }?.frame.contains(mouse) ?? false
         }?.value.controller ?? primary
         for controller in controllers where controller !== target { controller.closeStartMenu() }
-        target.toggleStartMenu()
+        if search { target.toggleStartSearch() } else { target.toggleStartMenu() }
     }
 
     func dismissPreview() {

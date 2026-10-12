@@ -328,6 +328,14 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            LabeledContent("搜尋快捷鍵") {
+                HotKeyRecorder(key: $prefs.startSearchHotKey)
+            }
+
+            Text("在任何 App 裡按下，直接打開開始選單的搜尋頁；再按一次收起。點按鈕後按下新的組合鍵即可更改（需含 ⌘ / ⌃ / ⌥），按 Esc 取消。若和 Raycast、Spotlight 等用了同一組，可能會被對方搶走。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Picker("現正播放", selection: $prefs.nowPlayingSource) {
                 ForEach(NowPlayingSource.allCases) { Text($0.title).tag($0) }
             }
@@ -610,5 +618,54 @@ private struct PermissionRow: View {
                 Button("授權") { action() }
             }
         }
+    }
+}
+
+/// 快捷键录制按钮：点一下进入录制，按下组合键即保存；Esc 取消。旁边的 ⓧ 清除
+private struct HotKeyRecorder: View {
+    @Binding var key: HotKey?
+    @State private var recording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                recording ? stop() : start()
+            } label: {
+                Text(recording ? "請按下快捷鍵…" : key?.display ?? "未設定")
+                    .frame(minWidth: 110)
+            }
+            if key != nil, !recording {
+                Button { key = nil } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("清除快捷鍵")
+            }
+        }
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        recording = true
+        // 录制期间先注销现有快捷键，否则按同一组会直接触发、录不到
+        GlobalHotKeys.shared.suspend()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 { stop(); return nil }  // Esc 取消
+            if let new = HotKey(event: event) {
+                key = new
+                stop()
+            } else {
+                NSSound.beep()  // 没带修饰键：不收
+            }
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        recording = false
+        GlobalHotKeys.shared.resume()
     }
 }
