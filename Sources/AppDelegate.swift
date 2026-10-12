@@ -69,6 +69,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // 表情符號選擇器的全局快捷键（预设 ⌃⌘E）
+        Preferences.shared.$emojiHotKey
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { key in
+                if let key {
+                    GlobalHotKeys.shared.register(id: 2, key) { EmojiPickerController.shared.toggle() }
+                } else {
+                    GlobalHotKeys.shared.unregister(id: 2)
+                }
+            }
+            .store(in: &cancellables)
+
+        // 连按两下 ⌥ 也打开表情符號選擇器
+        DoubleTapModifier.shared.onDoubleTap = {
+            MainActor.assumeIsolated { EmojiPickerController.shared.toggle() }
+        }
+        Preferences.shared.$emojiDoubleOption
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { on in DoubleTapModifier.shared.setEnabled(on) }
+            .store(in: &cancellables)
+
+        // 表情 / 符号资料和选择器界面趁空闲先备好，第一次按快捷键不用等
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            EmojiPickerController.warmUp()
+        }
+
+        // 调试用：`--emoji` 启动后直接弹表情符號選擇器
+        if CommandLine.arguments.contains("--emoji") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                EmojiPickerController.shared.show()
+            }
+        }
+
         // 调试用：`--start-menu` 启动后直接弹开始菜单
         if CommandLine.arguments.contains("--start-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {

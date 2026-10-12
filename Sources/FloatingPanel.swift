@@ -53,7 +53,12 @@ final class FloatingPanel: NSPanel {
         isReleasedWhenClosed = false
     }
 
-    override var canBecomeKey: Bool { true }
+    /// 能打字的浮层（表情符號選擇器）收起的那一下置位：这时所有面板都不接 key。
+    /// 不然 AppKit 会把 key 转给 Xtopbar 自己的另一个面板（悬浮条），键盘留在 Xtopbar 里，
+    /// 原来的 App 虽然还在前台却收不到按键（贴上的 ⌘V、之后打的字都落空）
+    static var handingKeyBack = false
+
+    override var canBecomeKey: Bool { !Self.handingKeyBack }
     override var canBecomeMain: Bool { false }
 
     /// 关键：SwiftUI 在"非激活悬浮窗"里的 tap 手势命中不稳定，
