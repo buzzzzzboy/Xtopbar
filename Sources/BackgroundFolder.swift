@@ -170,6 +170,7 @@ final class BackgroundFolderController {
         popup.setFrame(target, display: true)
         popupHost?.frame = NSRect(origin: .zero, size: size)
         popup.alphaValue = 0
+        FloatingPanel.handingKeyBack = false  // 见 FloatingPanel.orderOutHandingKeyBack
         popup.makeKeyAndOrderFront(nil)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = Preferences.shared.animationsEnabled ? 0.12 : 0
@@ -192,11 +193,12 @@ final class BackgroundFolderController {
             } completionHandler: { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, !self.state.open else { return }
-                    self.popup.orderOut(nil)
+                    // 键盘交还前台 App（刚切过去的 App），别让 key 落到悬浮条上
+                    self.popup.orderOutHandingKeyBack()
                 }
             }
         } else {
-            popup.orderOut(nil)
+            popup.orderOutHandingKeyBack()
         }
         onClose?()
     }

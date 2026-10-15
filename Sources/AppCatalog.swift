@@ -253,6 +253,9 @@ final class AppCatalog: ObservableObject {
             !pinnedIDs.contains(e.id) && hidden[e.id] == nil
                 && (scope?.admits(screensByPID[e.pid], live: live) ?? true)
         }
+        // 固定项同一套判定：只上窗口所在那（几）块屏的条。没在运行（pid 0）/ 没窗口的
+        // 不在任何屏上，admits 只放进主屏那条 —— 每个固定项至少留在主条上，点得到、能启动
+        pinned.removeAll { !(scope?.admits(screensByPID[$0.pid], live: live) ?? true) }
         let others = candidates.filter { !windowless.contains($0.pid) }
         let background = prefs.onlyWindowedApps ? [] : candidates.filter { windowless.contains($0.pid) }
         // 窗口数（图标角落的数字圆圈）：各屏一条数这块屏上的，单条模式数全部。
@@ -532,12 +535,16 @@ final class AppCatalog: ObservableObject {
         let prefs = Preferences.shared
         if finished.target != finished.source {
             if finished.groupID == AppCategory.pinned.rawValue {
+                // 多屏各屏一条时这条上只有部分固定项：只在它们原来占的位置里换顺序，
+                // 不在这条上的固定项原地不动
                 var rest = prefs.dockPins
                 var pins: [PinnedApp] = []
                 for id in ids {
                     if let i = rest.firstIndex(where: { $0.bundleID == id }) { pins.append(rest.remove(at: i)) }
                 }
-                prefs.dockPins = pins + rest
+                let moved = Set(pins.map(\.bundleID))
+                var next = pins.makeIterator()
+                prefs.dockPins = prefs.dockPins.map { moved.contains($0.bundleID) ? (next.next() ?? $0) : $0 }
             } else {
                 // 不在条上的（没窗口 / 已隐藏）保留原来的相对顺序，接在后面
                 prefs.runningOrder = ids + prefs.runningOrder.filter { !ids.contains($0) }

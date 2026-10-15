@@ -51,7 +51,7 @@ struct ScreenRegion: Sendable, Equatable {
 }
 
 /// 多屏「各屏一条」时，一条只管一块屏：运行中的 App 只上它窗口所在的那（几）块屏的条。
-/// 固定项不受影响，每条都有（同 Windows「只在視窗所在的工作列顯示按鈕」）。
+/// 固定项同一套规则（同 Windows「只在視窗所在的工作列顯示按鈕」）；没在运行 / 没窗口的固定项只上主屏那条。
 struct ScreenScope: Equatable {
     let displayID: CGDirectDisplayID
     /// 主显示器那条：不知道窗口在哪的 App 放这里
