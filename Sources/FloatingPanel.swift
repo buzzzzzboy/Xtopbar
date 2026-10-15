@@ -59,6 +59,15 @@ final class FloatingPanel: NSPanel {
     static var handingKeyBack = false
 
     override var canBecomeKey: Bool { !Self.handingKeyBack }
+
+    /// 收起接过 key 的浮层（开始菜单、后台资料夹）：orderOut 那一下所有面板都不接 key，
+    /// 键盘交还前台 App —— 不然刚从这里打开 / 切过去的 App 到了前台，
+    /// key 却被 AppKit 转给悬浮条，打字落到 Xtopbar 里
+    func orderOutHandingKeyBack() {
+        Self.handingKeyBack = true
+        orderOut(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { Self.handingKeyBack = false }
+    }
     override var canBecomeMain: Bool { false }
 
     /// 关键：SwiftUI 在"非激活悬浮窗"里的 tap 手势命中不稳定，

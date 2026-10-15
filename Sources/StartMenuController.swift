@@ -105,6 +105,7 @@ final class StartMenuController {
         model.showAll = false
         model.searching = true
         model.focusToken &+= 1
+        FloatingPanel.handingKeyBack = false
         panel.makeKey()
     }
     var frame: NSRect { panel.frame }
@@ -161,6 +162,8 @@ final class StartMenuController {
         NowPlaying.shared.menuDidOpen()
         model.reset()
         model.searching = search
+        // 刚收起又马上打开：交还键盘的那段时间还没过，先结束它，不然面板拿不到 key
+        FloatingPanel.handingKeyBack = false
 
         let size = StartMenuController.size
         let screen = NSScreen.screens.first { $0.frame.intersects(barFrame) }
@@ -246,7 +249,8 @@ final class StartMenuController {
 
     private func finishClose() {
         closing = false
-        panel.orderOut(nil)
+        // 键盘交还前台 App（刚打开的 App），别让 key 落到悬浮条上
+        panel.orderOutHandingKeyBack()
         panel.ignoresMouseEvents = false
         stopTrackingShadow()
         hosting?.alphaValue = 0  // 见 init
