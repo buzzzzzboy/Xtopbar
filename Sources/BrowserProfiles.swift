@@ -189,15 +189,29 @@ enum BrowserProfiles {
     /// 用指定设定档开一扇新窗口。浏览器已经在跑时，新起的进程会把参数转给正在跑的那个后退出
     /// （等价于 `open -na "Google Chrome" --args --profile-directory=...`）；没在跑就直接用这个设定档启动。
     static func open(_ profile: Profile, bundleID: String, appURL: URL?) {
+        openWindow(bundleID: bundleID, appURL: appURL, arguments: ["--profile-directory=\(profile.directory)"])
+    }
+
+    /// 带命令行参数开一扇新窗口（设定档 / 无痕 / 普通新窗口），转发机制同上
+    static func openWindow(bundleID: String, appURL: URL?, arguments: [String]) {
         guard let url = appURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
         else { return }
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         config.createsNewApplicationInstance = true
-        config.arguments = ["--profile-directory=\(profile.directory)"]
-        TTLog("open profile \(profile.directory) of \(bundleID)")
+        config.arguments = arguments
+        TTLog("open window \(arguments) of \(bundleID)")
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
-            if let error { TTLog("open profile error=\(error)") }
+            if let error { TTLog("open window error=\(error)") }
         }
+    }
+
+    /// 无痕窗口的菜单标题和启动参数（各家叫法不同）；不是 Chromium 系返回 nil
+    static func privateWindow(for bundleID: String) -> (title: String, flag: String)? {
+        guard isBrowser(bundleID) else { return nil }
+        if bundleID.hasPrefix("com.microsoft.edgemac") { return ("新增 InPrivate 視窗", "--inprivate") }
+        if bundleID.hasPrefix("com.operasoftware") { return ("新增私密視窗", "--private") }
+        if bundleID.hasPrefix("com.brave") { return ("新增私密視窗", "--incognito") }
+        return ("新增無痕視窗", "--incognito")
     }
 }

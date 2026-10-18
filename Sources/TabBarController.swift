@@ -158,6 +158,8 @@ final class TabBarController: TabBarHost {
     // MARK: - 预览
 
     private let preview = PreviewController()
+    /// 标签右键菜单（自绘，Windows 11 外观）
+    private let taskbarMenu = TaskbarMenuController()
     private lazy var startMenu = StartMenuController(catalog: catalog)
     /// 条尾巴后面的「背景執行」资料夹（没窗口的 App）
     private lazy var folder = BackgroundFolderController(catalog: catalog)
@@ -223,6 +225,19 @@ final class TabBarController: TabBarHost {
             self.lastInteraction = Date()
             self.refreshPreviewAfterClick()
         }
+        // 右键标签：弹自绘菜单。空白处不接管，照旧落到整条的系统菜单
+        panel.onRightPress = { [weak self] locationInWindow in
+            guard let self else { return false }
+            return self.openTaskbarMenu(at: self.viewPoint(fromWindow: locationInWindow))
+        }
+        taskbarMenu.onOpen = { [weak self] in
+            self?.catalog.tabMenuOpen = true
+            self?.beginMenuTracking()
+        }
+        taskbarMenu.onClose = { [weak self] in
+            self?.catalog.tabMenuOpen = false
+            self?.endMenuTracking()
+        }
 
         catalog.onLayoutNeeded = { [weak self] in self?.relayout() }
         catalog.host = self
@@ -233,6 +248,11 @@ final class TabBarController: TabBarHost {
             guard self?.catalog.drag == nil else { return }
             self?.hoverEndTime = nil
             self?.schedulePreview(for: entry)
+            // 右键前先把「有没有新視窗那一项」查好，菜单一开就是对的
+            if entry.isRunning, !BrowserProfiles.isBrowser(entry.id),
+               TaskbarAppActions.newWindowAvailable[entry.pid] == nil {
+                Task { await TaskbarAppActions.probeNewWindow(pid: entry.pid) }
+            }
         }
         catalog.onTabHoverEnd = { [weak self] in
             self?.previewWork?.cancel()
@@ -304,25 +324,12 @@ final class TabBarController: TabBarHost {
         menuObservers.append(nc.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.menuTracking = true
-                self?.catalog.menuTracking = true
-                self?.folder.menuOpen = true
-            }
+            MainActor.assumeIsolated { self?.beginMenuTracking() }
         })
         menuObservers.append(nc.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.menuTracking = false
-                self.catalog.menuTracking = false
-                self.folder.menuOpen = false
-                // 菜单开着期间暂停了重采，这里补一次（菜单项的动作也可能刚改了固定）
-                self.catalog.refresh()
-                // 从关菜单这一刻重新计时，别一关就瞬间消失
-                self.lastInteraction = Date()
-            }
+            MainActor.assumeIsolated { self?.endMenuTracking() }
         })
 
         observePreferences()
@@ -1027,7 +1034,8 @@ final class TabBarController: TabBarHost {
         hoveredEntry = entry
         previewWork?.cancel()
         // 没在运行的固定项没有窗口可看；开始菜单开着时也别在它旁边再弹一层
-        guard prefs.previewEnabled, isRevealed, entry.isRunning, !startMenu.isVisible else { return }
+        guard prefs.previewEnabled, isRevealed, entry.isRunning, !startMenu.isVisible,
+              !taskbarMenu.isVisible else { return }
 
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.hoveredEntry?.id == entry.id else { return }
@@ -1083,6 +1091,69 @@ final class TabBarController: TabBarHost {
         hoveredEntry = nil
         hoverEndTime = nil
         preview.hide()
+    }
+
+    // MARK: - 右键菜单
+
+    /// 系统菜单和自绘菜单共用：开着期间暂停自动隐藏和重采
+    private func beginMenuTracking() {
+        menuTracking = true
+        catalog.menuTracking = true
+        folder.menuOpen = true
+    }
+
+    private func endMenuTracking() {
+        menuTracking = false
+        catalog.menuTracking = false
+        folder.menuOpen = false
+        // 菜单开着期间暂停了重采，这里补一次（菜单项的动作也可能刚改了固定）
+        catalog.refresh()
+        // 从关菜单这一刻重新计时，别一关就瞬间消失
+        lastInteraction = Date()
+    }
+
+    /// 右键落在某个 App 标签上 → 弹它的菜单，返回 true；不在标签上返回 false
+    private func openTaskbarMenu(at point: NSPoint) -> Bool {
+        guard catalog.drag == nil else { return false }
+        let reserved: Set<String> = [AppCatalog.startButtonID, AppCatalog.resizeHandleID]
+        guard let (id, rect) = catalog.tabFrames.first(where: { !reserved.contains($0.key) && $0.value.contains(point) }),
+              let entry = catalog.groups.lazy.flatMap(\.entries).first(where: { $0.id == id })
+        else { return false }
+
+        hidePreview()
+        closeStartMenu()
+        folder.close(animated: false)
+        lastInteraction = Date()
+
+        let anchor = NSRect(x: panel.frame.minX + rect.minX, y: panel.frame.maxY - rect.maxY,
+                            width: rect.width, height: rect.height)
+        let region = catalog.screenRegion
+        let build = { [catalog] (windows: [TaskbarMenuWindow]) in
+            TaskbarAppMenu.items(for: entry, windows: windows, catalog: catalog)
+        }
+        let snapshot = TaskbarAppMenu.windows(for: entry, region: region)
+        taskbarMenu.show(items: build(snapshot), anchor: anchor, barFrame: panel.frame)
+        guard entry.isRunning else { return true }
+
+        // 快照最多落后几秒：现查一遍，窗口有变化就换上新列表
+        let pid = entry.pid
+        let probeNewWindow = !BrowserProfiles.isBrowser(entry.id) && TaskbarAppActions.newWindowAvailable[pid] == nil
+        Task { [weak self] in
+            guard let self else { return }
+            // 「開新視窗」先乐观地放着；查出这个 App 没有新視窗那一项就换掉
+            let newWindowGone = probeNewWindow ? !(await TaskbarAppActions.probeNewWindow(pid: pid)) : false
+            await self.engine.refresh(minInterval: 0.3, pids: [pid])
+            var fresh = TaskbarAppMenu.windows(for: entry, region: region)
+            // 没有螢幕錄製权限时快照永远是空的，退回直接问 AX
+            if fresh.isEmpty {
+                fresh = await Task.detached(priority: .userInitiated) {
+                    TaskbarAppMenu.axFallbackWindows(pid: pid, region: region)
+                }.value
+            }
+            guard fresh != snapshot || newWindowGone, self.taskbarMenu.isVisible else { return }
+            self.taskbarMenu.update(items: build(fresh))
+        }
+        return true
     }
 
     // MARK: - 对外动作（右键菜单 / 状态栏菜单）

@@ -29,9 +29,12 @@ final class FloatingPanel: NSPanel {
     var onRelease: ((NSPoint) -> Void)?
     /// 按下被 `onPress` 接管后的拖动（主面板拖标签排序用）。不设就照常往下传。
     var onDrag: ((NSPoint) -> Void)?
+    /// 右键按下：返回 true 表示接管（主面板在标签上弹自绘菜单），不再落到 SwiftUI 的 contextMenu
+    var onRightPress: ((NSPoint) -> Bool)?
 
     private var swallowNextMouseUp = false
     private var handledByPressHook = false
+    private var swallowNextRightMouseUp = false
 
     init(contentRect: NSRect) {
         super.init(
@@ -89,6 +92,14 @@ final class FloatingPanel: NSPanel {
         case .leftMouseDragged where handledByPressHook && onDrag != nil:
             // 按下在本窗口里，拖出窗口外也照样收到拖动事件
             onDrag?(event.locationInWindow)
+            return
+        case .rightMouseDown:
+            if onRightPress?(event.locationInWindow) == true {
+                swallowNextRightMouseUp = true
+                return
+            }
+        case .rightMouseUp where swallowNextRightMouseUp:
+            swallowNextRightMouseUp = false
             return
         case .leftMouseUp where swallowNextMouseUp:
             swallowNextMouseUp = false

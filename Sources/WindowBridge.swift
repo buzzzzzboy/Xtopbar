@@ -732,6 +732,85 @@ enum WindowBridge {
         return false
     }
 
+    /// 右键菜单「開新視窗」：在 App 的菜单栏里找「新視窗」那一项（标题带「新」和「視窗 / Window」，
+    /// 或者就叫「新增 / New」这种开新文件即开新窗口的）。同样符合时优先 ⌘N 那一项。
+    /// 带子菜单的（终端机：新增視窗 ▸ 各描述档）取子菜单里第一个可用项。
+    /// 只看各顶层菜单的直接子项，不往更深钻（对大 App 太慢）。
+    /// press = false 只查有没有；返回 false = 没权限 / 没找到
+    @discardableResult
+    static func newWindowMenuItem(pid: pid_t, press: Bool) -> Bool {
+        guard isTrusted else { return false }
+        return axGate(for: pid) { () -> Bool in
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.5)
+            func children(_ element: AXUIElement) -> [AXUIElement] {
+                var value: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success
+                else { return [] }
+                return value as? [AXUIElement] ?? []
+            }
+            func string(_ element: AXUIElement, _ attribute: String) -> String? {
+                var value: CFTypeRef?
+                AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+                return value as? String
+            }
+            func enabled(_ element: AXUIElement) -> Bool {
+                boolAttribute(element, kAXEnabledAttribute as String) != false
+            }
+            func isPlainCmdN(_ element: AXUIElement) -> Bool {
+                guard string(element, kAXMenuItemCmdCharAttribute as String)?.uppercased() == "N" else { return false }
+                var mods: CFTypeRef?
+                AXUIElementCopyAttributeValue(element, kAXMenuItemCmdModifiersAttribute as CFString, &mods)
+                return ((mods as? NSNumber)?.intValue ?? 0) == 0  // 0 = 只有 ⌘
+            }
+
+            var barValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &barValue) == .success,
+                  let bar = barValue, CFGetTypeID(bar) == AXUIElementGetTypeID() else { return false }
+            var best: AXUIElement?
+            var fallback: AXUIElement?
+            // 第一个是苹果菜单，跳过
+            search: for top in children(bar as! AXUIElement).dropFirst() {
+                for menu in children(top) {
+                    for item in children(menu) {
+                        guard let title = string(item, kAXTitleAttribute as String),
+                              isNewWindowTitle(title), enabled(item) else { continue }
+                        var target = item
+                        if let submenu = children(item).first,
+                           let first = children(submenu).first(where: enabled) {
+                            target = first
+                        }
+                        if isPlainCmdN(item) || isPlainCmdN(target) {
+                            best = target
+                            break search
+                        }
+                        if fallback == nil { fallback = target }
+                    }
+                }
+            }
+            guard let target = best ?? fallback else {
+                TTLog("new-window pid=\(pid) 菜单栏里没有新視窗")
+                return false
+            }
+            guard press else { return true }
+            let ok = AXUIElementPerformAction(target, kAXPressAction as CFString) == .success
+            TTLog("new-window pid=\(pid) press \(string(target, kAXTitleAttribute as String) ?? "?") → \(ok)")
+            return ok
+        }
+    }
+
+    /// 「新視窗」那一项的标题。无痕 / 私密窗口不算（Safari 的「新增私密視窗」）
+    static func isNewWindowTitle(_ raw: String) -> Bool {
+        let title = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        let privateWords = ["無痕", "私密", "隱私", "无痕", "隐私", "private", "incognito", "inprivate"]
+        if privateWords.contains(where: title.contains) { return false }
+        let mentionsWindow = ["視窗", "窗口", "window"].contains(where: title.contains)
+        let mentionsNew = ["新", "new"].contains(where: title.contains)
+        if mentionsWindow && mentionsNew { return true }
+        // 文件型 App（文字編輯、預覽程式）：新文件就是新窗口
+        return ["新增", "新建", "new", "新增文件", "新文件", "new document"].contains(title)
+    }
+
     /// 拿不到 AX 窗口时的兜底：走 LaunchServices 激活整个 App
     static func activateApp(_ pid: pid_t) {
         guard let running = NSRunningApplication(processIdentifier: pid),
