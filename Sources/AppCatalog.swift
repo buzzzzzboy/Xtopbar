@@ -122,6 +122,8 @@ final class AppCatalog: ObservableObject {
 
     /// 开始菜单开着（开始按钮画按下态）
     @Published var startMenuOpen = false
+    /// 标签右键菜单开着：标签的悬停提示先收起来，不然会叠在菜单上
+    @Published var tabMenuOpen = false
 
     /// 布局变化回调（由面板控制器消费，用于重新居中 / 调宽）
     var onLayoutNeeded: (@MainActor () -> Void)?

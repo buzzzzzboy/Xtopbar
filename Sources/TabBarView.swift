@@ -111,7 +111,16 @@ struct ResizeHandle: View {
     }
 }
 
-/// 单个 App 标签（纯视觉，点击由窗口层命中测试处理）
+/// 有字才挂悬停提示
+private struct OptionalHelp: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text { content.help(text) } else { content }
+    }
+}
+
+/// 单个 App 标签（纯视觉，左右键都由窗口层命中测试处理；右键菜单见 TaskbarMenu）
 struct AppTab: View {
     let entry: AppEntry
     /// 前台 App：蓝底 + 描边（不论指针在不在条上，一眼看出谁在前台）
@@ -119,18 +128,14 @@ struct AppTab: View {
     var animated: Bool = true
     /// Dock 风格：只画大图标 + 运行小圆点，名字放进悬停提示
     var iconOnly: Bool = false
-    /// 是否已固定到开始菜单（决定右键菜单写「固定」还是「取消固定」）
-    var startPinned: Bool = false
-    /// 开始按钮开着才给「固定到开始菜单」（没开始菜单时这一项没有意义）
-    var startMenuEnabled: Bool = false
     /// 指针是否还在整条悬浮条上。窗口被 orderOut 时 onHover 可能收不到
     /// false，用外层信号兜底，免得下次唤出时残留高亮
     var barHovered: Bool = true
     /// 正被拖动排序：抬起一点（淡底 + 阴影），看得出"拿在手上"
     var dragging: Bool = false
+    /// 右键菜单开着：不给悬停提示（系统提示窗口会盖在菜单上）
+    var suppressHelp: Bool = false
     var onHoverChange: (Bool) -> Void = { _ in }
-    /// 右键菜单动作的去处
-    var catalog: AppCatalog?
 
     @State private var hovering = false
 
@@ -162,10 +167,8 @@ struct AppTab: View {
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
         // 最小化的视窗按钮整格淡一点（同 Windows：一眼看出哪扇收起来了）
         .opacity(entry.window?.minimized == true ? 0.55 : 1)
-        .help(helpText)
-        // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
-        // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
-        .contextMenu { tabMenu }
+        // 右键菜单开着时整个拿掉（给空字符串没用，提示照样弹出来盖在菜单上）
+        .modifier(OptionalHelp(text: suppressHelp ? nil : helpText))
         .background(
             GeometryReader { geo in
                 Color.clear.preference(
@@ -266,77 +269,6 @@ struct AppTab: View {
         Circle()
             .fill(Color.primary.opacity(visible ? 0.75 : 0))
             .frame(width: TTLayout.s(4), height: TTLayout.s(4))
-    }
-
-    /// 顶层保持原版的「隐藏此 App / 退出 App」，固定相关的收进「固定」子菜单
-    @ViewBuilder
-    private var tabMenu: some View {
-        if entry.window != nil {
-            Button("關閉視窗") { catalog?.closeWindow(entry) }
-            Divider()
-        }
-        profileMenu
-        if entry.isRunning {
-            if !entry.isPinned {
-                Button("隱藏此 App") { catalog?.hide(entry) }
-            }
-            Button("結束 App", role: .destructive) { catalog?.terminate(entry) }
-        } else {
-            Button("開啟") { catalog?.activate(entry) }
-        }
-        Divider()
-        groupingMenu
-        Menu("固定") {
-            if entry.isPinned {
-                Button("從工作列取消固定") { catalog?.unpinFromDock(entry.appID) }
-                Button("向左移") { catalog?.moveDockPin(entry.appID, by: -1) }
-                Button("向右移") { catalog?.moveDockPin(entry.appID, by: 1) }
-            } else {
-                Button("固定到工作列") { catalog?.pinToDock(entry) }
-            }
-            if startMenuEnabled {
-                if startPinned {
-                    Button("從開始選單取消固定") { catalog?.unpinFromStart(entry.appID) }
-                } else {
-                    Button("固定到開始選單") { catalog?.pinToStart(entry) }
-                }
-            }
-        }
-    }
-
-    /// 这个 App 的视窗按钮要不要合并：跟随全局 / 一律合并 / 永不合并（当前那项打勾）
-    @ViewBuilder
-    private var groupingMenu: some View {
-        let current = catalog?.groupingOverride(for: entry.appID)
-        Menu("視窗按鈕") {
-            Toggle("跟隨全域設定（\(Preferences.shared.taskbarGrouping.title)）", isOn: Binding(
-                get: { current == nil },
-                set: { _ in catalog?.setGroupingOverride(nil, for: entry.appID) }))
-            Toggle("一律合併", isOn: Binding(
-                get: { current == .always },
-                set: { _ in catalog?.setGroupingOverride(.always, for: entry.appID) }))
-            Toggle("永不合併", isOn: Binding(
-                get: { current == .never },
-                set: { _ in catalog?.setGroupingOverride(.never, for: entry.appID) }))
-        }
-    }
-
-    /// Chromium 系浏览器有多个设定档时：菜单最上面放「開啟設定檔」子菜单 + 分隔线，点一个就用它开新窗口
-    @ViewBuilder
-    private var profileMenu: some View {
-        let profiles = BrowserProfiles.profiles(for: entry.appID)
-        if !profiles.isEmpty {
-            Menu {
-                ForEach(profiles) { profile in
-                    Button(profile.name) {
-                        BrowserProfiles.open(profile, bundleID: entry.appID, appURL: entry.bundleURL)
-                    }
-                }
-            } label: {
-                Label("開啟設定檔", systemImage: "person.crop.circle")
-            }
-            Divider()
-        }
     }
 
     private var backgroundColor: Color {
@@ -447,19 +379,17 @@ struct TabBarView: View {
                                    && (entry.window == nil || entry.isFrontWindow),
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
-                               startPinned: prefs.startPins.contains { $0.bundleID == entry.appID },
-                               startMenuEnabled: prefs.showStartButton,
                                // 拖动中指针扫过的标签不亮悬停底
                                barHovered: catalog.pointerOverBar && catalog.drag == nil,
                                dragging: dragged,
+                               suppressHelp: catalog.tabMenuOpen,
                                onHoverChange: { hovering in
                                    if hovering {
                                        catalog.onTabHover?(entry)
                                    } else {
                                        catalog.onTabHoverEnd?()
                                    }
-                               },
-                               catalog: catalog)
+                               })
                     .padding(.horizontal, TTLayout.s(1))
                     // 被拖的跟手（不加动画），其它的让位 / 落位用弹簧滑过去
                     .offset(x: catalog.dragOffset(for: entry.id))
