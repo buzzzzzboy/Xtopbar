@@ -1,8 +1,31 @@
 import AppKit
 import ApplicationServices
 
+/// 私有 API：AX 窗口元素 → 窗口服务器编号（CGWindowID）。AltTab / Rectangle 都靠它。
+/// 不需要屏幕录制权限，窗口改标题、挪位置编号都不变 —— 工作列的视窗按钮拿它当身份
+@_silgen_name("_AXUIElementGetWindow")
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
+
 /// 窗口聚焦（辅助功能 API）与标题补全
 enum WindowBridge {
+
+    /// AX 窗口的 CGWindowID；拿不到（对端不配合 / 不是真窗口）返回 nil
+    static func windowID(of element: AXUIElement) -> CGWindowID? {
+        var id: CGWindowID = 0
+        guard _AXUIElementGetWindow(element, &id) == .success, id != 0 else { return nil }
+        return id
+    }
+
+    /// 拿不到真编号时的合成编号：按 pid + 取整后的 frame + 标题哈希，最高 4 位置 1，
+    /// 落在 ≥ 0xF000_0000 区间（同 ScreenCaptureEngine 的合成 ID 约定），不会撞真编号
+    static func syntheticWindowID(pid: pid_t, frame: CGRect, title: String) -> CGWindowID {
+        var hasher = Hasher()
+        hasher.combine(pid)
+        hasher.combine(Int(frame.minX.rounded())); hasher.combine(Int(frame.minY.rounded()))
+        hasher.combine(Int(frame.width.rounded())); hasher.combine(Int(frame.height.rounded()))
+        hasher.combine(title)
+        return 0xF000_0000 | (UInt32(truncatingIfNeeded: hasher.finalize()) & 0x0FFF_FFFF)
+    }
 
     static var isTrusted: Bool { AXIsProcessTrusted() }
 
@@ -148,7 +171,12 @@ enum WindowBridge {
                                      frame: CGRect, title: String, cgID: UInt32?) -> AXUIElement? {
         let windows = axWindows(app)
         guard !windows.isEmpty else { return nil }
-        // 首选：CG 窗口编号定位。CG 列表与 AX 列表都按前→后排序且成员一致
+        // 首选：AX 元素直接报编号（_AXUIElementGetWindow），对得上就是它
+        if let cgID, cgID < 0xF000_0000,
+           let hit = windows.first(where: { windowID(of: $0.element) == cgID }) {
+            return hit.element
+        }
+        // 其次：CG 窗口编号按位置配对。CG 列表与 AX 列表都按前→后排序且成员一致
         //（实测连 Chrome 的底部状态气泡都按相同顺序出现在两边），按位置一一对应。
         // 预览缩略图像素就是从这个 CG 编号抓的，所以这是唯一不会错位的锚点。
         if let cgID, cgID < 0xF000_0000 {   // >= 0xF000_0000 是 AX 独有窗口的合成 ID

@@ -250,6 +250,18 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
+                ForEach(TaskbarGrouping.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            Text(prefs.taskbarGrouping.subtitle
+                 + (prefs.taskbarGrouping == .always ? "" : "需要「輔助使用」權限，沒有時一律依 App 合併。"))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Picker("背景材質", selection: $prefs.glassStyle) {
                 ForEach(GlassStyle.allCases.filter { $0 != .liquid || GlassStyle.liquidAvailable }) { style in
                     Label(style.title, systemImage: style.symbol).tag(style)

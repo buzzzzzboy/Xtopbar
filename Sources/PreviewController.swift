@@ -839,6 +839,11 @@ final class PreviewController {
              mainPanelFrame: lastMainFrame, hideMinimized: lastHideMinimized, region: lastRegion)
     }
 
+    /// 两扇窗口 frame 的差距（原点距离 + 尺寸差），配对用
+    private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        abs(a.minX - b.minX) + abs(a.minY - b.minY) + abs(a.width - b.width) + abs(a.height - b.height)
+    }
+
     /// AppKit 窗口坐标（原点左下）→ CG 屏幕坐标（原点上左）
     private static func cgRect(_ r: NSRect) -> CGRect {
         let height = NSScreen.screens.map(\.frame.maxY).max() ?? NSScreen.main?.frame.height ?? 0
@@ -866,7 +871,7 @@ final class PreviewController {
         model.appName = entry.name
         model.icon = entry.icon
         model.hint = ""
-        model.media = PreviewMedia(bundleID: entry.id)
+        model.media = PreviewMedia(bundleID: entry.appID)
         model.clearInteraction()
         model.generation &+= 1
 
@@ -878,7 +883,13 @@ final class PreviewController {
         // 否则一藏，最小化的窗口就再也没地方点回来（剩 1 扇不弹、0 扇更不弹）——
         // 这时照列最小化的，让卡片把它们放回来
         let open = all.filter { !$0.isMinimized }
-        let windows = hideMinimized && open.count >= 2 ? open : all
+        var windows = hideMinimized && open.count >= 2 ? open : all
+        // 视窗按钮：只看这一扇（同 Vista 悬停单个按钮）。编号对不上（合成编号 / 快照没跟上）就挑位置最近的
+        if let w = entry.window {
+            let one = everywhere.first { $0.id == w.windowID }
+                ?? everywhere.min { Self.distance($0.frame, w.frame) < Self.distance($1.frame, w.frame) }
+            windows = one.map { [$0] } ?? []
+        }
         currentWindows = windows
 
         // 先记一笔再分流：空列表 / 无权限也是有用的信号，不能只在成功路径打日志
@@ -895,7 +906,9 @@ final class PreviewController {
             let title = everywhere.map(\.title).first { !$0.isEmpty && $0 != entry.name && !$0.hasPrefix("Kaset") }
             model.mediaFallbackTitle = title ?? ""
         }
-        guard windows.count >= 2 || windows.contains(where: \.isMinimized) || model.media != nil else {
+        // 视窗按钮：单扇也弹（悬停看这扇的缩图就是它的用处）
+        guard windows.count >= 2 || windows.contains(where: \.isMinimized) || model.media != nil
+                || (entry.window != nil && !windows.isEmpty) else {
             if panel.isVisible { hide() }
             TTLog("preview \(entry.name) → \(windows.count) 個視窗，不彈")
             return
@@ -904,7 +917,7 @@ final class PreviewController {
         // 先用缓存立刻铺满 —— 命中缓存时这里就是「零延迟」
         var items = windows.enumerated().map { idx, win in
             // 浏览器多设定档：标题里的「 - Google Chrome - 设定档」拆出来做成标签
-            let profile = BrowserProfiles.windowProfile(title: win.title, appName: entry.name, bundleID: entry.id)
+            let profile = BrowserProfiles.windowProfile(title: win.title, appName: entry.name, bundleID: entry.appID)
             let title = profile?.page ?? win.title
             return PreviewItem(id: win.id,
                                index: idx,

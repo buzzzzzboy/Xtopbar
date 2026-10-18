@@ -160,9 +160,9 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
-        .help(entry.isRunning
-              ? entry.displayName + (entry.windowCount >= 2 ? "（\(entry.windowCount) 個視窗）" : "")
-              : "\(entry.name)（未執行，點選開啟）")
+        // 最小化的视窗按钮整格淡一点（同 Windows：一眼看出哪扇收起来了）
+        .opacity(entry.window?.minimized == true ? 0.55 : 1)
+        .help(helpText)
         // 右键单个标签：固定 / 隐藏 / 退出。左键被窗口层截走做命中测试，
         // 右键不拦，自然落到 SwiftUI 的 contextMenu 上
         .contextMenu { tabMenu }
@@ -174,6 +174,16 @@ struct AppTab: View {
                 )
             }
         )
+    }
+
+    private var helpText: String {
+        guard entry.isRunning else { return "\(entry.name)（未執行，點選開啟）" }
+        if let w = entry.window {
+            let title = w.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let base = title.isEmpty || title == entry.name ? entry.name : "\(entry.name) — \(title)"
+            return base + (w.minimized ? "（已最小化）" : "")
+        }
+        return entry.displayName + (entry.windowCount >= 2 ? "（\(entry.windowCount) 個視窗）" : "")
     }
 
     /// Dock 风格：大图标 + 下方运行指示点（同 macOS Dock：有点 = 在运行）
@@ -209,6 +219,7 @@ struct AppTab: View {
                 .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
             if showsName {
                 Text(entry.displayName)
+                    // 视窗按钮是固定宽：标题放不下就截断（同 Vista）；其它按钮照旧按文字撑开
                     // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
                     // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
                     // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
@@ -216,12 +227,15 @@ struct AppTab: View {
                     .font(.system(size: TTLayout.font(12), weight: .medium))
                     .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : (entry.isRunning ? 0.85 : 0.55)))
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: entry.window == nil, vertical: false)
             }
+            if entry.window != nil { Spacer(minLength: 0) }
         }
         // 只有图标时左右也收成 6pt，和上下一样，成一个方块
         .padding(.horizontal, TTLayout.s(showsName ? 9 : 6))
         .padding(.vertical, TTLayout.s(6))
+        .frame(width: entry.buttonWidth > 0 ? TTLayout.s(entry.buttonWidth) : nil, alignment: .leading)
     }
 
     /// 这块屏上开着 ≥ 2 扇窗口：图标右上角画个数字圆圈（多于 9 扇写 9+）。
@@ -257,6 +271,10 @@ struct AppTab: View {
     /// 顶层保持原版的「隐藏此 App / 退出 App」，固定相关的收进「固定」子菜单
     @ViewBuilder
     private var tabMenu: some View {
+        if entry.window != nil {
+            Button("關閉視窗") { catalog?.closeWindow(entry) }
+            Divider()
+        }
         profileMenu
         if entry.isRunning {
             if !entry.isPinned {
@@ -269,15 +287,15 @@ struct AppTab: View {
         Divider()
         Menu("固定") {
             if entry.isPinned {
-                Button("從工作列取消固定") { catalog?.unpinFromDock(entry.id) }
-                Button("向左移") { catalog?.moveDockPin(entry.id, by: -1) }
-                Button("向右移") { catalog?.moveDockPin(entry.id, by: 1) }
+                Button("從工作列取消固定") { catalog?.unpinFromDock(entry.appID) }
+                Button("向左移") { catalog?.moveDockPin(entry.appID, by: -1) }
+                Button("向右移") { catalog?.moveDockPin(entry.appID, by: 1) }
             } else {
                 Button("固定到工作列") { catalog?.pinToDock(entry) }
             }
             if startMenuEnabled {
                 if startPinned {
-                    Button("從開始選單取消固定") { catalog?.unpinFromStart(entry.id) }
+                    Button("從開始選單取消固定") { catalog?.unpinFromStart(entry.appID) }
                 } else {
                     Button("固定到開始選單") { catalog?.pinToStart(entry) }
                 }
@@ -288,12 +306,12 @@ struct AppTab: View {
     /// Chromium 系浏览器有多个设定档时：菜单最上面放「開啟設定檔」子菜单 + 分隔线，点一个就用它开新窗口
     @ViewBuilder
     private var profileMenu: some View {
-        let profiles = BrowserProfiles.profiles(for: entry.id)
+        let profiles = BrowserProfiles.profiles(for: entry.appID)
         if !profiles.isEmpty {
             Menu {
                 ForEach(profiles) { profile in
                     Button(profile.name) {
-                        BrowserProfiles.open(profile, bundleID: entry.id, appURL: entry.bundleURL)
+                        BrowserProfiles.open(profile, bundleID: entry.appID, appURL: entry.bundleURL)
                     }
                 }
             } label: {
@@ -403,13 +421,15 @@ struct TabBarView: View {
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
                     // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
                     if i > 0, !prefs.iconOnly { divider.opacity(reordering ? 0 : 1) }
-                    let dragged = catalog.drag?.id == entry.id
+                    let dragged = catalog.isDragging(entry.id)
                     AppTab(entry: entry,
-                               // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
-                               isActive: entry.pid > 0 && entry.pid == catalog.activePID,
+                               // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮。
+                               // 视窗按钮只亮前台 App 最前面那扇
+                               isActive: entry.pid > 0 && entry.pid == catalog.activePID
+                                   && (entry.window == nil || entry.isFrontWindow),
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
-                               startPinned: prefs.startPins.contains { $0.bundleID == entry.id },
+                               startPinned: prefs.startPins.contains { $0.bundleID == entry.appID },
                                startMenuEnabled: prefs.showStartButton,
                                // 拖动中指针扫过的标签不亮悬停底
                                barHovered: catalog.pointerOverBar && catalog.drag == nil,
@@ -474,6 +494,11 @@ struct TabBarView: View {
             }
         }
         Toggle("只顯示圖示", isOn: $prefs.iconOnly)
+        Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
+            ForEach(TaskbarGrouping.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
         Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
         Toggle("不擋視窗", isOn: $prefs.avoidWindows)
         if NSScreen.screens.count > 1 {
