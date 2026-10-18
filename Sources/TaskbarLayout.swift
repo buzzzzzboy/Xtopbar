@@ -28,9 +28,11 @@ enum TaskbarLayout {
 
     /// 宽度单位一律是「未缩放的 pt」（调用方把条的上限宽度除以界面缩放再传进来）
     struct Metrics {
-        /// 视窗按钮的标准宽 / 「永不合併」最多缩到多窄（不含外边距，下同）
-        let windowButton: CGFloat
-        let minWindowButton: CGFloat
+        /// 视窗按钮标题最多多宽 / 「永不合併」放不下时最窄缩到多少
+        let titleCap: CGFloat
+        let minTitleCap: CGFloat
+        /// 视窗按钮的宽（不含外边距，下同）：跟着标题长度走，标题宽不超过给定的上限
+        let windowButton: (_ button: AppEntry, _ titleCap: CGFloat) -> CGFloat
         /// 每个按钮左右的外边距（合计）
         let buttonPadding: CGFloat
         /// 同组相邻两个按钮之间的东西（分隔线 + 边距）；只显示图标时为 0
@@ -53,34 +55,36 @@ enum TaskbarLayout {
             slot.override == .always || (grouping == .always && slot.override != .never)
         } }
         var merged = groups.map { $0.map { _ in false } }
+        // 每扇窗口的视窗按钮先做好（标题整理、设定档在这一步认出来），宽度按它们量
+        let buttons = groups.map { $0.map { slot in slot.windows.map { slot.app.windowButton($0) } } }
 
-        func width(windowButton w: CGFloat) -> CGFloat {
+        func width(titleCap cap: CGFloat) -> CGFloat {
             var total = m.fixed
             var groupCount = 0
             for (g, slots) in groups.enumerated() {
-                var buttons: [CGFloat] = []
+                var widths: [CGFloat] = []
                 for (i, slot) in slots.enumerated() {
                     if slot.windows.isEmpty || merged[g][i] || asApp[g][i] {
-                        buttons.append(m.appButton(slot.app))
+                        widths.append(m.appButton(slot.app))
                     } else {
-                        buttons.append(contentsOf: Array(repeating: w, count: slot.windows.count))
+                        widths.append(contentsOf: buttons[g][i].map { m.windowButton($0, cap) })
                     }
                 }
-                guard !buttons.isEmpty else { continue }
+                guard !widths.isEmpty else { continue }
                 if groupCount > 0 { total += m.groupDivider }
                 groupCount += 1
-                total += buttons.reduce(0, +) + m.buttonPadding * CGFloat(buttons.count)
-                    + m.separator * CGFloat(buttons.count - 1)
+                total += widths.reduce(0, +) + m.buttonPadding * CGFloat(widths.count)
+                    + m.separator * CGFloat(widths.count - 1)
             }
             return total
         }
 
-        var buttonWidth = m.windowButton
+        var cap = m.titleCap
         switch grouping {
         case .whenFull:
             // 放不下：在还没合并的格里挑窗口最多的合掉（一样多挑条上靠右的），合到放得下为止。
             // 全合完还放不下就交给横向滚动
-            while width(windowButton: buttonWidth) > maxWidth {
+            while width(titleCap: cap) > maxWidth {
                 var pick: (g: Int, i: Int, n: Int)?
                 for (g, slots) in groups.enumerated() {
                     for (i, slot) in slots.enumerated()
@@ -92,15 +96,19 @@ enum TaskbarLayout {
                 merged[pick.g][pick.i] = true
             }
         case .never:
-            // 放不下：视窗按钮等比缩窄（最窄 minWindowButton），再不够交给横向滚动
-            let windowCount = groups.enumerated().reduce(0) { sum, item in
-                sum + item.element.enumerated().reduce(0) { $0 + (asApp[item.offset][$1.offset] ? 0 : $1.element.windows.count) }
-            }
-            let full = width(windowButton: buttonWidth)
-            if full > maxWidth, windowCount > 0 {
-                let others = full - buttonWidth * CGFloat(windowCount)   // 外边距 / 分隔线 / App 按钮
-                let fit = ((maxWidth - others) / CGFloat(windowCount)).rounded(.down)
-                buttonWidth = min(m.windowButton, max(m.minWindowButton, fit))
+            // 放不下：所有视窗按钮的标题上限一起往下压（最窄 minTitleCap），找放得下的最大上限；
+            // 压到底还放不下交给横向滚动。短标题本来就没顶到上限，压的是长的那几个
+            if width(titleCap: cap) > maxWidth {
+                var lo = m.minTitleCap, hi = m.titleCap
+                if width(titleCap: lo) > maxWidth {
+                    cap = lo
+                } else {
+                    while hi - lo > 1 {
+                        let mid = ((lo + hi) / 2).rounded(.down)
+                        if width(titleCap: mid) <= maxWidth { lo = mid } else { hi = mid }
+                    }
+                    cap = lo
+                }
             }
         case .always:
             break
@@ -116,7 +124,12 @@ enum TaskbarLayout {
                     copy.windowTitle = nil
                     return [copy]
                 }
-                return slot.windows.map { slot.app.windowButton($0, width: buttonWidth) }
+                return buttons[g][i].map { b in
+                    var copy = b
+                    copy.buttonWidth = m.windowButton(b, cap)
+                    copy.titleTruncated = copy.buttonWidth < m.windowButton(b, .greatestFiniteMagnitude)
+                    return copy
+                }
             }
         }
     }

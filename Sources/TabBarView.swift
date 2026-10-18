@@ -220,9 +220,12 @@ struct AppTab: View {
                 // 上报给窗口层的命中区域也就不受影响。
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
                 .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
+            if let profile = entry.profile, entry.window != nil, showsName {
+                profileTag(profile)
+            }
             if showsName {
                 Text(entry.displayName)
-                    // 视窗按钮是固定宽：标题放不下就截断（同 Vista）；其它按钮照旧按文字撑开
+                    // 视窗按钮标题顶到上限才截断（同 Vista）；没顶到就跟其它按钮一样按文字撑开
                     // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
                     // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
                     // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
@@ -231,14 +234,31 @@ struct AppTab: View {
                     .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : (entry.isRunning ? 0.85 : 0.55)))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .fixedSize(horizontal: entry.window == nil, vertical: false)
+                    .fixedSize(horizontal: !entry.titleTruncated, vertical: false)
             }
-            if entry.window != nil { Spacer(minLength: 0) }
         }
         // 只有图标时左右也收成 6pt，和上下一样，成一个方块
         .padding(.horizontal, TTLayout.s(showsName ? 9 : 6))
         .padding(.vertical, TTLayout.s(6))
-        .frame(width: entry.buttonWidth > 0 ? TTLayout.s(entry.buttonWidth) : nil, alignment: .leading)
+        // 标题太长的视窗按钮才定宽（截断）；其余按标题实际宽度撑开，跟名字一样长
+        .frame(width: entry.titleTruncated ? TTLayout.s(entry.buttonWidth) : nil, alignment: .leading)
+    }
+
+    /// 浏览器视窗按钮标题前面的设定档标签：配色同悬停预览卡片上的那个
+    private func profileTag(_ profile: BrowserProfiles.WindowProfile) -> some View {
+        let (fill, text) = PreviewCard.tagColors(profile)
+        return Text(profile.name)
+            .font(.system(size: TTLayout.font(9), weight: .semibold))
+            .foregroundStyle(text)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: TTLayout.s(AppCatalog.profileTagMaxText))
+            .fixedSize()
+            .padding(.horizontal, TTLayout.s(5))
+            .padding(.vertical, TTLayout.s(1.5))
+            .background(fill, in: Capsule())
+            // 和标题之间：HStack 的 6 已经有了，再收一点，标签和标题读起来是一组
+            .padding(.trailing, TTLayout.s(-1))
     }
 
     /// 这块屏上开着 ≥ 2 扇窗口：图标右上角画个数字圆圈（多于 9 扇写 9+）。

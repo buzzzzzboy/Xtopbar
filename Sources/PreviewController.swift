@@ -261,7 +261,8 @@ struct PreviewCard: View {
     private static let tagPalette: [UInt32] = [
         0x2F6FEB, 0x8250DF, 0xD9730D, 0x2DA44E, 0xD63384, 0x1B8A99, 0x5856D6, 0x9A6B3F,
     ]
-    private static func tagColors(_ profile: BrowserProfiles.WindowProfile) -> (fill: Color, text: Color) {
+    /// 设定档标签的底色 / 字色（工作列的视窗按钮也用同一套）
+    static func tagColors(_ profile: BrowserProfiles.WindowProfile) -> (fill: Color, text: Color) {
         let rgb: UInt32
         if let argb = profile.color {
             rgb = argb & 0xFF_FFFF

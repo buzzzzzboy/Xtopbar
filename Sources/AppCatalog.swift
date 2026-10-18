@@ -29,8 +29,14 @@ struct AppEntry: Identifiable, Equatable {
     var window: WindowSample? = nil
     /// 合并按钮：合了几扇窗口（≥ 2）。0 = 不是合并按钮
     var mergedCount: Int = 0
-    /// 视窗按钮的宽（未缩放的 pt，「永不合併」放不下时会缩窄）。0 = 按内容自己撑
+    /// 视窗按钮的宽（未缩放的 pt）：按标题量出来、标题顶到上限就截断。0 = 按内容自己撑
     var buttonWidth: CGFloat = 0
+    /// 视窗按钮的标题顶到上限、要截断（这时才按 buttonWidth 定宽；没顶到就让标题按实际宽度画）
+    var titleTruncated = false
+    /// 视窗按钮上显示的标题：去掉结尾的「 - App 名」，浏览器还去掉设定档那段
+    var windowLabel: String = ""
+    /// 浏览器有多个设定档时这扇窗口的设定档（按钮上标题前面画一个标签）
+    var profile: BrowserProfiles.WindowProfile? = nil
     /// 视窗按钮：这扇是不是它那个 App 眼下最前面的窗口（App 在前台时画前台样式）
     var isFrontWindow = false
     /// 视窗按钮记着它属于哪个 App；其它按钮就是 id
@@ -40,12 +46,15 @@ struct AppEntry: Identifiable, Equatable {
     var appID: String { owner ?? id }
 
     /// 由这个 App 按钮派生出一扇窗口的视窗按钮
-    func windowButton(_ w: WindowSample, width: CGFloat) -> AppEntry {
+    func windowButton(_ w: WindowSample, width: CGFloat = 0) -> AppEntry {
         var copy = self
         copy.id = "\(id)#\(w.windowID)"
         copy.owner = id
         copy.window = w
         copy.buttonWidth = width
+        let title = w.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.profile = BrowserProfiles.windowProfile(title: title, appName: name, bundleID: id)
+        copy.windowLabel = AppEntry.windowLabel(title: copy.profile?.page ?? title, appName: name)
         copy.windowCount = 0
         copy.windowTitle = nil
         copy.mergedCount = 0
@@ -55,11 +64,19 @@ struct AppEntry: Identifiable, Equatable {
     /// 条上显示的名字：视窗按钮是那扇窗口的标题（没标题就用 App 名）；
     /// 其它带了窗口标题就是「名字 (标题)」，分得清每条上是哪扇窗口
     var displayName: String {
-        if let window {
-            let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return title.isEmpty ? name : title
-        }
+        if window != nil { return windowLabel.isEmpty ? name : windowLabel }
         return AppEntry.label(name: name, windowTitle: windowTitle)
+    }
+
+    /// 视窗按钮的标题：窗口标题结尾常带「 - App 名」（Chrome 是「网页 - Google Chrome」），
+    /// 按钮前面已经有 App 图标了，去掉省地方。去完是空的就用 App 名
+    static func windowLabel(title raw: String, appName: String) -> String {
+        var title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for sep in [" - ", " — ", " – "] where title.hasSuffix(sep + appName) {
+            title = String(title.dropLast(sep.count + appName.count)).trimmingCharacters(in: .whitespaces)
+            break
+        }
+        return title.isEmpty || title == appName ? appName : title
     }
 
     /// 标题太长截断（加省略号），免得一个标签把条撑得老长
@@ -76,6 +93,7 @@ struct AppEntry: Identifiable, Equatable {
             && lhs.windowTitle == rhs.windowTitle && lhs.windowCount == rhs.windowCount
             && lhs.window == rhs.window && lhs.mergedCount == rhs.mergedCount
             && lhs.buttonWidth == rhs.buttonWidth && lhs.isFrontWindow == rhs.isFrontWindow
+            && lhs.windowLabel == rhs.windowLabel && lhs.profile == rhs.profile && lhs.titleTruncated == rhs.titleTruncated
     }
 }
 
@@ -415,9 +433,9 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - 每扇視窗一格
 
-    /// 视窗按钮的宽（未缩放的 pt，含图标和标题）/「永不合併」最窄缩到多少
-    nonisolated static let windowButtonWidth: CGFloat = 160
-    nonisolated static let minWindowButtonWidth: CGFloat = 72
+    /// 视窗按钮标题最多多宽（未缩放的 pt），超过就截断 /「永不合併」放不下时最窄压到多少
+    nonisolated static let titleCap: CGFloat = 160
+    nonisolated static let minTitleCap: CGFloat = 60
 
     /// App 层的分组 → 条上真正画的按钮：按「工作列按鈕」设定把有窗口的 App 展开成视窗按钮，
     /// 放不下再合并（见 TaskbarLayout）。没有辅助功能权限拿不到单扇窗口，一律按 App 合并
@@ -458,6 +476,15 @@ final class AppCatalog: ObservableObject {
         }
     }
 
+    /// 视窗按钮上设定档标签占的宽（未缩放的 pt）：9pt 半粗体名字 + 左右 5 + 和标题的间距 5，名字最多 60
+    nonisolated static func profileTagWidth(_ profile: BrowserProfiles.WindowProfile?) -> CGFloat {
+        guard let profile else { return 0 }
+        let font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        let text = ceil((profile.name as NSString).size(withAttributes: [.font: font]).width)
+        return min(text, profileTagMaxText) + 10 + 5
+    }
+    nonisolated static let profileTagMaxText: CGFloat = 60
+
     /// 按钮宽度估算（未缩放的 pt），数字同 `AppTab` 的布局：
     /// 标签 = 左右 9 + 图标 18 + 间距 6 + 文字；没在运行的固定项只放图标（6 + 18 + 6）；
     /// 只显示图标 = 左右 6 + 图标 36。每个按钮外边距 1 + 1，同组相邻按钮之间一条分隔线（1 + 6 + 6）
@@ -467,13 +494,19 @@ final class AppCatalog: ObservableObject {
         var fixed: CGFloat = 24
         if prefs.showStartButton { fixed += (iconOnly ? 54 : 44) + 13 }
         if iconOnly {
-            return TaskbarLayout.Metrics(windowButton: 48, minWindowButton: 48, buttonPadding: 2,
+            return TaskbarLayout.Metrics(titleCap: Self.titleCap, minTitleCap: Self.titleCap,
+                                         windowButton: { _, _ in 48 }, buttonPadding: 2,
                                          separator: 0, groupDivider: 13, fixed: fixed,
                                          appButton: { _ in 48 })
         }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         return TaskbarLayout.Metrics(
-            windowButton: Self.windowButtonWidth, minWindowButton: Self.minWindowButtonWidth,
+            titleCap: Self.titleCap, minTitleCap: Self.minTitleCap,
+            windowButton: { b, cap in
+                // 左右 9 + 图标 18 + 间距 6 + 标题（顶到上限截断）+ 设定档标签（含和标题的间距）
+                let text = ceil((b.displayName as NSString).size(withAttributes: [.font: font]).width)
+                return 18 + 18 + 6 + min(text + 1, cap) + Self.profileTagWidth(b.profile)
+            },
             buttonPadding: 2, separator: 13, groupDivider: 13, fixed: fixed,
             appButton: { e in
                 guard e.isRunning || !e.isPinned else { return 30 }
@@ -504,7 +537,7 @@ final class AppCatalog: ObservableObject {
         let signature = newGroups.map { g in
             "\(g.id):" + g.entries.map {
                 "\($0.id)#\($0.pid)#\($0.displayName)#\($0.windowCount)#\($0.mergedCount)"
-                    + "#\($0.buttonWidth)#\($0.window?.minimized == true)#\($0.isFrontWindow)"
+                    + "#\($0.buttonWidth)#\($0.window?.minimized == true)#\($0.isFrontWindow)#\($0.profile?.name ?? "")"
             }.joined(separator: ",")
         }.joined(separator: "|") + "|active:\(frontPID)"
             + "|bg:" + newBackground.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")

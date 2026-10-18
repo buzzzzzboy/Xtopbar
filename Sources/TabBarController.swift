@@ -580,7 +580,9 @@ final class TabBarController: TabBarHost {
             [TaskbarLayout.Slot(app: app("A", pid: 1), windows: wins([1, 2, 3])),
              TaskbarLayout.Slot(app: app("B", pid: 2), windows: wins([4, 5]))]
         ]
-        let m = TaskbarLayout.Metrics(windowButton: 100, minWindowButton: 40, buttonPadding: 0,
+        // 视窗按钮宽 = 标题上限（样例里每个标题都顶到上限），永不合併压上限时就是压宽度
+        let m = TaskbarLayout.Metrics(titleCap: 100, minTitleCap: 40, windowButton: { _, cap in cap },
+                                      buttonPadding: 0,
                                       separator: 0, groupDivider: 0, fixed: 0, appButton: { _ in 50 })
         func show(_ g: TaskbarGrouping, _ max: CGFloat) -> String {
             TaskbarLayout.expand(groups, grouping: g, maxWidth: max, metrics: m).map { group in
@@ -613,6 +615,21 @@ final class TabBarController: TabBarHost {
         TTLog("  例外 擠滿才合併 寬 600：\(showO(.whenFull, 600))（期望 C | A#1 A#2 A#3 B，B 一律合併成 App 按鈕）")
         TTLog("  例外 擠滿才合併 寬 100：\(showO(.whenFull, 100))（期望 C | A#1 A#2 A#3 B，A 永不合併，擠也不合）")
         TTLog("  例外 依 App 合併：\(showO(.always, 100))（期望 C | A#1 A#2 A#3 B，A 照樣展開）")
+        // 依标题长度：每字 10pt，上限 100。短标题不撑满，长标题截在上限
+        let natural = TaskbarLayout.Metrics(
+            titleCap: 100, minTitleCap: 40,
+            windowButton: { b, cap in min(CGFloat(b.displayName.count * 10), cap) },
+            buttonPadding: 0, separator: 0, groupDivider: 0, fixed: 0, appButton: { _ in 50 })
+        let titled = [[TaskbarLayout.Slot(app: app("D", pid: 3), windows: [
+            WindowSample(windowID: 1, frame: .zero, title: "abc", minimized: false),
+            WindowSample(windowID: 2, frame: .zero, title: "一個非常非常非常非常長的標題", minimized: false)
+        ])]]
+        let widths = TaskbarLayout.expand(titled, grouping: .whenFull, maxWidth: 999, metrics: natural)
+            .joined().map { "\($0.displayName)@\(Int($0.buttonWidth))" }
+        TTLog("  依標題長度：\(widths)（期望 abc@30、長標題@100）")
+        TTLog("  標題整理：\(AppEntry.windowLabel(title: "YouTube - Google Chrome", appName: "Google Chrome"))（期望 YouTube），"
+              + "\(AppEntry.windowLabel(title: "Google Chrome", appName: "Google Chrome"))（期望 Google Chrome），"
+              + "\(AppEntry.windowLabel(title: "筆記 — 文字編輯", appName: "文字編輯"))（期望 筆記）")
         let order = TaskbarLayout.ordered(wins([9, 3, 7])).map(\.windowID)
         TTLog("  同 App 視窗排序：\(order)（期望 [3, 7, 9]，依視窗編號）")
     }
