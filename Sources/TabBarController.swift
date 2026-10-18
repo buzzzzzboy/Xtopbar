@@ -249,10 +249,18 @@ final class TabBarController: TabBarHost {
             self?.hoverEndTime = nil
             self?.schedulePreview(for: entry)
             // 右键前先把「有没有新視窗那一项」查好，菜单一开就是对的
-            if entry.isRunning, !BrowserProfiles.isBrowser(entry.id),
+            if entry.isRunning, !BrowserProfiles.isBrowser(entry.appID),
                TaskbarAppActions.newWindowAvailable[entry.pid] == nil {
                 Task { await TaskbarAppActions.probeNewWindow(pid: entry.pid) }
             }
+        }
+        // 合并按钮被点：直接弹窗口列表挑一扇（不等悬停延迟，预览开关关着也弹 —— 这是唯一的挑窗口入口）
+        catalog.onMergedClick = { [weak self] entry in
+            guard let self else { return }
+            self.previewWork?.cancel()
+            self.hoveredEntry = entry
+            self.hoverEndTime = nil
+            self.showPreview(for: entry)
         }
         catalog.onTabHoverEnd = { [weak self] in
             self?.previewWork?.cancel()
@@ -299,6 +307,11 @@ final class TabBarController: TabBarHost {
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.catalog.refresh() }
+            .store(in: &cancellables)
+        prefs.$groupingOverrides
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.catalog.invalidateLayout() }
             .store(in: &cancellables)
         prefs.$dockPins
             .dropFirst()
@@ -424,6 +437,15 @@ final class TabBarController: TabBarHost {
             }
             .store(in: &cancellables)
 
+        // 合并方式 / 样式 / 开始按钮 / 缩放改了：视窗按钮要按新的宽度重新展开、重新判断合不合并
+        Publishers.Merge4(prefs.$taskbarGrouping.dropFirst().map { _ in () },
+                          prefs.$iconOnly.dropFirst().map { _ in () },
+                          prefs.$showStartButton.dropFirst().map { _ in () },
+                          prefs.$uiScale.dropFirst().map { _ in () })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.catalog.invalidateLayout() }
+            .store(in: &cancellables)
+
         // 顶部唤出位置改了：立刻把面板摆到正确的那块屏上
         prefs.$hotZoneScreen
             .dropFirst()
@@ -518,6 +540,98 @@ final class TabBarController: TabBarHost {
         run("A", by: 999, expect: "BCA，A 夾到 160，B=C=-110")
         run("C", by: -60, expect: "ACB，B=110")
         run("C", by: -999, expect: "CAB，C 夾到 -160，A=B=110")
+
+        // 视窗按钮整块拖：B 展开成 B#1 B#2 两格，拖 B#2 两格一起走
+        let w1 = WindowSample(windowID: 1, frame: .zero, title: "1", minimized: false)
+        let w2 = WindowSample(windowID: 2, frame: .zero, title: "2", minimized: false)
+        let b = entries[1]
+        let split = [entries[0], b.windowButton(w1, width: 40), b.windowButton(w2, width: 40), entries[2]]
+        let splitFrames: [String: CGRect] = [
+            "A": CGRect(x: 0, y: 0, width: 100, height: 30),
+            "B#1": CGRect(x: 110, y: 0, width: 40, height: 30),
+            "B#2": CGRect(x: 160, y: 0, width: 40, height: 30),
+            "C": CGRect(x: 210, y: 0, width: 100, height: 30)
+        ]
+        if var drag = TabDrag(entry: split[2], startX: 0,
+                              groups: [AppGroup(id: "g", category: .other, entries: split)],
+                              frames: splitFrames) {
+            drag.move(to: 999)
+            TTLog("  整塊拖 B#2 到底：順序 \(drag.reorderedIDs.joined()) "
+                  + "B#1=\(drag.offset(for: "B#1")) B#2=\(drag.offset(for: "B#2")) C=\(drag.offset(for: "C"))"
+                  + "（期望 ACB，B#1=B#2=110，C=-100）")
+        }
+        diagnoseTaskbarLayout()
+    }
+
+    /// 工作列按钮展开 / 合并（纯逻辑）：A 3 扇、B 2 扇、C 没窗口的固定项。
+    /// 每格宽 100、App 按钮宽 50、外边距 / 分隔线都是 0、固定开销 0：全展开 = 300 + 200 + 50 = 550
+    private func diagnoseTaskbarLayout() {
+        let icon = NSImage()
+        func app(_ id: String, pid: pid_t) -> AppEntry {
+            AppEntry(id: id, pid: pid, name: id, icon: icon, category: .other)
+        }
+        func wins(_ ids: [CGWindowID]) -> [WindowSample] {
+            ids.map { WindowSample(windowID: $0, frame: .zero, title: "w\($0)", minimized: false) }
+        }
+        let pinned = AppEntry(id: "C", pid: 0, name: "C", icon: icon, category: .pinned,
+                              isRunning: false, isPinned: true)
+        let groups: [[TaskbarLayout.Slot]] = [
+            [TaskbarLayout.Slot(app: pinned, windows: [])],
+            [TaskbarLayout.Slot(app: app("A", pid: 1), windows: wins([1, 2, 3])),
+             TaskbarLayout.Slot(app: app("B", pid: 2), windows: wins([4, 5]))]
+        ]
+        // 视窗按钮宽 = 标题上限（样例里每个标题都顶到上限），永不合併压上限时就是压宽度
+        let m = TaskbarLayout.Metrics(titleCap: 100, minTitleCap: 40, windowButton: { _, cap in cap },
+                                      buttonPadding: 0,
+                                      separator: 0, groupDivider: 0, fixed: 0, appButton: { _ in 50 })
+        func show(_ g: TaskbarGrouping, _ max: CGFloat) -> String {
+            TaskbarLayout.expand(groups, grouping: g, maxWidth: max, metrics: m).map { group in
+                group.map { e in
+                    e.mergedCount > 0 ? "\(e.appID)×\(e.mergedCount)"
+                        : e.window.map { "\(e.appID)#\($0.windowID)@\(Int(e.buttonWidth))" } ?? e.appID
+                }.joined(separator: " ")
+            }.joined(separator: " | ")
+        }
+        TTLog("  工作列按鈕 擠滿才合併 寬 600：\(show(.whenFull, 600))（期望 C | A#1 A#2 A#3 B#4 B#5 全展開）")
+        TTLog("  工作列按鈕 擠滿才合併 寬 400：\(show(.whenFull, 400))（期望 C | A×3 B#4 B#5，先合視窗最多的 A）")
+        TTLog("  工作列按鈕 擠滿才合併 寬 100：\(show(.whenFull, 100))（期望 C | A×3 B×2，全合完交給捲動）")
+        TTLog("  工作列按鈕 永不合併 寬 300：\(show(.never, 300))（期望每格縮到 50）")
+        TTLog("  工作列按鈕 永不合併 寬 100：\(show(.never, 100))（期望每格停在最窄 40）")
+        TTLog("  工作列按鈕 依 App 合併：\(show(.always, 100))（期望 C | A B）")
+        // 个别 App 例外：A 永不合併、B 一律合併
+        let withOverrides: [[TaskbarLayout.Slot]] = [
+            groups[0],
+            [TaskbarLayout.Slot(app: app("A", pid: 1), windows: wins([1, 2, 3]), override: .never),
+             TaskbarLayout.Slot(app: app("B", pid: 2), windows: wins([4, 5]), override: .always)]
+        ]
+        func showO(_ g: TaskbarGrouping, _ max: CGFloat) -> String {
+            TaskbarLayout.expand(withOverrides, grouping: g, maxWidth: max, metrics: m).map { group in
+                group.map { e in
+                    e.mergedCount > 0 ? "\(e.appID)×\(e.mergedCount)"
+                        : e.window.map { "\(e.appID)#\($0.windowID)" } ?? e.appID
+                }.joined(separator: " ")
+            }.joined(separator: " | ")
+        }
+        TTLog("  例外 擠滿才合併 寬 600：\(showO(.whenFull, 600))（期望 C | A#1 A#2 A#3 B，B 一律合併成 App 按鈕）")
+        TTLog("  例外 擠滿才合併 寬 100：\(showO(.whenFull, 100))（期望 C | A#1 A#2 A#3 B，A 永不合併，擠也不合）")
+        TTLog("  例外 依 App 合併：\(showO(.always, 100))（期望 C | A#1 A#2 A#3 B，A 照樣展開）")
+        // 依标题长度：每字 10pt，上限 100。短标题不撑满，长标题截在上限
+        let natural = TaskbarLayout.Metrics(
+            titleCap: 100, minTitleCap: 40,
+            windowButton: { b, cap in min(CGFloat(b.displayName.count * 10), cap) },
+            buttonPadding: 0, separator: 0, groupDivider: 0, fixed: 0, appButton: { _ in 50 })
+        let titled = [[TaskbarLayout.Slot(app: app("D", pid: 3), windows: [
+            WindowSample(windowID: 1, frame: .zero, title: "abc", minimized: false),
+            WindowSample(windowID: 2, frame: .zero, title: "一個非常非常非常非常長的標題", minimized: false)
+        ])]]
+        let widths = TaskbarLayout.expand(titled, grouping: .whenFull, maxWidth: 999, metrics: natural)
+            .joined().map { "\($0.displayName)@\(Int($0.buttonWidth))" }
+        TTLog("  依標題長度：\(widths)（期望 abc@30、長標題@100）")
+        TTLog("  標題整理：\(AppEntry.windowLabel(title: "YouTube - Google Chrome", appName: "Google Chrome"))（期望 YouTube），"
+              + "\(AppEntry.windowLabel(title: "Google Chrome", appName: "Google Chrome"))（期望 Google Chrome），"
+              + "\(AppEntry.windowLabel(title: "筆記 — 文字編輯", appName: "文字編輯"))（期望 筆記）")
+        let order = TaskbarLayout.ordered(wins([9, 3, 7])).map(\.windowID)
+        TTLog("  同 App 視窗排序：\(order)（期望 [3, 7, 9]，依視窗編號）")
     }
 
     /// 调试自检：`--test-pins`
@@ -1137,7 +1251,7 @@ final class TabBarController: TabBarHost {
 
         // 快照最多落后几秒：现查一遍，窗口有变化就换上新列表
         let pid = entry.pid
-        let probeNewWindow = !BrowserProfiles.isBrowser(entry.id) && TaskbarAppActions.newWindowAvailable[pid] == nil
+        let probeNewWindow = !BrowserProfiles.isBrowser(entry.appID) && TaskbarAppActions.newWindowAvailable[pid] == nil
         Task { [weak self] in
             guard let self else { return }
             // 「開新視窗」先乐观地放着；查出这个 App 没有新視窗那一项就换掉
@@ -1263,6 +1377,9 @@ final class TabBarController: TabBarHost {
             height: barHeight,
             inset: topInset
         )
+        // 「擠滿時才合併」按条最多能多宽判断放不放得下（同 barFrame / leavingTail 的上限）
+        catalog.maxBarWidth = screen.visibleFrame.width - 24
+            - (folder.hasApps ? BackgroundFolderController.tailWidth * 2 : 0)
         // 有「背景執行」资料夹：条照样居中，两边各让出一截尾巴的宽度，小方块才不会挤出屏幕
         if folder.hasApps {
             target = DockGeometry.leavingTail(bar: target, visible: screen.visibleFrame,

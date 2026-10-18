@@ -62,13 +62,21 @@ enum TaskbarAppMenu {
             items.append(.separator)
         }
 
+        // 视窗按钮：关掉它代表的那一扇
+        if entry.window != nil {
+            items.append(TaskbarMenuItem(title: "關閉視窗", symbol: "xmark.rectangle") {
+                catalog.closeWindow(entry)
+            })
+            items.append(.separator)
+        }
+
         // Chromium 系浏览器的设定档：点一个就用它开新窗口
-        let profiles = BrowserProfiles.profiles(for: entry.id)
+        let profiles = BrowserProfiles.profiles(for: entry.appID)
         if !profiles.isEmpty {
             items.append(.header("設定檔"))
             for profile in profiles {
                 items.append(TaskbarMenuItem(title: profile.name, symbol: "person.crop.circle") {
-                    BrowserProfiles.open(profile, bundleID: entry.id, appURL: entry.bundleURL)
+                    BrowserProfiles.open(profile, bundleID: entry.appID, appURL: entry.bundleURL)
                 })
             }
             items.append(.separator)
@@ -77,14 +85,14 @@ enum TaskbarAppMenu {
         if entry.isRunning {
             // 菜单栏里找不到「新視窗」那一项的 App（Spotify 的 ⌘N 是新增播放清單）就不给这一项。
             // 还没查过时先放着，查完不支持再换掉（见 TabBarController.openTaskbarMenu）
-            if BrowserProfiles.isBrowser(entry.id) || TaskbarAppActions.newWindowAvailable[pid] != false {
+            if BrowserProfiles.isBrowser(entry.appID) || TaskbarAppActions.newWindowAvailable[pid] != false {
                 items.append(TaskbarMenuItem(title: "開新視窗", symbol: "plus.rectangle.on.rectangle") {
                     TaskbarAppActions.newWindow(entry)
                 })
             }
-            if let privateWindow = BrowserProfiles.privateWindow(for: entry.id) {
+            if let privateWindow = BrowserProfiles.privateWindow(for: entry.appID) {
                 items.append(TaskbarMenuItem(title: privateWindow.title, symbol: "eyeglasses") {
-                    BrowserProfiles.openWindow(bundleID: entry.id, appURL: entry.bundleURL,
+                    BrowserProfiles.openWindow(bundleID: entry.appID, appURL: entry.bundleURL,
                                                arguments: [privateWindow.flag])
                 })
             }
@@ -108,12 +116,12 @@ enum TaskbarAppMenu {
 
         // Xtopbar 自己的功能：放第一层，点一下就能用
         items.append(TaskbarMenuItem(title: "保留在工作列", symbol: "pin", checked: entry.isPinned) {
-            if entry.isPinned { catalog.unpinFromDock(entry.id) } else { catalog.pinToDock(entry) }
+            if entry.isPinned { catalog.unpinFromDock(entry.appID) } else { catalog.pinToDock(entry) }
         })
         if Preferences.shared.showStartButton {
-            if catalog.isStartPinned(entry.id) {
+            if catalog.isStartPinned(entry.appID) {
                 items.append(TaskbarMenuItem(title: "從開始選單取消固定", symbol: "star.slash") {
-                    catalog.unpinFromStart(entry.id)
+                    catalog.unpinFromStart(entry.appID)
                 })
             } else {
                 items.append(TaskbarMenuItem(title: "固定到開始選單", symbol: "star") {
@@ -121,6 +129,19 @@ enum TaskbarAppMenu {
                 })
             }
         }
+        // 这个 App 的视窗按钮要不要合并：跟随全局 / 一律合并 / 永不合并（当前那项打勾）
+        let current = catalog.groupingOverride(for: entry.appID)
+        let appID = entry.appID
+        items.append(TaskbarMenuItem(title: "視窗按鈕", symbol: "rectangle.split.3x1", children: [
+            TaskbarMenuItem(title: "跟隨全域設定（\(Preferences.shared.taskbarGrouping.title)）",
+                            checked: current == nil) { catalog.setGroupingOverride(nil, for: appID) },
+            TaskbarMenuItem(title: "一律合併", checked: current == .always) {
+                catalog.setGroupingOverride(.always, for: appID)
+            },
+            TaskbarMenuItem(title: "永不合併", checked: current == .never) {
+                catalog.setGroupingOverride(.never, for: appID)
+            }
+        ]))
         if entry.isRunning, !entry.isPinned {
             items.append(TaskbarMenuItem(title: "從工作列隱藏此 App", symbol: "eye.slash") {
                 catalog.hide(entry)
@@ -177,8 +198,8 @@ enum TaskbarAppActions {
     /// 不盲送 ⌘N：不少 App 的 ⌘N 不是开窗口（Spotify 是新增播放清單）
     @MainActor
     static func newWindow(_ entry: AppEntry) {
-        if BrowserProfiles.isBrowser(entry.id) {
-            BrowserProfiles.openWindow(bundleID: entry.id, appURL: entry.bundleURL, arguments: ["--new-window"])
+        if BrowserProfiles.isBrowser(entry.appID) {
+            BrowserProfiles.openWindow(bundleID: entry.appID, appURL: entry.bundleURL, arguments: ["--new-window"])
             return
         }
         let pid = entry.pid

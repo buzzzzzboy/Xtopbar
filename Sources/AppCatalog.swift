@@ -5,7 +5,8 @@ import SwiftUI
 
 /// 一个可点击的标签 = 一个正在运行的 App，或一个固定到任务栏的 App（可能没在运行）
 struct AppEntry: Identifiable, Equatable {
-    let id: String
+    /// App 按钮 / 合并按钮是 bundle id；视窗按钮是「bundle id#窗口编号」（见 `appID`）
+    private(set) var id: String
     /// 没在运行的固定项为 0
     let pid: pid_t
     let name: String
@@ -24,8 +25,59 @@ struct AppEntry: Identifiable, Equatable {
     /// 这条（这块屏）上它开着几扇窗口（含最小化的）；单条模式下是全部窗口。≥ 2 时图标角落画数字圆圈
     var windowCount: Int = 0
 
-    /// 条上显示的名字：带了窗口标题就是「名字 (标题)」，分得清每条上是哪扇窗口
-    var displayName: String { AppEntry.label(name: name, windowTitle: windowTitle) }
+    /// 视窗按钮（「每扇視窗一格」）：这格是哪扇窗口。nil = App 按钮 / 合并按钮
+    var window: WindowSample? = nil
+    /// 合并按钮：合了几扇窗口（≥ 2）。0 = 不是合并按钮
+    var mergedCount: Int = 0
+    /// 视窗按钮的宽（未缩放的 pt）：按标题量出来、标题顶到上限就截断。0 = 按内容自己撑
+    var buttonWidth: CGFloat = 0
+    /// 视窗按钮的标题顶到上限、要截断（这时才按 buttonWidth 定宽；没顶到就让标题按实际宽度画）
+    var titleTruncated = false
+    /// 视窗按钮上显示的标题：去掉结尾的「 - App 名」，浏览器还去掉设定档那段
+    var windowLabel: String = ""
+    /// 浏览器有多个设定档时这扇窗口的设定档（按钮上标题前面画一个标签）
+    var profile: BrowserProfiles.WindowProfile? = nil
+    /// 视窗按钮：这扇是不是它那个 App 眼下最前面的窗口（App 在前台时画前台样式）
+    var isFrontWindow = false
+    /// 视窗按钮记着它属于哪个 App；其它按钮就是 id
+    fileprivate(set) var owner: String? = nil
+
+    /// App 的 bundle id（固定 / 隐藏 / 排序 / 图标缓存都按它）。视窗按钮的 id 带着窗口编号，别直接拿 id 用
+    var appID: String { owner ?? id }
+
+    /// 由这个 App 按钮派生出一扇窗口的视窗按钮
+    func windowButton(_ w: WindowSample, width: CGFloat = 0) -> AppEntry {
+        var copy = self
+        copy.id = "\(id)#\(w.windowID)"
+        copy.owner = id
+        copy.window = w
+        copy.buttonWidth = width
+        let title = w.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.profile = BrowserProfiles.windowProfile(title: title, appName: name, bundleID: id)
+        copy.windowLabel = AppEntry.windowLabel(title: copy.profile?.page ?? title, appName: name)
+        copy.windowCount = 0
+        copy.windowTitle = nil
+        copy.mergedCount = 0
+        return copy
+    }
+
+    /// 条上显示的名字：视窗按钮是那扇窗口的标题（没标题就用 App 名）；
+    /// 其它带了窗口标题就是「名字 (标题)」，分得清每条上是哪扇窗口
+    var displayName: String {
+        if window != nil { return windowLabel.isEmpty ? name : windowLabel }
+        return AppEntry.label(name: name, windowTitle: windowTitle)
+    }
+
+    /// 视窗按钮的标题：窗口标题结尾常带「 - App 名」（Chrome 是「网页 - Google Chrome」），
+    /// 按钮前面已经有 App 图标了，去掉省地方。去完是空的就用 App 名
+    static func windowLabel(title raw: String, appName: String) -> String {
+        var title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for sep in [" - ", " — ", " – "] where title.hasSuffix(sep + appName) {
+            title = String(title.dropLast(sep.count + appName.count)).trimmingCharacters(in: .whitespaces)
+            break
+        }
+        return title.isEmpty || title == appName ? appName : title
+    }
 
     /// 标题太长截断（加省略号），免得一个标签把条撑得老长
     static func label(name: String, windowTitle: String?, limit: Int = 20) -> String {
@@ -39,6 +91,9 @@ struct AppEntry: Identifiable, Equatable {
         lhs.id == rhs.id && lhs.pid == rhs.pid && lhs.category == rhs.category
             && lhs.isRunning == rhs.isRunning && lhs.isPinned == rhs.isPinned
             && lhs.windowTitle == rhs.windowTitle && lhs.windowCount == rhs.windowCount
+            && lhs.window == rhs.window && lhs.mergedCount == rhs.mergedCount
+            && lhs.buttonWidth == rhs.buttonWidth && lhs.isFrontWindow == rhs.isFrontWindow
+            && lhs.windowLabel == rhs.windowLabel && lhs.profile == rhs.profile && lhs.titleTruncated == rhs.titleTruncated
     }
 }
 
@@ -59,6 +114,22 @@ final class AppCatalog: ObservableObject {
     @Published private(set) var backgroundApps: [AppEntry] = []
     /// 面板实际可用宽度（由控制器算好后回填，视图据此布局）
     @Published var barWidth: CGFloat = 600
+
+    /// 条最多能多宽（屏幕可用宽 − 边距 − 资料夹尾巴，已缩放的 pt），由控制器按所在屏回填。
+    /// 「擠滿時才合併」按它判断放不放得下；变了就重排一次
+    var maxBarWidth: CGFloat = .greatestFiniteMagnitude {
+        didSet {
+            guard abs(maxBarWidth - oldValue) > 0.5 else { return }
+            DispatchQueue.main.async { [weak self] in self?.invalidateLayout() }
+        }
+    }
+
+    /// 合并方式 / 样式 / 缩放改了：按钮要重新展开，签名对不上也得重建
+    func invalidateLayout() {
+        lastSignature = ""
+        refresh()
+        onLayoutNeeded?()
+    }
 
     /// 指针是否停在悬浮条上。
     ///
@@ -360,6 +431,90 @@ final class AppCatalog: ObservableObject {
         return result
     }
 
+    // MARK: - 每扇視窗一格
+
+    /// 视窗按钮标题最多多宽（未缩放的 pt），超过就截断 /「永不合併」放不下时最窄压到多少
+    nonisolated static let titleCap: CGFloat = 160
+    nonisolated static let minTitleCap: CGFloat = 60
+
+    /// App 层的分组 → 条上真正画的按钮：按「工作列按鈕」设定把有窗口的 App 展开成视窗按钮，
+    /// 放不下再合并（见 TaskbarLayout）。没有辅助功能权限拿不到单扇窗口，一律按 App 合并
+    private func expandWindows(_ base: [AppGroup]) -> [AppGroup] {
+        let trusted = WindowBridge.isTrusted
+        let prefs = Preferences.shared
+        guard trusted else { return base }
+        let grouping = prefs.taskbarGrouping
+        let overrides = prefs.groupingOverrides
+        // 全局按 App 合并、也没有哪个 App 标了永不合并：原样返回，不用展开
+        guard grouping != .always || overrides.values.contains(.never) else { return base }
+        let scope = screenScope
+        let byPID = WindowPresence.shared.windowsByPID
+        // 各 App 这块屏上的「前台那扇」：App 的焦点窗口；焦点在别的屏就取这块屏上最前面那扇开着的
+        var front: [pid_t: CGWindowID] = [:]
+        let slots = base.map { g in
+            g.entries.map { e -> TaskbarLayout.Slot in
+                guard e.isRunning, e.pid > 0, let placed = byPID[e.pid] else {
+                    return TaskbarLayout.Slot(app: e, windows: [])
+                }
+                let override = overrides[e.appID]
+                let here = placed.filter { scope == nil || $0.display == scope!.displayID }.map(\.window)
+                front[e.pid] = (here.first { $0.focused && !$0.minimized }
+                                ?? here.first { !$0.minimized })?.windowID
+                return TaskbarLayout.Slot(app: e, windows: TaskbarLayout.ordered(here), override: override)
+            }
+        }
+        let scale = max(TTLayout.scale, 0.1)
+        let expanded = TaskbarLayout.expand(slots, grouping: grouping,
+                                            maxWidth: maxBarWidth / scale, metrics: layoutMetrics())
+        return zip(base, expanded).map { g, entries in
+            AppGroup(id: g.id, category: g.category, entries: entries.map { e in
+                guard let w = e.window else { return e }
+                var copy = e
+                copy.isFrontWindow = front[e.pid] == w.windowID
+                return copy
+            })
+        }
+    }
+
+    /// 视窗按钮上设定档标签占的宽（未缩放的 pt）：9pt 半粗体名字 + 左右 5 + 和标题的间距 5，名字最多 60
+    nonisolated static func profileTagWidth(_ profile: BrowserProfiles.WindowProfile?) -> CGFloat {
+        guard let profile else { return 0 }
+        let font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        let text = ceil((profile.name as NSString).size(withAttributes: [.font: font]).width)
+        return min(text, profileTagMaxText) + 10 + 5
+    }
+    nonisolated static let profileTagMaxText: CGFloat = 60
+
+    /// 按钮宽度估算（未缩放的 pt），数字同 `AppTab` 的布局：
+    /// 标签 = 左右 9 + 图标 18 + 间距 6 + 文字；没在运行的固定项只放图标（6 + 18 + 6）；
+    /// 只显示图标 = 左右 6 + 图标 36。每个按钮外边距 1 + 1，同组相邻按钮之间一条分隔线（1 + 6 + 6）
+    private func layoutMetrics() -> TaskbarLayout.Metrics {
+        let prefs = Preferences.shared
+        let iconOnly = prefs.iconOnly
+        var fixed: CGFloat = 24
+        if prefs.showStartButton { fixed += (iconOnly ? 54 : 44) + 13 }
+        if iconOnly {
+            return TaskbarLayout.Metrics(titleCap: Self.titleCap, minTitleCap: Self.titleCap,
+                                         windowButton: { _, _ in 48 }, buttonPadding: 2,
+                                         separator: 0, groupDivider: 13, fixed: fixed,
+                                         appButton: { _ in 48 })
+        }
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        return TaskbarLayout.Metrics(
+            titleCap: Self.titleCap, minTitleCap: Self.minTitleCap,
+            windowButton: { b, cap in
+                // 左右 9 + 图标 18 + 间距 6 + 标题（顶到上限截断）+ 设定档标签（含和标题的间距）
+                let text = ceil((b.displayName as NSString).size(withAttributes: [.font: font]).width)
+                return 18 + 18 + 6 + min(text + 1, cap) + Self.profileTagWidth(b.profile)
+            },
+            buttonPadding: 2, separator: 13, groupDivider: 13, fixed: fixed,
+            appButton: { e in
+                guard e.isRunning || !e.isPinned else { return 30 }
+                let text = ceil((e.displayName as NSString).size(withAttributes: [.font: font]).width)
+                return 18 + 18 + 6 + text
+            })
+    }
+
     // MARK: - Refresh
 
     /// 右键菜单开着：暂停重采。菜单内容是 SwiftUI 按视图状态生成的，
@@ -374,14 +529,15 @@ final class AppCatalog: ObservableObject {
         let frontPID = frontmost?.processIdentifier ?? -1
 
         let collected = collect()
-        let newGroups = group(pinned: collected.pinned, running: collected.running)
+        let newGroups = expandWindows(group(pinned: collected.pinned, running: collected.running))
         let newBackground = sorted(collected.background)
         // 条上有 Chromium 系浏览器就先在后台把设定档读好（节流，非浏览器直接跳过）
-        for g in newGroups { for e in g.entries { BrowserProfiles.prefetch(e.id) } }
+        for g in newGroups { for e in g.entries { BrowserProfiles.prefetch(e.appID) } }
 
         let signature = newGroups.map { g in
             "\(g.id):" + g.entries.map {
-                "\($0.id)#\($0.pid)#\($0.windowTitle ?? "")#\($0.windowCount)"
+                "\($0.id)#\($0.pid)#\($0.displayName)#\($0.windowCount)#\($0.mergedCount)"
+                    + "#\($0.buttonWidth)#\($0.window?.minimized == true)#\($0.isFrontWindow)#\($0.profile?.name ?? "")"
             }.joined(separator: ",")
         }.joined(separator: "|") + "|active:\(frontPID)"
             + "|bg:" + newBackground.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")
@@ -531,6 +687,11 @@ final class AppCatalog: ObservableObject {
         drag?.offset(for: id) ?? 0
     }
 
+    /// 这个按钮是不是正被拖着（拖视窗按钮时同一个 App 的几格一起抬起）
+    func isDragging(_ id: String) -> Bool {
+        drag?.carries(id) ?? false
+    }
+
     /// 松手落位：固定组改 dockPins，运行中组改 runningOrder，然后带动画重排
     private func commit(_ finished: TabDrag) {
         let ids = finished.reorderedIDs
@@ -566,9 +727,18 @@ final class AppCatalog: ObservableObject {
     ///
     /// 多屏各屏一条时，点的是哪块屏的条，就切到 / 收起这块屏上的窗口（同 Windows 多工作列）。
     func activate(_ entry: AppEntry, fromClick: Bool = false) {
+        if let window = entry.window, entry.pid > 0 {
+            activateWindow(window, pid: entry.pid, fromClick: fromClick)
+            return
+        }
+        // 合并按钮：点了弹这个 App 的窗口列表挑一扇（同 Vista），不切换也不收起
+        if fromClick, entry.mergedCount >= 2, entry.pid > 0 {
+            onMergedClick?(entry)
+            return
+        }
         guard entry.isRunning, entry.pid > 0 else {
             // 固定了但没在运行：点一下 = 启动（同点 Dock 上没有小圆点的图标）
-            if let url = entry.bundleURL { launch(url: url, bundleID: entry.id) }
+            if let url = entry.bundleURL { launch(url: url, bundleID: entry.appID) }
             return
         }
         let pid = entry.pid
@@ -604,6 +774,51 @@ final class AppCatalog: ObservableObject {
             WindowBridge.restoreMinimized(pid: pid)
             await self?.activatePID(pid)
             if let region { WindowBridge.raiseWindow(pid: pid, in: region) }
+        }
+    }
+
+    /// 合并按钮被点了：控制器弹出这个 App 的窗口列表（预览面板）
+    var onMergedClick: (@MainActor (AppEntry) -> Void)?
+
+    /// 点视窗按钮：切到这扇窗口（最小化的顺手放回来）；它已经是前台 App 最前面那扇、
+    /// 且开着「點選前景 App 最小化視窗」就只收起这一扇（同 Windows 任务栏）
+    private func activateWindow(_ w: WindowSample, pid: pid_t, fromClick: Bool) {
+        let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        let mayMinimize = fromClick && isFront && !w.minimized && Preferences.shared.clickToMinimize
+        if let app = NSRunningApplication(processIdentifier: pid), app.isHidden { app.unhide() }
+        // 乐观更新高亮，同 activatePID
+        activePID = pid
+        noteActive(pid)
+        // AX 配对 / 提窗会阻塞几百毫秒，挪到后台；做完马上重扫一轮，前台那扇的高亮才跟得上
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let cgID: UInt32? = w.windowID < 0xF000_0000 ? w.windowID : nil
+            if !(mayMinimize && WindowBridge.minimizeIfCurrent(pid: pid, axIndex: nil, frame: w.frame,
+                                                               title: w.title, cgID: cgID)) {
+                WindowBridge.focusWindow(pid: pid, axIndex: nil, frame: w.frame, title: w.title, cgID: cgID)
+            }
+            await self?.scanWindows()
+        }
+    }
+
+    /// 某个 App 的合并例外（右键「視窗按鈕」）：nil / .whenFull = 跟随全局设定
+    func groupingOverride(for appID: String) -> TaskbarGrouping? {
+        Preferences.shared.groupingOverrides[appID]
+    }
+
+    func setGroupingOverride(_ mode: TaskbarGrouping?, for appID: String) {
+        var map = Preferences.shared.groupingOverrides
+        map[appID] = mode == .whenFull ? nil : mode
+        Preferences.shared.groupingOverrides = map
+        TTLog("grouping override \(appID) → \(mode?.rawValue ?? "跟隨")")
+    }
+
+    /// 关掉视窗按钮那扇窗口（右键菜单）
+    func closeWindow(_ entry: AppEntry) {
+        guard let w = entry.window, entry.pid > 0 else { return }
+        let pid = entry.pid
+        Task.detached(priority: .userInitiated) { [weak self] in
+            WindowBridge.closeWindow(pid: pid, axIndex: nil, frame: w.frame, title: w.title)
+            await self?.scanWindows()
         }
     }
 
@@ -692,7 +907,7 @@ final class AppCatalog: ObservableObject {
     /// 从标签里隐藏 App（右键菜单）。只记 bundle id，collect() 会过滤掉；
     /// 释放入口在设置 → 悬浮条 → 已隐藏的 App。
     func hide(_ entry: AppEntry) {
-        let bid = entry.id
+        let bid = entry.appID
         // 没有 bundle id 的进程（路径/pid 兜底 key）存不下稳定标识，隐藏不了
         guard !bid.contains("/"), !bid.hasPrefix("pid-") else {
             TTLog("hide skipped: no bundle id for \(entry.name)")
@@ -708,7 +923,7 @@ final class AppCatalog: ObservableObject {
 
     /// 能不能固定：得有稳定的 bundle id 和 .app 路径（同 hide 的判断）
     private func pinnedApp(for entry: AppEntry) -> PinnedApp? {
-        let bid = entry.id
+        let bid = entry.appID
         guard !bid.contains("/"), !bid.hasPrefix("pid-"),
               let url = entry.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)
         else {
@@ -881,6 +1096,8 @@ final class AppCatalog: ObservableObject {
             for entry in group.entries {
                 if iconOnly {
                     total += 36 + 12 + 2
+                } else if entry.buttonWidth > 0 {
+                    total += entry.buttonWidth + 2 + 13
                 } else {
                     let textWidth = min((entry.displayName as NSString).size(withAttributes: [.font: font]).width, 108)
                     total += 18 + 6 + ceil(textWidth) + 18 + 2 + 13
@@ -894,12 +1111,17 @@ final class AppCatalog: ObservableObject {
 /// 一次拖动排序的状态。开拖那一刻把同组标签的位置拍个快照，之后全按快照算 ——
 /// 拖动中标签带着位移，实时上报的命中区域会跟着动，拿它算落点会自己追自己。
 /// 只在组内排：固定组和运行中组之间不互相拖（跨组 = 固定 / 取消固定，交给右键菜单）。
+///
+/// 排序以 App 为单位：同一个 App 展开成的几个视窗按钮是相邻的一整块，拖其中哪个都是整块一起走，
+/// 下面的 id / ids 都是 App 的 bundle id（`appID`），每块的位置是它几个按钮的并集。
 struct TabDrag: Equatable {
     let id: String
     let groupID: String
-    /// 同组标签开拖时的顺序与位置（窗口坐标，原点上左）
+    /// 同组各块（App）开拖时的顺序与位置（窗口坐标，原点上左）
     let ids: [String]
     let frames: [CGRect]
+    /// 按钮 id → 它属于哪块（App）
+    let unitOf: [String: String]
     let source: Int
     let startX: CGFloat
     /// 被拖标签跟着指针的位移（已夹在组的两端之内）
@@ -912,13 +1134,25 @@ struct TabDrag: Equatable {
 
     init?(entry: AppEntry, startX: CGFloat, groups: [AppGroup], frames: [String: CGRect]) {
         guard let group = groups.first(where: { $0.entries.contains { $0.id == entry.id } }) else { return nil }
-        let ids = group.entries.map(\.id)
-        let rects = ids.compactMap { frames[$0] }
-        guard rects.count == ids.count, let source = ids.firstIndex(of: entry.id) else { return nil }
-        self.id = entry.id
+        var ids: [String] = []
+        var rects: [CGRect] = []
+        var unitOf: [String: String] = [:]
+        for e in group.entries {
+            guard let rect = frames[e.id] else { return nil }
+            unitOf[e.id] = e.appID
+            if ids.last == e.appID {
+                rects[rects.count - 1] = rects[rects.count - 1].union(rect)
+            } else {
+                ids.append(e.appID)
+                rects.append(rect)
+            }
+        }
+        guard let source = ids.firstIndex(of: entry.appID) else { return nil }
+        self.id = entry.appID
         self.groupID = group.id
         self.ids = ids
         self.frames = rects
+        self.unitOf = unitOf
         self.source = source
         self.startX = startX
         self.target = source
@@ -943,9 +1177,14 @@ struct TabDrag: Equatable {
         target = source + passedRight - passedLeft
     }
 
-    func offset(for id: String) -> CGFloat {
-        if id == self.id { return dx }
-        guard let i = ids.firstIndex(of: id) else { return 0 }
+    /// 这个按钮在不在被拖的那块里
+    func carries(_ entryID: String) -> Bool { unitOf[entryID] == id }
+
+    /// 按钮（entry id）此刻的位移：被拖那块里的都跟着指针，其它块让位
+    func offset(for entryID: String) -> CGFloat {
+        guard let unit = unitOf[entryID] else { return 0 }
+        if unit == self.id { return dx }
+        guard let i = ids.firstIndex(of: unit) else { return 0 }
         if source < i && i <= target { return -step }
         if target <= i && i < source { return step }
         return 0

@@ -165,10 +165,10 @@ struct AppTab: View {
         // 选中态用短弹簧，切换 App 时高亮块"落"下来的手感更活。
         .animation(animated ? .easeOut(duration: 0.11) : nil, value: hot)
         .animation(animated ? .spring(response: 0.26, dampingFraction: 0.74) : nil, value: isActive)
+        // 最小化的视窗按钮整格淡一点（同 Windows：一眼看出哪扇收起来了）
+        .opacity(entry.window?.minimized == true ? 0.55 : 1)
         // 右键菜单开着时整个拿掉（给空字符串没用，提示照样弹出来盖在菜单上）
-        .modifier(OptionalHelp(text: suppressHelp ? nil : entry.isRunning
-              ? entry.displayName + (entry.windowCount >= 2 ? "（\(entry.windowCount) 個視窗）" : "")
-              : "\(entry.name)（未執行，點選開啟）"))
+        .modifier(OptionalHelp(text: suppressHelp ? nil : helpText))
         .background(
             GeometryReader { geo in
                 Color.clear.preference(
@@ -177,6 +177,16 @@ struct AppTab: View {
                 )
             }
         )
+    }
+
+    private var helpText: String {
+        guard entry.isRunning else { return "\(entry.name)（未執行，點選開啟）" }
+        if let w = entry.window {
+            let title = w.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let base = title.isEmpty || title == entry.name ? entry.name : "\(entry.name) — \(title)"
+            return base + (w.minimized ? "（已最小化）" : "")
+        }
+        return entry.displayName + (entry.windowCount >= 2 ? "（\(entry.windowCount) 個視窗）" : "")
     }
 
     /// Dock 风格：大图标 + 下方运行指示点（同 macOS Dock：有点 = 在运行）
@@ -210,8 +220,12 @@ struct AppTab: View {
                 // 上报给窗口层的命中区域也就不受影响。
                 .scaleEffect(hot && !isActive ? 1.12 : 1.0)
                 .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
+            if let profile = entry.profile, entry.window != nil, showsName {
+                profileTag(profile)
+            }
             if showsName {
                 Text(entry.displayName)
+                    // 视窗按钮标题顶到上限才截断（同 Vista）；没顶到就跟其它按钮一样按文字撑开
                     // 字重不能跟着 isActive 变：`.semibold` 比 `.medium` 宽 1~2pt，
                     // 会经 BarContentWidthKey 传导出去让整条面板宽度抖动。
                     // 高亮现在会随指针频繁进出，这个抖动会变得很明显。
@@ -219,12 +233,32 @@ struct AppTab: View {
                     .font(.system(size: TTLayout.font(12), weight: .medium))
                     .foregroundStyle(Color.primary.opacity(isActive ? 1.0 : (entry.isRunning ? 0.85 : 0.55)))
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: !entry.titleTruncated, vertical: false)
             }
         }
         // 只有图标时左右也收成 6pt，和上下一样，成一个方块
         .padding(.horizontal, TTLayout.s(showsName ? 9 : 6))
         .padding(.vertical, TTLayout.s(6))
+        // 标题太长的视窗按钮才定宽（截断）；其余按标题实际宽度撑开，跟名字一样长
+        .frame(width: entry.titleTruncated ? TTLayout.s(entry.buttonWidth) : nil, alignment: .leading)
+    }
+
+    /// 浏览器视窗按钮标题前面的设定档标签：配色同悬停预览卡片上的那个
+    private func profileTag(_ profile: BrowserProfiles.WindowProfile) -> some View {
+        let (fill, text) = PreviewCard.tagColors(profile)
+        return Text(profile.name)
+            .font(.system(size: TTLayout.font(9), weight: .semibold))
+            .foregroundStyle(text)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: TTLayout.s(AppCatalog.profileTagMaxText))
+            .fixedSize()
+            .padding(.horizontal, TTLayout.s(5))
+            .padding(.vertical, TTLayout.s(1.5))
+            .background(fill, in: Capsule())
+            // 和标题之间：HStack 的 6 已经有了，再收一点，标签和标题读起来是一组
+            .padding(.trailing, TTLayout.s(-1))
     }
 
     /// 这块屏上开着 ≥ 2 扇窗口：图标右上角画个数字圆圈（多于 9 扇写 9+）。
@@ -357,10 +391,12 @@ struct TabBarView: View {
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
                     // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
                     if i > 0, !prefs.iconOnly { divider.opacity(reordering ? 0 : 1) }
-                    let dragged = catalog.drag?.id == entry.id
+                    let dragged = catalog.isDragging(entry.id)
                     AppTab(entry: entry,
-                               // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮
-                               isActive: entry.pid > 0 && entry.pid == catalog.activePID,
+                               // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮。
+                               // 视窗按钮只亮前台 App 最前面那扇
+                               isActive: entry.pid > 0 && entry.pid == catalog.activePID
+                                   && (entry.window == nil || entry.isFrontWindow),
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
                                // 拖动中指针扫过的标签不亮悬停底
@@ -426,6 +462,11 @@ struct TabBarView: View {
             }
         }
         Toggle("只顯示圖示", isOn: $prefs.iconOnly)
+        Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
+            ForEach(TaskbarGrouping.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
         Toggle("只顯示有視窗的 App", isOn: $prefs.onlyWindowedApps)
         Toggle("不擋視窗", isOn: $prefs.avoidWindows)
         if NSScreen.screens.count > 1 {
