@@ -384,6 +384,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
 
             HiddenAppsRow(prefs: prefs)
+            GroupingOverridesRow(prefs: prefs)
         }
     }
 
@@ -561,6 +562,49 @@ private struct HiddenAppsRow: View {
                     }
                 }
                 Text("隱藏的 App 不會出現在懸浮條標籤裡，但仍在正常執行。點「顯示」立即釋放。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+/// 合并例外列表：右键标签「視窗按鈕 → 一律合併 / 永不合併」设过的 App，点「跟隨全域」改回去
+private struct GroupingOverridesRow: View {
+    @ObservedObject var prefs: Preferences
+
+    private static func name(_ bid: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) else { return bid }
+        return AppNames.localized(url: url) ?? FileManager.default.displayName(atPath: url.path)
+    }
+
+    var body: some View {
+        if !prefs.groupingOverrides.isEmpty {
+            let rows = prefs.groupingOverrides.map { (bid: $0.key, name: Self.name($0.key), mode: $0.value) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("合併例外（\(rows.count)）")
+                    .font(.system(size: 12, weight: .medium))
+                ForEach(rows, id: \.bid) { row in
+                    HStack(spacing: 8) {
+                        Text(row.name)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Text(row.mode == .always ? "一律合併" : "永不合併")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Button("跟隨全域") {
+                            var map = prefs.groupingOverrides
+                            map.removeValue(forKey: row.bid)
+                            prefs.groupingOverrides = map
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                Text("在條上右鍵 App →「視窗按鈕」可以讓個別 App 一律合併成一格，或永遠每扇視窗一格，不受「工作列按鈕」設定影響。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

@@ -288,6 +288,11 @@ final class TabBarController: TabBarHost {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.catalog.refresh() }
             .store(in: &cancellables)
+        prefs.$groupingOverrides
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.catalog.invalidateLayout() }
+            .store(in: &cancellables)
         prefs.$dockPins
             .dropFirst()
             .receive(on: RunLoop.main)
@@ -584,6 +589,23 @@ final class TabBarController: TabBarHost {
         TTLog("  工作列按鈕 永不合併 寬 300：\(show(.never, 300))（期望每格縮到 50）")
         TTLog("  工作列按鈕 永不合併 寬 100：\(show(.never, 100))（期望每格停在最窄 40）")
         TTLog("  工作列按鈕 依 App 合併：\(show(.always, 100))（期望 C | A B）")
+        // 个别 App 例外：A 永不合併、B 一律合併
+        let withOverrides: [[TaskbarLayout.Slot]] = [
+            groups[0],
+            [TaskbarLayout.Slot(app: app("A", pid: 1), windows: wins([1, 2, 3]), override: .never),
+             TaskbarLayout.Slot(app: app("B", pid: 2), windows: wins([4, 5]), override: .always)]
+        ]
+        func showO(_ g: TaskbarGrouping, _ max: CGFloat) -> String {
+            TaskbarLayout.expand(withOverrides, grouping: g, maxWidth: max, metrics: m).map { group in
+                group.map { e in
+                    e.mergedCount > 0 ? "\(e.appID)×\(e.mergedCount)"
+                        : e.window.map { "\(e.appID)#\($0.windowID)" } ?? e.appID
+                }.joined(separator: " ")
+            }.joined(separator: " | ")
+        }
+        TTLog("  例外 擠滿才合併 寬 600：\(showO(.whenFull, 600))（期望 C | A#1 A#2 A#3 B，B 一律合併成 App 按鈕）")
+        TTLog("  例外 擠滿才合併 寬 100：\(showO(.whenFull, 100))（期望 C | A#1 A#2 A#3 B，A 永不合併，擠也不合）")
+        TTLog("  例外 依 App 合併：\(showO(.always, 100))（期望 C | A#1 A#2 A#3 B，A 照樣展開）")
         let order = TaskbarLayout.ordered(wins([9, 3, 7])).map(\.windowID)
         TTLog("  同 App 視窗排序：\(order)（期望 [3, 7, 9]，依視窗編號）")
     }

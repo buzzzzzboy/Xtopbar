@@ -285,6 +285,7 @@ struct AppTab: View {
             Button("開啟") { catalog?.activate(entry) }
         }
         Divider()
+        groupingMenu
         Menu("固定") {
             if entry.isPinned {
                 Button("從工作列取消固定") { catalog?.unpinFromDock(entry.appID) }
@@ -300,6 +301,23 @@ struct AppTab: View {
                     Button("固定到開始選單") { catalog?.pinToStart(entry) }
                 }
             }
+        }
+    }
+
+    /// 这个 App 的视窗按钮要不要合并：跟随全局 / 一律合并 / 永不合并（当前那项打勾）
+    @ViewBuilder
+    private var groupingMenu: some View {
+        let current = catalog?.groupingOverride(for: entry.appID)
+        Menu("視窗按鈕") {
+            Toggle("跟隨全域設定（\(Preferences.shared.taskbarGrouping.title)）", isOn: Binding(
+                get: { current == nil },
+                set: { _ in catalog?.setGroupingOverride(nil, for: entry.appID) }))
+            Toggle("一律合併", isOn: Binding(
+                get: { current == .always },
+                set: { _ in catalog?.setGroupingOverride(.always, for: entry.appID) }))
+            Toggle("永不合併", isOn: Binding(
+                get: { current == .never },
+                set: { _ in catalog?.setGroupingOverride(.never, for: entry.appID) }))
         }
     }
 

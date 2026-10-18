@@ -622,12 +622,22 @@ enum WindowBridge {
         axGate(for: pid) { () -> Void in
             let app = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(app, 0.3)
-            let standard = axWindows(app).map(\.element).filter(isStandardWindow)
-            let minimized = standard.filter { boolAttribute($0, kAXMinimizedAttribute as String) == true }
+            // AX 偶尔回空（App 正忙）：等一拍再问（同 closeWindow），别把它当成"没有窗口"
+            var all: [AXUIElement] = []
+            for attempt in 0..<3 {
+                if attempt > 0 { usleep(150_000) }
+                all = axWindows(app).map(\.element)
+                if !all.isEmpty { break }
+            }
             minimizedLock.lock()
             let remembered = minimizedByTap.removeValue(forKey: pid) ?? []
             minimizedLock.unlock()
-            var targets = minimized.filter { w in remembered.contains { CFEqual($0, w) } }
+            // 访达的窗口最小化之后 subrole 不再报 AXStandardWindow，按标准窗口过滤会一扇都不剩。
+            // 自己收进去的（有记录的）不看 subrole，直接认；没记录的才要求是标准窗口
+            let isMine = { (w: AXUIElement) in remembered.contains { CFEqual($0, w) } }
+            let standard = all.filter { isMine($0) || isStandardWindow($0) }
+            let minimized = standard.filter { boolAttribute($0, kAXMinimizedAttribute as String) == true }
+            var targets = minimized.filter(isMine)
             if targets.isEmpty, !standard.isEmpty, minimized.count == standard.count,
                let latest = minimized.first {
                 targets = [latest]

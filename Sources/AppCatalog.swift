@@ -421,8 +421,12 @@ final class AppCatalog: ObservableObject {
     /// 放不下再合并（见 TaskbarLayout）。没有辅助功能权限拿不到单扇窗口，一律按 App 合并
     private func expandWindows(_ base: [AppGroup]) -> [AppGroup] {
         let trusted = WindowBridge.isTrusted
-        let grouping = trusted ? Preferences.shared.taskbarGrouping : .always
-        guard grouping != .always else { return base }
+        let prefs = Preferences.shared
+        guard trusted else { return base }
+        let grouping = prefs.taskbarGrouping
+        let overrides = prefs.groupingOverrides
+        // 全局按 App 合并、也没有哪个 App 标了永不合并：原样返回，不用展开
+        guard grouping != .always || overrides.values.contains(.never) else { return base }
         let scope = screenScope
         let byPID = WindowPresence.shared.windowsByPID
         // 各 App 这块屏上的「前台那扇」：App 的焦点窗口；焦点在别的屏就取这块屏上最前面那扇开着的
@@ -432,10 +436,11 @@ final class AppCatalog: ObservableObject {
                 guard e.isRunning, e.pid > 0, let placed = byPID[e.pid] else {
                     return TaskbarLayout.Slot(app: e, windows: [])
                 }
+                let override = overrides[e.appID]
                 let here = placed.filter { scope == nil || $0.display == scope!.displayID }.map(\.window)
                 front[e.pid] = (here.first { $0.focused && !$0.minimized }
                                 ?? here.first { !$0.minimized })?.windowID
-                return TaskbarLayout.Slot(app: e, windows: TaskbarLayout.ordered(here))
+                return TaskbarLayout.Slot(app: e, windows: TaskbarLayout.ordered(here), override: override)
             }
         }
         let scale = max(TTLayout.scale, 0.1)
@@ -758,6 +763,18 @@ final class AppCatalog: ObservableObject {
             }
             await self?.scanWindows()
         }
+    }
+
+    /// 某个 App 的合并例外（右键「視窗按鈕」）：nil / .whenFull = 跟随全局设定
+    func groupingOverride(for appID: String) -> TaskbarGrouping? {
+        Preferences.shared.groupingOverrides[appID]
+    }
+
+    func setGroupingOverride(_ mode: TaskbarGrouping?, for appID: String) {
+        var map = Preferences.shared.groupingOverrides
+        map[appID] = mode == .whenFull ? nil : mode
+        Preferences.shared.groupingOverrides = map
+        TTLog("grouping override \(appID) → \(mode?.rawValue ?? "跟隨")")
     }
 
     /// 关掉视窗按钮那扇窗口（右键菜单）

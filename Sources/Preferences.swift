@@ -221,6 +221,7 @@ final class Preferences: ObservableObject {
         static let emojiDoubleOption = "emojiDoubleOption"
         static let iconOnly      = "iconOnly"
         static let taskbarGrouping = "taskbarGrouping"
+        static let groupingOverrides = "groupingOverrides"
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
         static let hideSystemDock = "hideSystemDock"
@@ -418,6 +419,12 @@ final class Preferences: ObservableObject {
         didSet { d.set(taskbarGrouping.rawValue, forKey: Key.taskbarGrouping) }
     }
 
+    /// 个别 App 的合并例外（bundle id → `.always` 一律合并 / `.never` 永不合并）。
+    /// 不在表里 = 跟随 `taskbarGrouping`。右键标签「視窗按鈕」改，设置 → Dock 里改回
+    @Published var groupingOverrides: [String: TaskbarGrouping] = [:] {
+        didSet { d.set(groupingOverrides.mapValues(\.rawValue), forKey: Key.groupingOverrides) }
+    }
+
     /// 条最左边显示开始按钮（Windows 风格开始菜单）。默认关：保持原版外观。
     @Published var showStartButton: Bool = true {
         didSet { d.set(showStartButton, forKey: Key.showStartButton) }
@@ -579,6 +586,9 @@ final class Preferences: ObservableObject {
         if let list = d.stringArray(forKey: Key.runningOrder) { runningOrder = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
         if let raw = d.string(forKey: Key.taskbarGrouping), let v = TaskbarGrouping(rawValue: raw) { taskbarGrouping = v }
+        if let map = d.dictionary(forKey: Key.groupingOverrides) as? [String: String] {
+            groupingOverrides = map.compactMapValues { TaskbarGrouping(rawValue: $0) }.filter { $0.value != .whenFull }
+        }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }

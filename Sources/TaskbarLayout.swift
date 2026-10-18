@@ -16,6 +16,14 @@ enum TaskbarLayout {
     struct Slot {
         let app: AppEntry
         let windows: [WindowSample]
+        /// 这个 App 的合并例外：`.always` 一律合成一格 / `.never` 永远展开。nil = 跟随全局
+        var override: TaskbarGrouping? = nil
+
+        init(app: AppEntry, windows: [WindowSample], override: TaskbarGrouping? = nil) {
+            self.app = app
+            self.windows = windows
+            self.override = override == .whenFull ? nil : override
+        }
     }
 
     /// 宽度单位一律是「未缩放的 pt」（调用方把条的上限宽度除以界面缩放再传进来）
@@ -38,9 +46,12 @@ enum TaskbarLayout {
     /// - Returns: 每组展开后的按钮
     static func expand(_ groups: [[Slot]], grouping: TaskbarGrouping,
                        maxWidth: CGFloat, metrics m: Metrics) -> [[AppEntry]] {
-        guard grouping != .always else { return groups.map { $0.map(\.app) } }
-
-        // 每格的状态：merged = 合成一格。只有 ≥ 2 扇窗口的格才可能合并
+        // 每格的状态：
+        // - asApp = 当 App 按钮画（一律合并的例外 / 全局「依 App 合併」下没标永不合并的），同原来的行为
+        // - merged = 擠滿时被合成的一格（点了弹窗口列表）。只有 ≥ 2 扇窗口、没标永不合并的格才可能合并
+        let asApp = groups.map { $0.map { slot in
+            slot.override == .always || (grouping == .always && slot.override != .never)
+        } }
         var merged = groups.map { $0.map { _ in false } }
 
         func width(windowButton w: CGFloat) -> CGFloat {
@@ -49,7 +60,7 @@ enum TaskbarLayout {
             for (g, slots) in groups.enumerated() {
                 var buttons: [CGFloat] = []
                 for (i, slot) in slots.enumerated() {
-                    if slot.windows.isEmpty || merged[g][i] {
+                    if slot.windows.isEmpty || merged[g][i] || asApp[g][i] {
                         buttons.append(m.appButton(slot.app))
                     } else {
                         buttons.append(contentsOf: Array(repeating: w, count: slot.windows.count))
@@ -72,7 +83,8 @@ enum TaskbarLayout {
             while width(windowButton: buttonWidth) > maxWidth {
                 var pick: (g: Int, i: Int, n: Int)?
                 for (g, slots) in groups.enumerated() {
-                    for (i, slot) in slots.enumerated() where !merged[g][i] && slot.windows.count >= 2 {
+                    for (i, slot) in slots.enumerated()
+                    where !merged[g][i] && !asApp[g][i] && slot.override != .never && slot.windows.count >= 2 {
                         if pick == nil || slot.windows.count >= pick!.n { pick = (g, i, slot.windows.count) }
                     }
                 }
@@ -81,7 +93,9 @@ enum TaskbarLayout {
             }
         case .never:
             // 放不下：视窗按钮等比缩窄（最窄 minWindowButton），再不够交给横向滚动
-            let windowCount = groups.joined().reduce(0) { $0 + $1.windows.count }
+            let windowCount = groups.enumerated().reduce(0) { sum, item in
+                sum + item.element.enumerated().reduce(0) { $0 + (asApp[item.offset][$1.offset] ? 0 : $1.element.windows.count) }
+            }
             let full = width(windowButton: buttonWidth)
             if full > maxWidth, windowCount > 0 {
                 let others = full - buttonWidth * CGFloat(windowCount)   // 外边距 / 分隔线 / App 按钮
@@ -94,7 +108,7 @@ enum TaskbarLayout {
 
         return groups.enumerated().map { g, slots in
             slots.enumerated().flatMap { i, slot -> [AppEntry] in
-                if slot.windows.isEmpty { return [slot.app] }
+                if slot.windows.isEmpty || asApp[g][i] { return [slot.app] }
                 if merged[g][i] {
                     var copy = slot.app
                     copy.mergedCount = slot.windows.count
