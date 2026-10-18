@@ -47,6 +47,9 @@ final class FloatingPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = true
         hidesOnDeactivate = false
+        // 悬停提示（SwiftUI .help）默认只在 App 激活时出：Xtopbar 刚启动时是激活的所以有，
+        // 一旦开过浮层再把焦点交还前台 App，Xtopbar 就一直处于未激活，提示再也不出来
+        allowsToolTipsWhenApplicationIsInactive = true
         isMovable = false
         isMovableByWindowBackground = false
         animationBehavior = .utilityWindow
