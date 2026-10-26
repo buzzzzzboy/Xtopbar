@@ -492,7 +492,11 @@ final class AppCatalog: ObservableObject {
         let prefs = Preferences.shared
         let iconOnly = prefs.iconOnly
         var fixed: CGFloat = 24
-        if prefs.showStartButton { fixed += (iconOnly ? 54 : 44) + 13 }
+        if TTLayout.detachedStart {
+            fixed += TTLayout.barBaseHeight + TTLayout.detachedStartBaseGap
+        } else if prefs.showStartButton {
+            fixed += (iconOnly ? 54 : 44) + 13
+        }
         if iconOnly {
             return TaskbarLayout.Metrics(titleCap: Self.titleCap, minTitleCap: Self.titleCap,
                                          windowButton: { _, _ in 48 }, buttonPadding: 2,
@@ -1113,13 +1117,20 @@ final class AppCatalog: ObservableObject {
     var preferredWidth: CGFloat {
         // 实测宽度是按量的那一刻的缩放量的；拖分隔线调大小时缩放每拍都在变，
         // 先按比例估一个，实测值下一拍就到 —— 不然条宽总慢一拍，一抽一抽的
-        guard contentWidth <= 1 else { return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) }
+        // 拆出去的开始按钮不在量的内容里，另外加上
+        guard contentWidth <= 1 else {
+            return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + TTLayout.detachedStartWidth
+        }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = Preferences.shared.iconOnly
         let gap = Preferences.shared.tabGap
-        // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算）
+        // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算；拆出去的是圆 + 缝）
         var total: CGFloat = 24
-        if Preferences.shared.showStartButton { total += (iconOnly ? 54 : 44) + 13 }
+        if TTLayout.detachedStart {
+            total += TTLayout.barBaseHeight + TTLayout.detachedStartBaseGap
+        } else if Preferences.shared.showStartButton {
+            total += (iconOnly ? 54 : 44) + 13
+        }
         for (index, group) in groups.enumerated() {
             if index > 0 { total += Preferences.shared.groupGap }
             for entry in group.entries {

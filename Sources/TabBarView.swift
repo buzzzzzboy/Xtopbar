@@ -130,6 +130,9 @@ struct StartButton: View {
     let isOpen: Bool
     var animated: Bool = true
     var theme: BarTheme = .classic
+    /// Liquid Glass：拆出条外，自己一颗圆形玻璃（直径 = 条高），整颗圆都是命中区域
+    var detached: Bool = false
+    var glassStyle: GlassStyle = .liquid
 
     @State private var hovering = false
 
@@ -155,13 +158,12 @@ struct StartButton: View {
         }
             .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
             .scaleEffect(hovering && !isOpen && theme == .classic ? 1.08 : 1.0)
-            .background { background }
-            .contentShape(Rectangle())
+            .modifier(StartBubble(detached: detached, style: glassStyle, highlight: background))
+            .contentShape(detached ? AnyShape(Circle()) : AnyShape(Rectangle()))
             .onHover { hovering = $0 }
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: hovering)
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: isOpen)
             .help("開始")
-            .padding(.horizontal, TTLayout.s(3))
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(
@@ -188,20 +190,46 @@ struct StartButton: View {
     }
 }
 
+/// 开始按钮的外框：在条里左右留 3pt，悬停 / 打开的底只垫在图标那块；
+/// 拆出去时垫一颗和条同材质的圆形玻璃，悬停 / 打开的底铺满整颗圆
+private struct StartBubble<Highlight: View>: ViewModifier {
+    let detached: Bool
+    let style: GlassStyle
+    let highlight: Highlight
+
+    func body(content: Content) -> some View {
+        if detached {
+            content
+                .frame(width: TTLayout.barHeight, height: TTLayout.barHeight)
+                .background { highlight }
+                .background(GlassBackdrop(style: style, cornerRadius: TTLayout.barHeight / 2))
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+        } else {
+            content
+                .background { highlight }
+                .padding(.horizontal, TTLayout.s(3))
+        }
+    }
+}
+
 /// 开始按钮右边那条分隔线兼「调大小」把手：同系统 Dock 的分隔线，按住上下拖改界面缩放。
 /// 线本身照旧 1pt，命中区域铺满整条的高度（拖动由窗口层处理，id `AppCatalog.resizeHandleID`）
 struct ResizeHandle: View {
     let iconOnly: Bool
     /// 正在拖：线加深，看得出抓住了
     let active: Bool
+    /// 开始按钮拆出去了：把手就是那道缝，平时不画线（缝本身就分开了），指到 / 拖着才浮出来
+    var detached: Bool = false
 
     @State private var hovering = false
 
     var body: some View {
         Rectangle()
-            .fill(Color.primary.opacity(active || hovering ? 0.32 : 0.14))
+            .fill(Color.primary.opacity(active || hovering ? 0.32 : (detached ? 0 : 0.14)))
             .frame(width: 1, height: TTLayout.s(iconOnly ? 30 : 16))
-            .padding(.horizontal, TTLayout.s(6))
+            .padding(.horizontal, detached ? 0 : TTLayout.s(6))
+            .frame(width: detached ? TTLayout.detachedStartGap : nil)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .onHover { inside in
@@ -443,12 +471,42 @@ struct TabBarView: View {
     private var glass: Bool { prefs.barTheme == .liquidGlass }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
-            content
-                .frame(minWidth: catalog.barWidth)
+        HStack(spacing: 0) {
+            // Liquid Glass：开始按钮单独一颗圆在条左边，中间的缝是调大小的把手
+            if TTLayout.detachedStart {
+                StartButton(iconOnly: prefs.iconOnly,
+                            isOpen: catalog.startMenuOpen,
+                            animated: prefs.animationsEnabled,
+                            theme: prefs.barTheme,
+                            detached: true,
+                            glassStyle: prefs.glassStyle)
+                ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing, detached: true)
+            }
+            bar
         }
         .frame(width: catalog.barWidth, height: TTLayout.barHeight)
+        .onHover { inside in
+            if catalog.pointerOverBar != inside { catalog.pointerOverBar = inside }
+            onHoverChange(inside)
+        }
+        .contextMenu { menu }
+        // 命中区域坐标系：命名在面板尺寸的外层视图上，AppTab 上报的就是
+        // 窗口坐标（原点上左），随滚动实时有效，见文件头注释
+        .coordinateSpace(name: TabBarView.space)
+        .onPreferenceChange(TabFramesKey.self) { frames in
+            catalog.tabFrames = frames
+        }
+    }
+
+    /// 条本体（标签那段）。开始按钮拆出去时宽度扣掉那颗圆和缝
+    private var bar: some View {
+        let width = catalog.barWidth - TTLayout.detachedStartWidth
+        return ScrollView(.horizontal, showsIndicators: false) {
+            // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
+            content
+                .frame(minWidth: width)
+        }
+        .frame(width: width, height: TTLayout.barHeight)
         // 溢出时两端渐隐。顺序很关键：fade 打在滚动内容上并立刻
         // compositingGroup 合成一张图，**之后**才垫玻璃 background ——
         // destinationOut 只咬掉内容，玻璃完好；玻璃反过来垫在前面会被咬穿。
@@ -476,14 +534,6 @@ struct TabBarView: View {
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
         )
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
-        .onHover { inside in
-            if catalog.pointerOverBar != inside { catalog.pointerOverBar = inside }
-            onHoverChange(inside)
-        }
-        .contextMenu { menu }
-        // 命中区域坐标系：命名在面板尺寸的外层视图上，AppTab 上报的就是
-        // 窗口坐标（原点上左），随滚动实时有效，见文件头注释
-        .coordinateSpace(name: TabBarView.space)
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: BarViewportWidthKey.self, value: geo.size.width)
@@ -495,14 +545,11 @@ struct TabBarView: View {
                 withAnimation(.easeOut(duration: 0.15)) { overflowing = next }
             }
         }
-        .onPreferenceChange(TabFramesKey.self) { frames in
-            catalog.tabFrames = frames
-        }
     }
 
     private var content: some View {
         HStack(spacing: 0) {
-            if prefs.showStartButton {
+            if prefs.showStartButton, !TTLayout.detachedStart {
                 StartButton(iconOnly: prefs.iconOnly,
                             isOpen: catalog.startMenuOpen,
                             animated: prefs.animationsEnabled,

@@ -315,8 +315,9 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 44, alignment: .trailing)
             }
+            .disabled(prefs.barTheme == .liquidGlass)
 
-            Text("懸浮條四角的弧度：0 是直角，拉到底是膠囊形。")
+            Text("懸浮條四角的弧度：0 是直角，拉到底是膠囊形。Liquid Glass 主題一律是膠囊形。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }

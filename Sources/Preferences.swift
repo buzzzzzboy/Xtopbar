@@ -702,9 +702,26 @@ enum TTLayout {
     /// 未缩放的条高（拖分隔线调大小时按它换算缩放比例）
     @MainActor static var barBaseHeight: CGFloat { Preferences.shared.iconOnly ? 58 : 42 }
 
-    /// 悬浮条圆角：随界面缩放，最大到半高（胶囊）
+    /// 悬浮条圆角：随界面缩放，最大到半高（胶囊）。
+    /// Liquid Glass 一律胶囊，和里面的玻璃药丸同心，不看设置里的「圓角」
     @MainActor static var barCornerRadius: CGFloat {
-        min(s(CGFloat(Preferences.shared.barCornerRadius)), barHeight / 2)
+        if Preferences.shared.barTheme == .liquidGlass { return barHeight / 2 }
+        return min(s(CGFloat(Preferences.shared.barCornerRadius)), barHeight / 2)
+    }
+
+    /// Liquid Glass：开始按钮拆出条外，左边单独一颗圆形玻璃（同 iOS tab bar 旁边那颗搜索钮）
+    @MainActor static var detachedStart: Bool {
+        Preferences.shared.showStartButton && Preferences.shared.barTheme == .liquidGlass
+    }
+
+    /// 拆出去的开始按钮和条之间的缝（未缩放的 pt）。缝本身就是调大小的把手
+    static let detachedStartBaseGap: CGFloat = 10
+
+    @MainActor static var detachedStartGap: CGFloat { s(detachedStartBaseGap) }
+
+    /// 拆出去的开始按钮连缝一共占多宽：圆的直径 = 条高。没拆 = 0
+    @MainActor static var detachedStartWidth: CGFloat {
+        detachedStart ? barHeight + detachedStartGap : 0
     }
 
     /// 缩放一个字号（取半 pt 对齐，避免奇奇怪怪的亚像素位置）

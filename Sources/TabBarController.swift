@@ -407,9 +407,9 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.relayout() }
             .store(in: &cancellables)
 
-        // 圆角变了：面板阴影是按内容轮廓算的，等这一拍画完再重算，不然阴影还是旧圆角
-        prefs.$barCornerRadius
-            .dropFirst()
+        // 圆角 / 主题变了（Liquid Glass 是胶囊 + 拆开的开始按钮）：面板阴影是按内容轮廓算的，等这一拍画完再重算，不然阴影还是旧圆角
+        Publishers.Merge(prefs.$barCornerRadius.dropFirst().map { _ in () },
+                         prefs.$barTheme.dropFirst().map { _ in () })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.panel.invalidateShadow() }
