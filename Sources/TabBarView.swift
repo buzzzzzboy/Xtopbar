@@ -197,9 +197,6 @@ struct AppTab: View {
                 .interpolation(.high)
                 .frame(width: TTLayout.s(36), height: TTLayout.s(36))
                 .overlay(alignment: .topTrailing) { windowBadge(size: 16) }
-                // 只缩放图标本身：frame 是固定的，命中区域不受影响
-                .scaleEffect(hot && !isActive ? 1.12 : 1.0)
-                .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
             runningDot(visible: entry.isRunning)
         }
         .padding(.horizontal, TTLayout.s(6))
@@ -216,10 +213,6 @@ struct AppTab: View {
                 .interpolation(.high)
                 .frame(width: TTLayout.s(18), height: TTLayout.s(18))
                 .overlay(alignment: .topTrailing) { windowBadge(size: 12) }
-                // 只缩放图标本身：frame 是固定的，布局不会变，
-                // 上报给窗口层的命中区域也就不受影响。
-                .scaleEffect(hot && !isActive ? 1.12 : 1.0)
-                .animation(animated ? .spring(response: 0.22, dampingFraction: 0.6) : nil, value: hot)
             if let profile = entry.profile, entry.window != nil, showsName {
                 profileTag(profile)
             }
