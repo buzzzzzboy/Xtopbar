@@ -9,6 +9,15 @@ struct TabFramesKey: PreferenceKey {
     }
 }
 
+/// 标签在内容坐标系里的位置（Liquid Glass 的药丸按它摆）。
+/// 和 TabFramesKey 分开：药丸画在滚动内容里，要跟着内容滚，不能用窗口坐标
+struct TabContentFramesKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 /// 内容实测宽度上报：面板宽度按它裁，避免算窄了把最右边的标签切掉
 struct BarContentWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -25,12 +34,102 @@ struct BarViewportWidthKey: PreferenceKey {
     }
 }
 
+/// Liquid Glass 主题的标签底：仿 iOS 26/27 tab bar 选中项底下那颗玻璃药丸。
+/// macOS 26 起用系统的 glassEffect（反光、折射、深浅色都由系统画）；
+/// 更早的系统画个近似的：半透明胶囊 + 上缘反光。悬停那层很淡，两边都自己画。
+struct GlassPill: View {
+    enum Kind {
+        /// 悬停：很淡的一层
+        case hover
+        /// 前台 App：灰色药丸
+        case selected
+        /// 按住：放大成透明的放大镜，边缘一圈反光
+        case lens
+        /// 被拖着排序：拿在手上，带阴影
+        case lifted
+    }
+
+    let kind: Kind
+
+    var body: some View {
+        Group {
+            if #available(macOS 26.0, *), kind != .hover {
+                native
+            } else {
+                drawn
+            }
+        }
+        .shadow(color: .black.opacity(shadow), radius: kind == .lens ? 7 : 5, y: kind == .lens ? 2.5 : 1.5)
+        // 只放大药丸本身：它垫在标签背后，标签的 frame / 命中区域不受影响
+        .scaleEffect(x: kind == .lens ? 1.08 : 1, y: kind == .lens ? 1.18 : 1)
+    }
+
+    /// 系统玻璃：平时 regular（同系统控件的玻璃），按住换成更通透的 clear，像一块放大镜
+    @available(macOS 26.0, *)
+    private var native: some View {
+        Color.clear
+            .glassEffect(kind == .lens ? .clear : .regular, in: Capsule(style: .continuous))
+    }
+
+    private var drawn: some View {
+        Capsule(style: .continuous)
+            .fill(fill)
+            .overlay(
+                // 上缘一道细反光，往下淡掉 —— 玻璃的厚度感就靠它
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(colors: [Color.white.opacity(rimTop), Color.white.opacity(rimBottom)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: kind == .lens ? 1 : 0.5
+                    )
+            )
+            .overlay {
+                // 放大镜：内侧上亮下暗，像一块凸起来的透镜
+                if kind == .lens {
+                    Capsule(style: .continuous)
+                        .fill(LinearGradient(colors: [Color.white.opacity(0.22), .clear, Color.black.opacity(0.06)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .padding(1)
+                }
+            }
+    }
+
+    private var fill: Color {
+        switch kind {
+        case .hover:    return Color.primary.opacity(0.06)
+        case .selected: return Color.primary.opacity(0.13)
+        case .lens:     return Color.white.opacity(0.10)
+        case .lifted:   return Color.primary.opacity(0.16)
+        }
+    }
+
+    private var rimTop: Double {
+        switch kind {
+        case .hover:    return 0.35
+        case .selected: return 0.5
+        case .lens:     return 0.85
+        case .lifted:   return 0.5
+        }
+    }
+
+    private var rimBottom: Double { kind == .lens ? 0.35 : 0 }
+
+    private var shadow: Double {
+        switch kind {
+        case .lens:   return 0.18
+        case .lifted: return 0.22
+        default:      return 0
+        }
+    }
+}
+
 /// 开始按钮（条最左边）。点击同样由窗口层命中测试处理，
 /// 命中区域用保留 id `AppCatalog.startButtonID` 上报。
 struct StartButton: View {
     let iconOnly: Bool
     let isOpen: Bool
     var animated: Bool = true
+    var theme: BarTheme = .classic
 
     @State private var hovering = false
 
@@ -55,11 +154,8 @@ struct StartButton: View {
             }
         }
             .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
-            .scaleEffect(hovering && !isOpen ? 1.08 : 1.0)
-            .background(
-                RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                    .fill(Color.primary.opacity(isOpen ? 0.18 : (hovering ? 0.10 : 0)))
-            )
+            .scaleEffect(hovering && !isOpen && theme == .classic ? 1.08 : 1.0)
+            .background { background }
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: hovering)
@@ -74,6 +170,21 @@ struct StartButton: View {
                     )
                 }
             )
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        switch theme {
+        case .classic:
+            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                .fill(Color.primary.opacity(isOpen ? 0.18 : (hovering ? 0.10 : 0)))
+        case .liquidGlass:
+            if isOpen {
+                GlassPill(kind: .selected)
+            } else if hovering {
+                GlassPill(kind: .hover)
+            }
+        }
     }
 }
 
@@ -135,6 +246,8 @@ struct AppTab: View {
     var dragging: Bool = false
     /// 右键菜单开着：不给悬停提示（系统提示窗口会盖在菜单上）
     var suppressHelp: Bool = false
+    /// Liquid Glass 的药丸 / 悬停底不画在标签里，由 TabBarView 统一画一颗、在标签之间滑
+    var theme: BarTheme = .classic
     var onHoverChange: (Bool) -> Void = { _ in }
 
     @State private var hovering = false
@@ -146,15 +259,13 @@ struct AppTab: View {
         Group {
             if iconOnly { dockCell } else { labelCell }
         }
-        .background(
-            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                .fill(backgroundColor)
-                .shadow(color: .black.opacity(dragging ? 0.22 : 0), radius: 5, y: 1.5)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(isActive ? 0.55 : 0), lineWidth: 1)
-        )
+        .background { background }
+        .overlay {
+            if theme == .classic {
+                RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(isActive ? 0.55 : 0), lineWidth: 1)
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous))
         .onHover { value in
             hovering = value
@@ -171,10 +282,11 @@ struct AppTab: View {
         .modifier(OptionalHelp(text: suppressHelp ? nil : helpText))
         .background(
             GeometryReader { geo in
-                Color.clear.preference(
-                    key: TabFramesKey.self,
-                    value: [entry.id: geo.frame(in: .named(TabBarView.space))]
-                )
+                Color.clear
+                    .preference(key: TabFramesKey.self,
+                                value: [entry.id: geo.frame(in: .named(TabBarView.space))])
+                    .preference(key: TabContentFramesKey.self,
+                                value: [entry.id: geo.frame(in: .named(TabBarView.contentSpace))])
             }
         )
     }
@@ -284,6 +396,19 @@ struct AppTab: View {
             .frame(width: TTLayout.s(4), height: TTLayout.s(4))
     }
 
+    @ViewBuilder
+    private var background: some View {
+        switch theme {
+        case .classic:
+            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
+                .fill(backgroundColor)
+                .shadow(color: .black.opacity(dragging ? 0.22 : 0), radius: 5, y: 1.5)
+        case .liquidGlass:
+            // 拖着的标签自己垫一颗浮起来的，跟手走（共用的药丸拖动中不跟，见 TabBarView.pillLayer）
+            if dragging { GlassPill(kind: .lifted) }
+        }
+    }
+
     private var backgroundColor: Color {
         if dragging { return Color.primary.opacity(0.16) }
         if isActive { return Color.accentColor.opacity(0.32) }
@@ -299,6 +424,8 @@ struct TabBarView: View {
     /// 窗口层的命中区域却停在原地 —— 滚过之后再点边角就切错 App。
     /// 窗口坐标则天然随滚动更新（GeometryReader 每帧重报）。
     static let space = "xtopbar.window"
+    /// 滚动内容自己的坐标系：Liquid Glass 的药丸画在内容里，按这个摆
+    static let contentSpace = "xtopbar.content"
 
     @ObservedObject var catalog: AppCatalog
     @ObservedObject var prefs: Preferences
@@ -308,6 +435,12 @@ struct TabBarView: View {
 
     /// 内容比面板宽：两端加渐隐，暗示"这里还能滚"
     @State private var overflowing = false
+
+    /// Liquid Glass：各标签在内容里的位置、指针停在哪个标签上
+    @State private var contentFrames: [String: CGRect] = [:]
+    @State private var hoveredTabID: String?
+
+    private var glass: Bool { prefs.barTheme == .liquidGlass }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -372,19 +505,26 @@ struct TabBarView: View {
             if prefs.showStartButton {
                 StartButton(iconOnly: prefs.iconOnly,
                             isOpen: catalog.startMenuOpen,
-                            animated: prefs.animationsEnabled)
+                            animated: prefs.animationsEnabled,
+                            theme: prefs.barTheme)
                 if !catalog.groups.isEmpty {
                     ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing)
                 }
             }
             ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
-                if index > 0 { divider }
+                if index > 0 {
+                    if prefs.showsGroupDivider {
+                        divider
+                    } else {
+                        Color.clear.frame(width: TTLayout.s(prefs.groupGap))
+                    }
+                }
                 // 拖动排序中：这组的组内分隔线先藏起来，标签让位滑动时不会压着线走
                 let reordering = catalog.drag?.groupID == group.id
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
                     // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
                     if i > 0, !prefs.iconOnly {
-                        if prefs.tabDividers {
+                        if prefs.showsTabDividers {
                             divider.opacity(reordering ? 0 : 1)
                         } else {
                             Color.clear.frame(width: TTLayout.s(prefs.tabGap))
@@ -392,17 +532,20 @@ struct TabBarView: View {
                     }
                     let dragged = catalog.isDragging(entry.id)
                     AppTab(entry: entry,
-                               // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮。
-                               // 视窗按钮只亮前台 App 最前面那扇
-                               isActive: entry.pid > 0 && entry.pid == catalog.activePID
-                                   && (entry.window == nil || entry.isFrontWindow),
+                               isActive: isActive(entry),
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
                                // 拖动中指针扫过的标签不亮悬停底
                                barHovered: catalog.pointerOverBar && catalog.drag == nil,
                                dragging: dragged,
                                suppressHelp: catalog.tabMenuOpen,
+                               theme: prefs.barTheme,
                                onHoverChange: { hovering in
+                                   if hovering {
+                                       hoveredTabID = entry.id
+                                   } else if hoveredTabID == entry.id {
+                                       hoveredTabID = nil
+                                   }
                                    if hovering {
                                        catalog.onTabHover?(entry)
                                    } else {
@@ -421,6 +564,12 @@ struct TabBarView: View {
         // 12pt：标签自身有 9pt 内边距，最右那个被高亮时底色会一直铺到标签边缘，
         // 8pt 的容器内边距看起来就"贴边"了；12pt 让左右留白在视觉上等宽。
         .padding(.horizontal, TTLayout.s(12))
+        // 垫在标签底下；和标签量位置用的是同一个坐标系（下面命名），原点对得上
+        .background(alignment: .topLeading) { pillLayer }
+        .coordinateSpace(name: TabBarView.contentSpace)
+        .onPreferenceChange(TabContentFramesKey.self) { frames in
+            if glass, frames != contentFrames { contentFrames = frames }
+        }
         // 实测内容宽度：比手算的字符宽度准，左右内边距才能真正对称
         .background(
             GeometryReader { geo in
@@ -429,6 +578,62 @@ struct TabBarView: View {
         )
         .onPreferenceChange(BarContentWidthKey.self) { width in
             catalog.reportContentWidth(width)
+        }
+    }
+
+    /// 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮。
+    /// 视窗按钮只亮前台 App 最前面那扇
+    private func isActive(_ entry: AppEntry) -> Bool {
+        entry.pid > 0 && entry.pid == catalog.activePID
+            && (entry.window == nil || entry.isFrontWindow)
+    }
+
+    /// Liquid Glass 的药丸垫在谁底下：按住的 / 刚点过的标签优先（按下去药丸就过去，
+    /// 不用等 App 真的切过来），否则跟着前台 App
+    private var pillOwner: String? {
+        guard glass else { return nil }
+        if catalog.drag == nil, let id = catalog.pressedTabID ?? catalog.releasedTabID {
+            return id
+        }
+        for group in catalog.groups {
+            if let hit = group.entries.first(where: isActive) { return hit.id }
+        }
+        return nil
+    }
+
+    /// Liquid Glass：整条只有一颗药丸（和一层悬停底），按量到的标签位置摆，
+    /// 换位置时用弹簧滑过去。
+    @ViewBuilder
+    private var pillLayer: some View {
+        if glass {
+            // 滑动 / 放大镜是这个主题本身，不跟「進出場動畫」开关走（那个管的是条的出现和收起），
+            // 只在系统开了「减少动态效果」时才直接跳
+            let animated = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            let lens = catalog.pressedTabID != nil && catalog.drag == nil && pillOwner == catalog.pressedTabID
+            ZStack(alignment: .topLeading) {
+                if let id = hoveredTabID, id != pillOwner, catalog.pointerOverBar, catalog.drag == nil,
+                   let rect = contentFrames[id] {
+                    GlassPill(kind: .hover)
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .transition(.opacity)
+                        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.8) : nil, value: rect)
+                }
+                // 拖着的正是前台 App：它自己垫着浮起来的那颗，这颗先收起来
+                if let id = pillOwner, !catalog.isDragging(id), let rect = contentFrames[id] {
+                    GlassPill(kind: lens ? .lens : .selected)
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .transition(.opacity)
+                        // 拖动排序中别的标签在让位，药丸要贴着前台那个走，不能慢半拍
+                        .animation(animated && catalog.drag == nil
+                                   ? .spring(response: 0.42, dampingFraction: 0.72) : nil, value: rect)
+                        // 按住 / 放开：鼓成放大镜再弹回去
+                        .animation(animated ? .spring(response: 0.28, dampingFraction: 0.62) : nil, value: lens)
+                }
+            }
+            .animation(animated ? .easeOut(duration: 0.15) : nil, value: hoveredTabID == nil)
+            .allowsHitTesting(false)
         }
     }
 
@@ -461,7 +666,7 @@ struct TabBarView: View {
             }
         }
         Toggle("只顯示圖示", isOn: $prefs.iconOnly)
-        if !prefs.iconOnly {
+        if !prefs.iconOnly, !glass {
             Toggle("App 之間的分隔線", isOn: $prefs.tabDividers)
         }
         Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {

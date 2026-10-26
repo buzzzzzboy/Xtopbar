@@ -437,10 +437,11 @@ final class TabBarController: TabBarHost {
             }
             .store(in: &cancellables)
 
-        // 合并方式 / 样式 / 分隔线 / 开始按钮 / 缩放改了：视窗按钮要按新的宽度重新展开、重新判断合不合并
-        Publishers.Merge5(prefs.$taskbarGrouping.dropFirst().map { _ in () },
+        // 合并方式 / 样式 / 分隔线 / 主题 / 开始按钮 / 缩放改了：视窗按钮要按新的宽度重新展开、重新判断合不合并
+        Publishers.Merge6(prefs.$taskbarGrouping.dropFirst().map { _ in () },
                           prefs.$iconOnly.dropFirst().map { _ in () },
                           prefs.$tabDividers.dropFirst().map { _ in () },
+                          prefs.$barTheme.dropFirst().map { _ in () },
                           prefs.$showStartButton.dropFirst().map { _ in () },
                           prefs.$uiScale.dropFirst().map { _ in () })
             .receive(on: RunLoop.main)

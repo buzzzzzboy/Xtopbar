@@ -496,7 +496,7 @@ final class AppCatalog: ObservableObject {
         if iconOnly {
             return TaskbarLayout.Metrics(titleCap: Self.titleCap, minTitleCap: Self.titleCap,
                                          windowButton: { _, _ in 48 }, buttonPadding: 2,
-                                         separator: 0, groupDivider: 13, fixed: fixed,
+                                         separator: 0, groupDivider: prefs.groupGap, fixed: fixed,
                                          appButton: { _ in 48 })
         }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
@@ -507,7 +507,7 @@ final class AppCatalog: ObservableObject {
                 let text = ceil((b.displayName as NSString).size(withAttributes: [.font: font]).width)
                 return 18 + 18 + 6 + min(text + 1, cap) + Self.profileTagWidth(b.profile)
             },
-            buttonPadding: 2, separator: prefs.tabGap, groupDivider: 13, fixed: fixed,
+            buttonPadding: 2, separator: prefs.tabGap, groupDivider: prefs.groupGap, fixed: fixed,
             appButton: { e in
                 guard e.isRunning || !e.isPinned else { return 30 }
                 let text = ceil((e.displayName as NSString).size(withAttributes: [.font: font]).width)
@@ -567,6 +567,27 @@ final class AppCatalog: ObservableObject {
     /// 鼠标按住标签中（按下还没抬起 / 正在拖）：控制器据此暂停自动隐藏
     var isPressing: Bool { pressedEntry != nil || resizeStart != nil }
 
+    /// 按住（还没拖）的标签 id：Liquid Glass 主题的药丸跟过去、变成放大镜
+    @Published private(set) var pressedTabID: String?
+    /// 刚点过的标签 id：松手后药丸先停在这里一会儿，等前台高亮跟上
+    /// （视窗按钮的前台那扇要等重扫，不停的话药丸会先弹回旧的那扇再滑过来）
+    @Published private(set) var releasedTabID: String?
+    private var releaseHold: DispatchWorkItem?
+
+    private func setPressedTab(_ id: String?) {
+        if pressedTabID != id { pressedTabID = id }
+    }
+
+    private func holdReleasedTab(_ id: String?) {
+        releaseHold?.cancel()
+        releaseHold = nil
+        if releasedTabID != id { releasedTabID = id }
+        guard id != nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.releasedTabID = nil }
+        releaseHold = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
     /// 按住分隔线调大小：按下时指针的屏幕 y 和当时的缩放。
     /// 用屏幕坐标不用窗口坐标 —— 拖动中条在跟着变高、挪位置，窗口坐标会跟着漂
     private var resizeStart: (mouseY: CGFloat, scale: Double)?
@@ -578,6 +599,8 @@ final class AppCatalog: ObservableObject {
     /// 点击在抬起时才执行（同系统 Dock / Windows 任务栏）—— 按下就切 App 的话没法拖。
     func handlePress(at point: NSPoint) -> Bool {
         pressedEntry = nil
+        setPressedTab(nil)
+        holdReleasedTab(nil)
         endResize()
         if drag != nil { drag = nil }
         if let rect = tabFrames[Self.resizeHandleID], rect.contains(point) {
@@ -593,6 +616,7 @@ final class AppCatalog: ObservableObject {
         guard let hit = entry(at: point) else { return false }
         pressedEntry = hit
         pressPoint = point
+        setPressedTab(hit.id)
         return true
     }
 
@@ -608,6 +632,7 @@ final class AppCatalog: ObservableObject {
                   let started = TabDrag(entry: pressed, startX: pressPoint.x, groups: groups, frames: tabFrames)
             else { return }
             host?.dismissPreview()
+            setPressedTab(nil)
             drag = started
         }
         drag?.move(to: point.x)
@@ -621,11 +646,13 @@ final class AppCatalog: ObservableObject {
         }
         let pressed = pressedEntry
         pressedEntry = nil
+        setPressedTab(nil)
         if let finished = drag {
             commit(finished)
             return
         }
         guard let pressed else { return }
+        holdReleasedTab(pressed.id)
         activate(pressed, fromClick: true)
     }
 
@@ -633,6 +660,7 @@ final class AppCatalog: ObservableObject {
     /// 按住状态不清掉的话自动隐藏和重采会一直停着。拖到一半的不落位，原样弹回。
     func cancelPress() {
         pressedEntry = nil
+        setPressedTab(nil)
         endResize()
         guard drag != nil else { return }
         withAnimation(Preferences.shared.animationsEnabled ? TabDrag.settle : nil) { drag = nil }
@@ -1093,7 +1121,7 @@ final class AppCatalog: ObservableObject {
         var total: CGFloat = 24
         if Preferences.shared.showStartButton { total += (iconOnly ? 54 : 44) + 13 }
         for (index, group) in groups.enumerated() {
-            if index > 0 { total += 13 }
+            if index > 0 { total += Preferences.shared.groupGap }
             for entry in group.entries {
                 if iconOnly {
                     total += 36 + 12 + 2

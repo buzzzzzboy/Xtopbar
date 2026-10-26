@@ -252,9 +252,9 @@ struct SettingsView: View {
 
             Toggle("App 之間的分隔線", isOn: $prefs.tabDividers)
                 .toggleStyle(.switch)
-                .disabled(prefs.iconOnly)
+                .disabled(prefs.iconOnly || prefs.barTheme == .liquidGlass)
 
-            Text("圖示 + 名稱樣式下，相鄰 App 之間畫一條細線。關掉不畫線，間距也跟著收緊。固定和執行中兩組之間的線一律保留。")
+            Text("圖示 + 名稱樣式下，相鄰 App 之間畫一條細線。關掉不畫線，間距也跟著收緊。固定和執行中兩組之間的線也一起拿掉。Liquid Glass 主題一律不畫。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -267,6 +267,17 @@ struct SettingsView: View {
 
             Text(prefs.taskbarGrouping.subtitle
                  + (prefs.taskbarGrouping == .always ? "" : "需要「輔助使用」權限，沒有時一律依 App 合併。"))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Picker("主題", selection: $prefs.barTheme) {
+                ForEach(BarTheme.allCases) { theme in
+                    Text(theme.title).tag(theme)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            Text(prefs.barTheme.subtitle)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 

@@ -46,6 +46,30 @@ enum GlassStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// 条上标签的悬停 / 选中样式（和背景材质各管各的）
+enum BarTheme: String, CaseIterable, Identifiable {
+    /// 默认：蓝底 + 描边标出前台 App
+    case classic
+    /// 仿 iOS 26/27 tab bar：前台 App 底下垫一颗玻璃药丸，按住变放大镜，切换时滑过去
+    case liquidGlass
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .classic:     return "預設"
+        case .liquidGlass: return "Liquid Glass"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .classic:     return "藍底 + 描邊標出前景 App。"
+        case .liquidGlass: return "仿 iOS 的玻璃膠囊：前景 App 底下墊一顆玻璃藥丸，按住時變成放大鏡，切換 App 時滑過去；標籤之間不畫分隔線。"
+        }
+    }
+}
+
 /// 顶部热区（鼠标顶到屏幕顶部唤出的那块区域）落在哪块屏。
 ///
 /// 做成三选一而不是写死：多屏下"主显示器"本身就有两种意思 ——
@@ -196,6 +220,7 @@ final class Preferences: ObservableObject {
         static let previewEnabled = "previewEnabled"
         static let hideMinimized = "hideMinimizedWindows"
         static let glassStyle    = "glassStyle"
+        static let barTheme      = "barTheme"
         static let idleOpacity   = "idleOpacity"
         static let showStatusItem = "showStatusItem"
         static let barEnabled     = "barEnabled"
@@ -258,6 +283,11 @@ final class Preferences: ObservableObject {
     /// 背景材质
     @Published var glassStyle: GlassStyle = .liquid {
         didSet { d.set(glassStyle.rawValue, forKey: Key.glassStyle) }
+    }
+
+    /// 标签主题（悬停 / 选中的样式）
+    @Published var barTheme: BarTheme = .classic {
+        didSet { d.set(barTheme.rawValue, forKey: Key.barTheme) }
     }
 
     /// 待机（无鼠标悬停）时的不透明度；悬停时固定拉到 1.0
@@ -420,8 +450,18 @@ final class Preferences: ObservableObject {
         didSet { d.set(tabDividers, forKey: Key.tabDividers) }
     }
 
-    /// 同组相邻两个按钮之间的距离（未缩放的 pt）：分隔线 1 + 左右各 6；关分隔线只留 4
-    var tabGap: CGFloat { tabDividers ? 13 : 4 }
+    /// 实际画不画组内分隔线：Liquid Glass 主题同 iOS tab bar，一律不画
+    var showsTabDividers: Bool { tabDividers && barTheme == .classic }
+
+    /// 同组相邻两个按钮之间的距离（未缩放的 pt）：分隔线 1 + 左右各 6；不画分隔线只留 4
+    var tabGap: CGFloat { showsTabDividers ? 13 : 4 }
+
+    /// 固定组和运行中组之间那条线：图标 + 名称样式跟着组内分隔线一起开关；
+    /// 只显示图标时组内本来就不画线，只靠这条分组，照画（Liquid Glass 一律不画）
+    var showsGroupDivider: Bool { iconOnly ? barTheme == .classic : showsTabDividers }
+
+    /// 两组之间的距离（未缩放的 pt），同 `tabGap`
+    var groupGap: CGFloat { showsGroupDivider ? 13 : 4 }
 
     /// 工作列按钮的合并方式。图标 + 名称、只显示图标两种样式都照它走；没有辅助功能权限时一律按 App 合并
     @Published var taskbarGrouping: TaskbarGrouping = .whenFull {
@@ -560,6 +600,7 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
         if d.object(forKey: Key.hideMinimized) != nil { hideMinimizedWindows = d.bool(forKey: Key.hideMinimized) }
         if let raw = d.string(forKey: Key.glassStyle), let s = GlassStyle(rawValue: raw) { glassStyle = s }
+        if let raw = d.string(forKey: Key.barTheme), let t = BarTheme(rawValue: raw) { barTheme = t }
         if d.object(forKey: Key.idleOpacity) != nil { idleOpacity = d.double(forKey: Key.idleOpacity) }
         if d.object(forKey: Key.showStatusItem) != nil { showStatusItem = d.bool(forKey: Key.showStatusItem) }
         if d.object(forKey: Key.barEnabled) != nil { barEnabled = d.bool(forKey: Key.barEnabled) }
