@@ -245,7 +245,7 @@ final class Preferences: ObservableObject {
     }
 
     /// 悬停标签时弹出窗口缩略预览
-    @Published var previewEnabled: Bool = true {
+    @Published var previewEnabled: Bool = false {
         didSet { d.set(previewEnabled, forKey: Key.previewEnabled) }
     }
 
