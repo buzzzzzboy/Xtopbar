@@ -220,6 +220,7 @@ final class Preferences: ObservableObject {
         static let emojiHotKey   = "emojiHotKey"
         static let emojiDoubleOption = "emojiDoubleOption"
         static let iconOnly      = "iconOnly"
+        static let tabDividers   = "tabDividers"
         static let taskbarGrouping = "taskbarGrouping"
         static let groupingOverrides = "groupingOverrides"
         static let onlyWindowedApps = "onlyWindowedApps"
@@ -414,6 +415,14 @@ final class Preferences: ObservableObject {
         didSet { d.set(iconOnly, forKey: Key.iconOnly) }
     }
 
+    /// 图标 + 名称样式下，同组相邻两个按钮之间画分隔线。关掉 = 不画线、间距收紧（见 `tabGap`）
+    @Published var tabDividers: Bool = true {
+        didSet { d.set(tabDividers, forKey: Key.tabDividers) }
+    }
+
+    /// 同组相邻两个按钮之间的距离（未缩放的 pt）：分隔线 1 + 左右各 6；关分隔线只留 4
+    var tabGap: CGFloat { tabDividers ? 13 : 4 }
+
     /// 工作列按钮的合并方式。图标 + 名称、只显示图标两种样式都照它走；没有辅助功能权限时一律按 App 合并
     @Published var taskbarGrouping: TaskbarGrouping = .whenFull {
         didSet { d.set(taskbarGrouping.rawValue, forKey: Key.taskbarGrouping) }
@@ -585,6 +594,7 @@ final class Preferences: ObservableObject {
         if let list = d.stringArray(forKey: Key.startOrder) { startOrder = list }
         if let list = d.stringArray(forKey: Key.runningOrder) { runningOrder = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
+        if d.object(forKey: Key.tabDividers) != nil { tabDividers = d.bool(forKey: Key.tabDividers) }
         if let raw = d.string(forKey: Key.taskbarGrouping), let v = TaskbarGrouping(rawValue: raw) { taskbarGrouping = v }
         if let map = d.dictionary(forKey: Key.groupingOverrides) as? [String: String] {
             groupingOverrides = map.compactMapValues { TaskbarGrouping(rawValue: $0) }.filter { $0.value != .whenFull }

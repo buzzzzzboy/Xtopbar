@@ -383,7 +383,13 @@ struct TabBarView: View {
                 let reordering = catalog.drag?.groupID == group.id
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
                     // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
-                    if i > 0, !prefs.iconOnly { divider.opacity(reordering ? 0 : 1) }
+                    if i > 0, !prefs.iconOnly {
+                        if prefs.tabDividers {
+                            divider.opacity(reordering ? 0 : 1)
+                        } else {
+                            Color.clear.frame(width: TTLayout.s(prefs.tabGap))
+                        }
+                    }
                     let dragged = catalog.isDragging(entry.id)
                     AppTab(entry: entry,
                                // 没在运行的固定项 pid = 0，activePID 取不到 0，不会误亮。
@@ -455,6 +461,9 @@ struct TabBarView: View {
             }
         }
         Toggle("只顯示圖示", isOn: $prefs.iconOnly)
+        if !prefs.iconOnly {
+            Toggle("App 之間的分隔線", isOn: $prefs.tabDividers)
+        }
         Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
             ForEach(TaskbarGrouping.allCases) { mode in
                 Text(mode.title).tag(mode)

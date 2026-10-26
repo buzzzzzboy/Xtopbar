@@ -250,6 +250,14 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            Toggle("App 之間的分隔線", isOn: $prefs.tabDividers)
+                .toggleStyle(.switch)
+                .disabled(prefs.iconOnly)
+
+            Text("圖示 + 名稱樣式下，相鄰 App 之間畫一條細線。關掉不畫線，間距也跟著收緊。固定和執行中兩組之間的線一律保留。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
                 ForEach(TaskbarGrouping.allCases) { mode in
                     Text(mode.title).tag(mode)

@@ -487,7 +487,7 @@ final class AppCatalog: ObservableObject {
 
     /// 按钮宽度估算（未缩放的 pt），数字同 `AppTab` 的布局：
     /// 标签 = 左右 9 + 图标 18 + 间距 6 + 文字；没在运行的固定项只放图标（6 + 18 + 6）；
-    /// 只显示图标 = 左右 6 + 图标 36。每个按钮外边距 1 + 1，同组相邻按钮之间一条分隔线（1 + 6 + 6）
+    /// 只显示图标 = 左右 6 + 图标 36。每个按钮外边距 1 + 1，同组相邻按钮之间一条分隔线（1 + 6 + 6，关分隔线只留 4，见 `Preferences.tabGap`）
     private func layoutMetrics() -> TaskbarLayout.Metrics {
         let prefs = Preferences.shared
         let iconOnly = prefs.iconOnly
@@ -507,7 +507,7 @@ final class AppCatalog: ObservableObject {
                 let text = ceil((b.displayName as NSString).size(withAttributes: [.font: font]).width)
                 return 18 + 18 + 6 + min(text + 1, cap) + Self.profileTagWidth(b.profile)
             },
-            buttonPadding: 2, separator: 13, groupDivider: 13, fixed: fixed,
+            buttonPadding: 2, separator: prefs.tabGap, groupDivider: 13, fixed: fixed,
             appButton: { e in
                 guard e.isRunning || !e.isPinned else { return 30 }
                 let text = ceil((e.displayName as NSString).size(withAttributes: [.font: font]).width)
@@ -1088,6 +1088,7 @@ final class AppCatalog: ObservableObject {
         guard contentWidth <= 1 else { return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = Preferences.shared.iconOnly
+        let gap = Preferences.shared.tabGap
         // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算）
         var total: CGFloat = 24
         if Preferences.shared.showStartButton { total += (iconOnly ? 54 : 44) + 13 }
@@ -1097,10 +1098,10 @@ final class AppCatalog: ObservableObject {
                 if iconOnly {
                     total += 36 + 12 + 2
                 } else if entry.buttonWidth > 0 {
-                    total += entry.buttonWidth + 2 + 13
+                    total += entry.buttonWidth + 2 + gap
                 } else {
                     let textWidth = min((entry.displayName as NSString).size(withAttributes: [.font: font]).width, 108)
-                    total += 18 + 6 + ceil(textWidth) + 18 + 2 + 13
+                    total += 18 + 6 + ceil(textWidth) + 18 + 2 + gap
                 }
             }
         }
