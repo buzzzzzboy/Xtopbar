@@ -776,9 +776,10 @@ final class AppCatalog: ObservableObject {
         let pid = entry.pid
         let region = fromClick ? screenRegion : nil
         guard fromClick, Preferences.shared.clickToMinimize, WindowBridge.isTrusted else {
-            activatePID(pid)
-            if let region {
-                Task.detached(priority: .userInitiated) { WindowBridge.raiseWindow(pid: pid, in: region) }
+            if let region, WindowBridge.isTrusted {
+                activate(pid, on: region, restore: false)
+            } else {
+                activatePID(pid)
             }
             return
         }
@@ -786,12 +787,13 @@ final class AppCatalog: ObservableObject {
         // 就恢复它们再激活。条是不抢焦点的面板，点它不会改变前台 App，这里读到的就是点之前的前台。
         let isFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
         guard isFront else {
+            if let region {
+                activate(pid, on: region, restore: true)
+                return
+            }
             // 后台 App：照常立刻激活（切换手感不能等 AX），被点图标收进 Dock 的窗口顺手放回来
             activatePID(pid)
-            Task.detached(priority: .userInitiated) {
-                WindowBridge.restoreMinimized(pid: pid)
-                if let region { WindowBridge.raiseWindow(pid: pid, in: region) }
-            }
+            Task.detached(priority: .userInitiated) { WindowBridge.restoreMinimized(pid: pid) }
             return
         }
         // AX 读写可能卡到超时，挪到后台，别卡住鼠标
@@ -804,8 +806,27 @@ final class AppCatalog: ObservableObject {
             }
             if WindowBridge.minimizeOpenWindows(pid: pid, in: region) { return }
             WindowBridge.restoreMinimized(pid: pid)
+            if let region, WindowBridge.raiseWindow(pid: pid, in: region) { return }
             await self?.activatePID(pid)
-            if let region { WindowBridge.raiseWindow(pid: pid, in: region) }
+        }
+    }
+
+    /// 多屏各屏一条：激活 App 并切到这块屏上它最前面的那扇窗口，**其它屏上它的窗口不动**。
+    ///
+    /// 不走 activatePID：LaunchServices 激活同点 Dock 图标，会把 App 所有窗口一起拉到最前 ——
+    /// Chrome 各设定档是同一个进程，主屏点设定档 A，副屏设定档 B 的窗口也跟着跳上来。
+    /// 这块屏上一扇它的窗口都没有，才退回激活整个 App。
+    /// - restore: 先把上次点图标收进 Dock 的窗口放回来
+    private func activate(_ pid: pid_t, on region: ScreenRegion, restore: Bool) {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        if app.isHidden { app.unhide() }
+        // 乐观更新高亮，同 activatePID
+        activePID = pid
+        noteActive(pid)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            if restore { WindowBridge.restoreMinimized(pid: pid) }
+            if WindowBridge.raiseWindow(pid: pid, in: region) { return }
+            await self?.activatePID(pid)
         }
     }
 

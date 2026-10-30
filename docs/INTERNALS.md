@@ -200,7 +200,8 @@ else if isRevealed, hideDelay > 0, now.timeIntervalSince(lastInteraction) > hide
 
 **點副條上的 App**：catalog 的 `screenRegion`（本螢幕 + 所有螢幕的 CG 座標，值型別，能帶進背景的 AX 呼叫）傳給 `WindowBridge`：
 
-- 背景 App：照常啟用，再 `raiseWindow(pid:in:)` 把它在這塊螢幕上最前面的視窗提上來、設成焦點（這塊螢幕上只剩最小化的就放回一個）。順序同 `_focusWindow`：main / focused 先寫 → App 置前 → 等 0.3s 讓啟用引發的重排落地 → raise
+- 背景 App：**不走** LaunchServices 啟用，直接 `raiseWindow(pid:in:)` 把它在這塊螢幕上最前面的視窗提上來、設成焦點（這塊螢幕上只剩最小化的就放回一個）；這塊螢幕上一扇它的視窗都沒有才退回 `activatePID`。順序同 `_focusWindow`：main / focused 先寫 → App 置前 → 等 0.3s 讓啟用引發的重排落地 → raise
+- **App 置前只帶上目標那一扇**（`bringToFront`）：LaunchServices 啟用和 `AXFrontmost` 都同點 Dock 圖示，會把 App 所有視窗一起拉到最前 —— Chrome 各設定檔是同一個進程，主螢幕點設定檔 A，副螢幕設定檔 B 的視窗也跟著跳上來。改用 SkyLight 私有 API `_SLPSSetFrontProcessWithOptions(psn, 視窗編號, kCPSUserGenerated)` 只置前那一扇，再用 `SLPSPostEventRecordTo` 發一對 key-window 事件（AltTab / yabai / Hammerspoon 同款）；符號執行時 `dlsym` 找，找不到退回 `AXFrontmost`。視窗按鈕、預覽卡片、視窗切換器走的 `_focusWindow` 同樣用它
 - 前台 App、焦點視窗在**別的**螢幕（`focusedWindow(pid:isIn:)`）→ 這一下是「切到這塊螢幕上的視窗」，不是收起
 - 前台 App、焦點視窗就在這塊螢幕 → 「點選前景 App 最小化」只收這塊螢幕上的視窗（`minimizeOpenWindows(pid:in:)`）
 - 懸停預覽也只列這塊螢幕上的視窗；一扇都對不上（視窗剛挪過螢幕、快照還沒跟上）就全列

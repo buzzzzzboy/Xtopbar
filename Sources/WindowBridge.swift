@@ -6,6 +6,28 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+/// SkyLight（窗口服务器）私有 API：置前 App 时只带上指定窗口。运行时找符号，找不到就是 nil
+private enum SkyLight {
+    typealias GetPSN = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    typealias SetFront = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, CGWindowID, UInt32) -> Int32
+    typealias PostEvent = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>) -> Int32
+
+    /// kCPSUserGenerated：只置前指定窗口（kCPSAllWindows = 0x100 才是全部）
+    static let userGenerated: UInt32 = 0x200
+    private static let framework = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+
+    /// Swift 里 GetProcessForPID 被标成不可用，同样走 dlsym
+    static let getProcessForPID: GetPSN? =
+        load("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", "GetProcessForPID")
+    static let setFrontProcess: SetFront? = load(framework, "_SLPSSetFrontProcessWithOptions")
+    static let postEventRecord: PostEvent? = load(framework, "SLPSPostEventRecordTo")
+
+    private static func load<T>(_ path: String, _ name: String) -> T? {
+        guard let handle = dlopen(path, RTLD_LAZY), let sym = dlsym(handle, name) else { return nil }
+        return unsafeBitCast(sym, to: T.self)
+    }
+}
+
 /// 窗口聚焦（辅助功能 API）与标题补全
 enum WindowBridge {
 
@@ -128,7 +150,7 @@ enum WindowBridge {
         // 注意不能用 AX 的 main window 汇报做验证——Chrome 会接受 main 写入但屏幕不真切。
         AXUIElementSetAttributeValue(target, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(target, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        bringToFront(pid: pid, app: app, window: target, cgID: cgID)
         usleep(350_000)   // 等激活引发的窗口重排落地，raise 必须排在它后面
 
         var attempts = 0
@@ -678,12 +700,48 @@ enum WindowBridge {
             // 否则 raise 会被 App 自己"把上个主窗口顶上来"的重排冲掉
             AXUIElementSetAttributeValue(target.element, kAXMainAttribute as CFString, kCFBooleanTrue)
             AXUIElementSetAttributeValue(target.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-            AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            bringToFront(pid: pid, app: app, window: target.element)
             usleep(300_000)
             AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
             TTLog("raise-on-screen pid=\(pid) title=\"\(target.title)\" screen=#\(region.index)")
             return true
         }
+    }
+
+    // MARK: - 只把一扇窗口拉到最前
+
+    /// 把 App 置前，但**只带上这一扇**窗口。
+    ///
+    /// 不能用 `AXFrontmost` / LaunchServices 激活：两者同点 Dock 图标，会把 App 所有窗口一起拉到最前。
+    /// Chrome 的各个设定档是同一个进程 —— 主屏点设定档 A 的窗口，副屏设定档 B 的窗口也跟着跳上来，
+    /// 盖住副屏原本最前面的东西。SkyLight 的 userGenerated 模式只置前指定窗口
+    /// （AltTab / yabai / Hammerspoon 同款），再发一对 key-window 事件让它成为焦点窗口。
+    /// 私有符号找不到 / 拿不到窗口编号时退回 AXFrontmost（全部窗口跟着上来，但至少切得过去）
+    private static func bringToFront(pid: pid_t, app: AXUIElement, window: AXUIElement, cgID: UInt32? = nil) {
+        let id = windowID(of: window) ?? cgID.flatMap { $0 < 0xF000_0000 ? $0 : nil }
+        if let id, frontWindowOnly(pid: pid, windowID: id) { return }
+        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    }
+
+    private static func frontWindowOnly(pid: pid_t, windowID: CGWindowID) -> Bool {
+        guard let getPSN = SkyLight.getProcessForPID, let setFront = SkyLight.setFrontProcess,
+              let post = SkyLight.postEventRecord else { return false }
+        var psn = ProcessSerialNumber()
+        guard getPSN(pid, &psn) == 0, setFront(&psn, windowID, SkyLight.userGenerated) == 0 else {
+            TTLog("front-window-only pid=\(pid) wid=\(windowID) 失敗 → AXFrontmost")
+            return false
+        }
+        // key-window 事件记录（0xf8 字节，格式取自 Hammerspoon #370）：先 0x01 再 0x02
+        var bytes = [UInt8](repeating: 0, count: 0xf8)
+        bytes[0x04] = 0xf8
+        bytes[0x3a] = 0x10
+        for k in 0..<4 { bytes[0x3c + k] = UInt8(truncatingIfNeeded: windowID >> (8 * k)) }
+        for i in 0x20..<0x30 { bytes[i] = 0xff }
+        bytes[0x08] = 0x01
+        _ = post(&psn, &bytes)
+        bytes[0x08] = 0x02
+        _ = post(&psn, &bytes)
+        return true
     }
 
     /// App 的焦点窗口落不落在这块屏上。问不出来按"落在"算 —— 照原来的"点前台 App = 收起"走。
