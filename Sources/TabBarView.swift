@@ -204,7 +204,6 @@ private struct StartBubble<Highlight: View>: ViewModifier {
                 .background { highlight }
                 .background(GlassBackdrop(style: style, cornerRadius: TTLayout.barHeight / 2))
                 .clipShape(Circle())
-                .overlay(Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
         } else {
             content
                 .background { highlight }
@@ -529,10 +528,13 @@ struct TabBarView: View {
         .compositingGroup()
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-        )
+        // 预设主题描一圈细边；Liquid Glass 不描，玻璃边缘交给材质自己
+        .overlay {
+            if !glass {
+                RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
         .background(
             GeometryReader { geo in
