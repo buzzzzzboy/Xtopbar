@@ -194,6 +194,8 @@ final class TabBarController: TabBarHost {
         // 比系统 Dock 低一层（其它窗口照样压得住）：Dock 自动隐藏时滑鼠顶到底边把它叫出来，
         // 它盖在条上面正常用，而不是被条挡住
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
+        // Liquid Glass 的边缘交给玻璃材质，不再叠系统窗口阴影（会在条外围显出一圈深色外框）
+        panel.hasShadow = Preferences.shared.barTheme != .liquidGlass
 
         let view = TabBarView(
             catalog: catalog,
@@ -412,7 +414,10 @@ final class TabBarController: TabBarHost {
                          prefs.$barTheme.dropFirst().map { _ in () })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                DispatchQueue.main.async { self?.panel.invalidateShadow() }
+                guard let self else { return }
+                self.panel.hasShadow = self.prefs.barTheme != .liquidGlass
+                self.folder.syncShadow()
+                DispatchQueue.main.async { self.panel.invalidateShadow() }
             }
             .store(in: &cancellables)
 
