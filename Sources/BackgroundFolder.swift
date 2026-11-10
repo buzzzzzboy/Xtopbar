@@ -47,6 +47,7 @@ final class BackgroundFolderController {
         popup = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100))
         // 同开始菜单：比条高一层，阴影压在条上
         popup.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        syncShadow()
 
         let chipHost = FirstMouseHostingView(rootView: BackgroundFolderChip(
             catalog: catalog, prefs: Preferences.shared, state: state))
@@ -68,6 +69,12 @@ final class BackgroundFolderController {
         host.autoresizingMask = [.width, .height]
         popup.contentView = host
         popupHost = host
+    }
+
+    /// Liquid Glass 的边缘交给玻璃材质：小方块不叠系统窗口阴影（同条）。主题切换时由条调用
+    func syncShadow() {
+        chip.hasShadow = Preferences.shared.barTheme != .liquidGlass
+        DispatchQueue.main.async { [chip] in chip.invalidateShadow() }
     }
 
     /// 有没有要收的 App（没有就整个不显示）
@@ -318,10 +325,13 @@ struct BackgroundFolderChip: View {
         .frame(width: side, height: side)
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-        )
+        // 预设主题描一圈细边；Liquid Glass 不描（同条）
+        .overlay {
+            if prefs.barTheme != .liquidGlass {
+                RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+            }
+        }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(prefs.animationsEnabled ? .easeOut(duration: 0.11) : nil, value: hovering)
