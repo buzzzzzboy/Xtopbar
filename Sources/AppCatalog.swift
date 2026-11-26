@@ -21,6 +21,9 @@ struct AppEntry: Identifiable, Equatable {
     /// 多屏时同一个 App 出现在好几条上：这条（这块屏）上它最前面那扇窗口的标题，
     /// Chrome / Safari 就是当前分页。只出现在一条上时为 nil
     var windowTitle: String? = nil
+    /// 按钮上要不要写窗口标题（设置里勾选的 App 才写，见 `Preferences.windowTitleApps`）。
+    /// 关着时视窗按钮只写 App 名，多屏也不在名字后面带分页标题
+    var showsWindowTitle = true
 
     /// 这条（这块屏）上它开着几扇窗口（含最小化的）；单条模式下是全部窗口。≥ 2 时图标角落画数字圆圈
     var windowCount: Int = 0
@@ -54,7 +57,8 @@ struct AppEntry: Identifiable, Equatable {
         copy.buttonWidth = width
         let title = w.title.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.profile = BrowserProfiles.windowProfile(title: title, appName: name, bundleID: id)
-        copy.windowLabel = AppEntry.windowLabel(title: copy.profile?.page ?? title, appName: name)
+        copy.windowLabel = showsWindowTitle
+            ? AppEntry.windowLabel(title: copy.profile?.page ?? title, appName: name) : name
         copy.windowCount = 0
         copy.windowTitle = nil
         copy.mergedCount = 0
@@ -335,11 +339,14 @@ final class AppCatalog: ObservableObject {
         // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面再带上这块屏上那扇窗口的分页标题
         let titles = WindowPresence.shared.frontTitles
         let counts = WindowPresence.shared.windowCounts
+        let titled = prefs.windowTitleApps
         func labeled(_ e: AppEntry) -> AppEntry {
             guard e.pid > 0 else { return e }
             var copy = e
+            copy.showsWindowTitle = titled[e.appID] != nil
             copy.windowCount = ScreenScope.windowCount(counts[e.pid], scope: scope)
-            copy.windowTitle = scope?.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid])
+            copy.windowTitle = copy.showsWindowTitle
+                ? scope?.windowTitle(screensByPID[e.pid], live: live, titles: titles[e.pid]) : nil
             return copy
         }
         return (pinned.map(labeled), others.map(labeled), background)
@@ -863,6 +870,17 @@ final class AppCatalog: ObservableObject {
         map[appID] = mode == .whenFull ? nil : mode
         Preferences.shared.groupingOverrides = map
         TTLog("grouping override \(appID) → \(mode?.rawValue ?? "跟隨")")
+    }
+
+    /// 这个 App 的按钮上写不写窗口标题（右键「顯示視窗名稱」/ 设置 → Dock 勾选）
+    func showsWindowTitle(for appID: String) -> Bool {
+        Preferences.shared.windowTitleApps[appID] != nil
+    }
+
+    func setShowsWindowTitle(_ on: Bool, for entry: AppEntry) {
+        var map = Preferences.shared.windowTitleApps
+        map[entry.appID] = on ? entry.name : nil
+        Preferences.shared.windowTitleApps = map
     }
 
     /// 关掉视窗按钮那扇窗口（右键菜单）

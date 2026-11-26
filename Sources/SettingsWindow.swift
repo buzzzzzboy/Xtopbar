@@ -258,6 +258,8 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
+            WindowTitleAppsRow(prefs: prefs)
+
             Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
                 ForEach(TaskbarGrouping.allCases) { mode in
                     Text(mode.title).tag(mode)
@@ -586,6 +588,51 @@ private struct HiddenAppsRow: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 2)
+        }
+    }
+}
+
+/// 「顯示視窗名稱」：勾选的 App 视窗按钮上写窗口标题，没勾的只写 App 名。
+/// 列出正在执行的一般 App + 固定到工作列的 + 已经勾过的（没在执行也留着，好取消）
+private struct WindowTitleAppsRow: View {
+    @ObservedObject var prefs: Preferences
+    @State private var running: [(bid: String, name: String)] = []
+
+    private var rows: [(bid: String, name: String)] {
+        var names: [String: String] = [:]
+        for (bid, name) in prefs.windowTitleApps { names[bid] = name }
+        for pin in prefs.dockPins where names[pin.bundleID] == nil { names[pin.bundleID] = pin.name }
+        for app in running where names[app.bid] == nil { names[app.bid] = app.name }
+        return names.map { (bid: $0.key, name: $0.value) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("顯示視窗名稱的 App")
+                .font(.system(size: 12, weight: .medium))
+            ForEach(rows, id: \.bid) { row in
+                Toggle(row.name, isOn: Binding(
+                    get: { prefs.windowTitleApps[row.bid] != nil },
+                    set: { on in
+                        var map = prefs.windowTitleApps
+                        map[row.bid] = on ? row.name : nil
+                        prefs.windowTitleApps = map
+                    }))
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+            }
+            Text("圖示 + 名稱樣式下，勾選的 App 每個按鈕寫上視窗標題（瀏覽器就是目前分頁）；沒勾的只寫 App 名。也可以在條上右鍵 App →「顯示視窗名稱」。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .disabled(prefs.iconOnly)
+        .onAppear {
+            running = NSWorkspace.shared.runningApplications.compactMap { app in
+                guard app.activationPolicy == .regular, let bid = app.bundleIdentifier else { return nil }
+                return (bid, app.localizedName ?? bid)
+            }
         }
     }
 }

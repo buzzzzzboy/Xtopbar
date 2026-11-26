@@ -315,6 +315,11 @@ final class TabBarController: TabBarHost {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.catalog.invalidateLayout() }
             .store(in: &cancellables)
+        prefs.$windowTitleApps
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.catalog.invalidateLayout() }
+            .store(in: &cancellables)
         prefs.$dockPins
             .dropFirst()
             .receive(on: RunLoop.main)

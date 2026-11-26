@@ -248,6 +248,7 @@ final class Preferences: ObservableObject {
         static let tabDividers   = "tabDividers"
         static let taskbarGrouping = "taskbarGrouping"
         static let groupingOverrides = "groupingOverrides"
+        static let windowTitleApps = "windowTitleApps"
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
         static let hideSystemDock = "hideSystemDock"
@@ -474,6 +475,12 @@ final class Preferences: ObservableObject {
         didSet { d.set(groupingOverrides.mapValues(\.rawValue), forKey: Key.groupingOverrides) }
     }
 
+    /// 视窗按钮上显示窗口标题的 App（bundle id → 名字；存名字是为了没在运行时设置里也认得出）。
+    /// 不在表里 = 按钮上只写 App 名（默认）。设置 → Dock 勾选，或右键标签「顯示視窗名稱」
+    @Published var windowTitleApps: [String: String] = [:] {
+        didSet { d.set(windowTitleApps, forKey: Key.windowTitleApps) }
+    }
+
     /// 条最左边显示开始按钮（Windows 风格开始菜单）。默认关：保持原版外观。
     @Published var showStartButton: Bool = true {
         didSet { d.set(showStartButton, forKey: Key.showStartButton) }
@@ -640,6 +647,7 @@ final class Preferences: ObservableObject {
         if let map = d.dictionary(forKey: Key.groupingOverrides) as? [String: String] {
             groupingOverrides = map.compactMapValues { TaskbarGrouping(rawValue: $0) }.filter { $0.value != .whenFull }
         }
+        if let map = d.dictionary(forKey: Key.windowTitleApps) as? [String: String] { windowTitleApps = map }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }

@@ -142,6 +142,10 @@ enum TaskbarAppMenu {
                 catalog.setGroupingOverride(.never, for: appID)
             }
         ]))
+        let titled = catalog.showsWindowTitle(for: appID)
+        items.append(TaskbarMenuItem(title: "顯示視窗名稱", symbol: "textformat", checked: titled) {
+            catalog.setShowsWindowTitle(!titled, for: entry)
+        })
         if entry.isRunning, !entry.isPinned {
             items.append(TaskbarMenuItem(title: "從工作列隱藏此 App", symbol: "eye.slash") {
                 catalog.hide(entry)
