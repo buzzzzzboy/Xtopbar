@@ -41,7 +41,7 @@ final class BackgroundFolderController {
 
     init(catalog: AppCatalog) {
         self.catalog = catalog
-        chip = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 42, height: 42))
+        chip = ActiveGlassPanel(contentRect: NSRect(x: 0, y: 0, width: 42, height: 42))
         // 和条同一层
         chip.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
         popup = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100))

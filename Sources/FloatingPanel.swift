@@ -18,7 +18,7 @@ func TTLog(_ message: String) {
 }
 
 /// 无边框、不抢焦点的悬浮面板
-final class FloatingPanel: NSPanel {
+class FloatingPanel: NSPanel {
 
     /// 点击命中回调：传入窗口坐标（原点上左由面板侧转换），返回 true 表示已被标签消费
     var onTap: ((NSPoint) -> Bool)?
@@ -116,6 +116,14 @@ final class FloatingPanel: NSPanel {
         }
         super.sendEvent(event)
     }
+}
+
+/// 常驻的条和背景 App 小方块：玻璃一直是聚焦时的样子（边缘高光 + 提亮）。
+/// 系统只给 key 窗口画这套效果，而不抢焦点的条大多数时间不是 key，玻璃就是平的。
+/// 这里只改"画成什么样"，不碰键盘焦点。`_hasActiveAppearance` 是 AppKit 私有方法，
+/// 哪天系统不再问它，只是退回随焦点变化，不影响别的
+final class ActiveGlassPanel: FloatingPanel {
+    @objc(_hasActiveAppearance) private func alwaysActiveAppearance() -> Bool { true }
 }
 
 /// SwiftUI 内容宿主：允许"首次点击直达控件"
