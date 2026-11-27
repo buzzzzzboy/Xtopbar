@@ -128,7 +128,7 @@ struct TaskbarWidgetContent: View {
         case .nowPlaying:
             NowPlayingWidgetView(widget: widget, catalog: catalog, prefs: prefs)
         case .systemStats:
-            placeholder("cpu", "CPU")
+            SystemStatsWidgetView(catalog: catalog, prefs: prefs)
         case .folder:
             placeholder("folder", "資料夾")
         }
@@ -220,5 +220,73 @@ struct NowPlayingWidgetView: View {
                                            value: [id: geo.frame(in: .named(TabBarView.space))])
                 }
             )
+    }
+}
+
+/// CPU／記憶體：标签样式下两组「标签 + 百分比」上排、迷你横条下排；只显示图标样式下两条竖条，数字进悬停提示。
+/// 超过 80% 用系统橘，不闪。显示着才取样（onAppear / onDisappear 引用计数）
+struct SystemStatsWidgetView: View {
+    @ObservedObject var catalog: AppCatalog
+    @ObservedObject var prefs: Preferences
+    @ObservedObject var stats = SystemStats.shared
+
+    var body: some View {
+        Group {
+            if prefs.iconOnly {
+                HStack(spacing: TTLayout.s(5)) {
+                    verticalBar(stats.cpu)
+                    verticalBar(stats.memory)
+                }
+            } else {
+                HStack(spacing: TTLayout.s(10)) {
+                    group("CPU", stats.cpu)
+                    group("記憶體", stats.memory)
+                }
+                .padding(.horizontal, TTLayout.s(8))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .widgetHover(catalog)
+        .help("CPU \(percent(stats.cpu))　記憶體 \(percent(stats.memory))　按一下開啟「活動監視器」")
+        .onAppear { stats.retain() }
+        .onDisappear { stats.release() }
+    }
+
+    private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+
+    private func tint(_ v: Double) -> Color { v >= SystemStatsMath.warningThreshold ? .orange : .primary }
+
+    private func group(_ label: String, _ value: Double) -> some View {
+        VStack(alignment: .leading, spacing: TTLayout.s(3)) {
+            HStack(spacing: TTLayout.s(4)) {
+                Text(label)
+                    .font(.system(size: TTLayout.font(10), weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(percent(value))
+                    .font(.system(size: TTLayout.font(10.5), weight: .semibold).monospacedDigit())
+                    .foregroundStyle(tint(value))
+                    // 定宽：数字位数变了整组也不跳
+                    .frame(width: TTLayout.s(28), alignment: .trailing)
+            }
+            Capsule().fill(Color.primary.opacity(0.12))
+                .overlay(alignment: .leading) {
+                    GeometryReader { geo in
+                        Capsule().fill(tint(value).opacity(value >= SystemStatsMath.warningThreshold ? 1 : 0.7))
+                            .frame(width: max(geo.size.width * value, TTLayout.s(3)))
+                    }
+                }
+                .frame(height: TTLayout.s(3))
+        }
+        .fixedSize()
+    }
+
+    private func verticalBar(_ value: Double) -> some View {
+        let height = TTLayout.s(26)
+        return Capsule().fill(Color.primary.opacity(0.12))
+            .overlay(alignment: .bottom) {
+                Capsule().fill(tint(value).opacity(value >= SystemStatsMath.warningThreshold ? 1 : 0.7))
+                    .frame(height: max(height * value, TTLayout.s(4)))
+            }
+            .frame(width: TTLayout.s(7), height: height)
     }
 }

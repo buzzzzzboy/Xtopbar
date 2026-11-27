@@ -2,6 +2,9 @@ import Foundation
 import CoreGraphics
 
 // 工作列小工具的纯逻辑回归测试：`./scripts/test-widgets.sh`
+/// 主程序的 TTLog 在 FloatingPanel.swift（带 AppKit），测试里放个空的
+func TTLog(_ message: String) {}
+
 var failures = 0
 func check(_ ok: Bool, _ name: String) {
     if ok { print("PASS \(name)") } else { failures += 1; print("FAIL \(name)") }
@@ -108,6 +111,20 @@ do {
     let a = w(.nowPlaying, .afterBar)
     check(a.hitID == "__widget__\(a.id.uuidString)" && a.prevHitID == a.hitID + "__prev"
           && a.nextHitID == a.hitID + "__next", "hitIDs")
+}
+
+// SystemStatsMath
+do {
+    let a = CPUTicks(user: 100, system: 100, idle: 800, nice: 0)
+    let b = CPUTicks(user: 150, system: 150, idle: 900, nice: 0)
+    check(abs(SystemStatsMath.cpuUsage(from: a, to: b) - 0.5) < 1e-9, "cpuUsageFromDeltas")
+    check(SystemStatsMath.cpuUsage(from: a, to: a) == 0, "cpuUsageZeroDelta")
+    check(SystemStatsMath.memoryUsage(activePages: 10_000, wiredPages: 10_000, compressedPages: 10_000,
+                                      pageSize: 16384, physicalBytes: 65_536_000) == 1.0, "memoryUsageClamped")
+    let m = SystemStatsMath.memoryUsage(activePages: 1000, wiredPages: 500, compressedPages: 500,
+                                        pageSize: 16384, physicalBytes: 65_536_000)
+    check(abs(m - 0.5) < 1e-9, "memoryUsageTypical")
+    check(SystemStatsMath.warningThreshold == 0.8, "warningThreshold")
 }
 
 if failures > 0 { print("\(failures) FAILED"); exit(1) }

@@ -1355,7 +1355,11 @@ final class TabBarController: TabBarHost {
             case .previous: if np.track != nil { np.previous() }
             case .next: if np.track != nil { np.next() }
             }
-        case .systemStats, .folder:
+        case .systemStats:
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.ActivityMonitor") {
+                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            }
+        case .folder:
             break
         }
     }
