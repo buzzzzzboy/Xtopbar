@@ -159,5 +159,23 @@ do {
     check(SystemStatsMath.warningThreshold == 0.8, "warningThreshold")
 }
 
+// relayoutOnlyWhenRelevant：没有对应的小工具时，换歌 / 播放器开关 / 资料夹改名都不必重排
+do {
+    let none: [TaskbarWidget] = []
+    let np = [w(.nowPlaying, .afterBar)]
+    let fd = [w(.folder(UUID()), .afterBar)]
+    let st = [w(.systemStats, .afterBar)]
+    check(!TaskbarWidgetList.needsRelayout(for: .track, widgets: none)
+          && !TaskbarWidgetList.needsRelayout(for: .player, widgets: none)
+          && !TaskbarWidgetList.needsRelayout(for: .folderNames, widgets: none), "relayoutSkippedWithoutWidgets")
+    check(TaskbarWidgetList.needsRelayout(for: .track, widgets: np)
+          && TaskbarWidgetList.needsRelayout(for: .player, widgets: np)
+          && !TaskbarWidgetList.needsRelayout(for: .folderNames, widgets: np), "relayoutNowPlayingOnly")
+    check(TaskbarWidgetList.needsRelayout(for: .folderNames, widgets: fd)
+          && !TaskbarWidgetList.needsRelayout(for: .track, widgets: fd), "relayoutFolderOnly")
+    check(!TaskbarWidgetList.needsRelayout(for: .track, widgets: st), "relayoutStatsIgnoresTrack")
+    check(TaskbarWidgetList.needsRelayout(for: .widgets, widgets: none), "relayoutWidgetListAlways")
+}
+
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
 print("ALL PASS")

@@ -27,7 +27,10 @@ final class SettingsWindowController {
     /// 打开并直接切到某一页（工作列小工具右键「在設定中調整…」）
     func show(page: SettingsPage) {
         show()
-        NotificationCenter.default.post(name: Self.pageRequest, object: page)
+        // 晚一拍再发：窗口第一次建出来时 SettingsView 的 onReceive 还没订阅上，同步发会丢
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Self.pageRequest, object: page)
+        }
     }
 
     static let pageRequest = Notification.Name("xtopbar.settingsPageRequest")

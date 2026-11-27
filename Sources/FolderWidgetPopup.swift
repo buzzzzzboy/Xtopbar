@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// 工作列「資料夾」小工具点开的卡片：唯读的 App 格子，点一个就开启并收起。
@@ -15,6 +16,7 @@ final class FolderWidgetPopup {
     private let host: FirstMouseHostingView<FolderWidgetCard>
     private var monitors: [Any] = []
     private var resignObserver: NSObjectProtocol?
+    private var cancellables = Set<AnyCancellable>()
 
     /// 卡片要打开了（条据此收掉预览、开始菜单、背景网格）
     var onOpen: (@MainActor () -> Void)?
@@ -45,6 +47,14 @@ final class FolderWidgetPopup {
                 self?.close(animated: false)
                 self?.onEditInStartMenu?(id)
             })
+        // 开着卡片时资料夹在开始菜单里被删了：收起，不留一块空玻璃
+        Preferences.shared.$startFolders
+            .receive(on: RunLoop.main)
+            .sink { [weak self] folders in
+                guard let self, let id = self.openFolderID, !folders.contains(where: { $0.id == id }) else { return }
+                self.close(animated: false)
+            }
+            .store(in: &cancellables)
     }
 
     func contains(_ point: NSPoint) -> Bool {

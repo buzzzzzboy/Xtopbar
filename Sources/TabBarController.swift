@@ -498,17 +498,19 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.catalog.invalidateLayout() }
             .store(in: &cancellables)
 
-        // 小工具加 / 删 / 换槽，或正在播放的播放器开 / 关（小工具出现 / 藏起来）：
-        // 宽度变了，重新判断合并、重算条宽
-        // 曲目也算：没歌时正在播放缩成一小颗，有歌时宽度跟着歌名长短走
-        // 资料夹改名也算：资料夹小工具的宽跟着名字走
-        Publishers.Merge4(prefs.$taskbarWidgets.dropFirst().removeDuplicates().map { _ in () },
-                          NowPlaying.shared.$playerRunning.dropFirst().removeDuplicates().map { _ in () },
-                          NowPlaying.shared.$track.map { $0?.title }.removeDuplicates().dropFirst().map { _ in () },
-                          prefs.$startFolders.map { $0.map(\.name) }.removeDuplicates().dropFirst().map { _ in () })
+        // 小工具加 / 删 / 换槽、正在播放的播放器开 / 关、换歌（宽度跟着歌名走）、资料夹改名：
+        // 宽度变了，重新判断合并、重算条宽。没有对应的小工具就不重排
+        Publishers.Merge4(
+            prefs.$taskbarWidgets.dropFirst().removeDuplicates().map { _ in TaskbarWidgetList.Change.widgets },
+            NowPlaying.shared.$playerRunning.dropFirst().removeDuplicates().map { _ in TaskbarWidgetList.Change.player },
+            NowPlaying.shared.$track.map { $0?.title }.removeDuplicates().dropFirst()
+                .map { _ in TaskbarWidgetList.Change.track },
+            prefs.$startFolders.map { $0.map(\.name) }.removeDuplicates().dropFirst()
+                .map { _ in TaskbarWidgetList.Change.folderNames })
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
+            .sink { [weak self] change in
+                guard let self,
+                      TaskbarWidgetList.needsRelayout(for: change, widgets: self.prefs.taskbarWidgets) else { return }
                 self.catalog.invalidateLayout()
                 self.syncContent()
             }
@@ -589,6 +591,8 @@ final class TabBarController: TabBarHost {
         preview.close()
         startMenu.close(animated: false)
         folder.shutdown()
+        // 资料夹卡片的事件监听也一起拆掉，不留一张收不掉的卡片（副屏的条拆掉时）
+        folderWidget.close(animated: false)
         isRevealed = false
         panel.orderOut(nil)
         catalog.stop()

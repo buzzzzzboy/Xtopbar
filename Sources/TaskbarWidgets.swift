@@ -147,6 +147,21 @@ enum TaskbarWidgetList {
         return copy
     }
 
+    /// 什么变了会影响小工具的宽度 / 显示
+    enum Change { case widgets, player, track, folderNames }
+
+    /// 这次变化要不要重排条：没有对应的小工具就不动（没开小工具的使用者换歌、改资料夹名都不该重排）
+    static func needsRelayout(for change: Change, widgets: [TaskbarWidget]) -> Bool {
+        switch change {
+        case .widgets:
+            return true
+        case .player, .track:
+            return widgets.contains { $0.kind == .nowPlaying }
+        case .folderNames:
+            return widgets.contains { if case .folder = $0.kind { return true } else { return false } }
+        }
+    }
+
     /// 资料夹在开始菜单里被删掉：对应的小工具一起移除
     static func pruned(_ list: [TaskbarWidget], existingFolders: Set<UUID>) -> [TaskbarWidget] {
         list.filter {
