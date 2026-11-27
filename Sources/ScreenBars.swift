@@ -96,6 +96,7 @@ final class TabBarFleet {
 
     private let prefs = Preferences.shared
     private let missionControl: MissionControlWatcher
+    private let attention = AppAttentionWatcher()
 
     /// 主条（单条模式下就是唯一那条）
     let primary: TabBarController
@@ -123,6 +124,13 @@ final class TabBarFleet {
         // 先摆好主条该停哪块屏，start 里第一次落位才不会先在别的屏闪一下
         layoutBars()
         primary.start()
+
+        attention.onChange = { [weak self] pids in
+            guard let self else { return }
+            self.primaryCatalog.updateAttention(pids)
+            for bar in self.secondaries.values { bar.catalog.updateAttention(pids) }
+        }
+        attention.start()
 
         prefs.$allScreens
             .dropFirst()
@@ -153,6 +161,7 @@ final class TabBarFleet {
         for id in wanted where secondaries[id] == nil {
             let catalog = AppCatalog()
             catalog.screenScope = ScreenScope(displayID: id, isPrimary: false)
+            catalog.updateAttention(attention.pids)
             catalog.start()
             let controller = TabBarController(catalog: catalog, missionControl: missionControl,
                                               display: id, isPrimary: false)

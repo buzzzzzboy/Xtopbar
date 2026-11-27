@@ -113,6 +113,7 @@ final class AppCatalog: ObservableObject {
 
     @Published private(set) var groups: [AppGroup] = []
     @Published private(set) var activePID: pid_t = -1
+    @Published private(set) var attentionTabIDs: Set<String> = []
     /// 「背景執行」资料夹：在跑、但一扇窗口都没有的 App（「只顯示有視窗的 App」关着时才有）。
     /// 不上条，收进跟在条尾巴后面的小资料夹（见 BackgroundFolderController）
     @Published private(set) var backgroundApps: [AppEntry] = []
@@ -184,6 +185,13 @@ final class AppCatalog: ObservableObject {
     private var subscribers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
     private var lastSignature: String = ""
+    private var attentionPIDs: Set<pid_t> = []
+
+    func updateAttention(_ pids: Set<pid_t>) {
+        guard pids != attentionPIDs else { return }
+        attentionPIDs = pids
+        refresh()
+    }
 
     // MARK: - 多屏：这条只管哪块屏
 
@@ -281,11 +289,24 @@ final class AppCatalog: ObservableObject {
     /// 采集：固定项（按固定顺序，合并运行实例）+ 其余运行中的 App。
     ///
     /// 固定项不受「隐藏此 App」影响 —— 固定本身就是"我要它在条上"的明确表态。
-    private func collect() -> (pinned: [AppEntry], running: [AppEntry], background: [AppEntry]) {
+    private func collect(attention: Set<pid_t>) -> (pinned: [AppEntry], running: [AppEntry], background: [AppEntry]) {
         let prefs = Preferences.shared
         let running = collectRunning()
+        // 各屏一条时按窗口所在屏显示。没窗口或窗口归属还没查到的 App 放主屏。
+        let scope = WindowBridge.isTrusted ? screenScope : nil
+        let live = Set(NSScreen.screens.compactMap(\.displayID))
+        let screensByPID = WindowPresence.shared.screensByPID
+        func showsOnScreen(_ entry: AppEntry) -> Bool {
+            scope?.admits(screensByPID[entry.pid], live: live) ?? true
+        }
+
         var byID: [String: AppEntry] = [:]
-        for e in running where byID[e.id] == nil { byID[e.id] = e }
+        for e in running {
+            // 同一固定项有多个进程时，优先让本屏的注意请求可以直接点击处理。
+            if byID[e.id] == nil || (attention.contains(e.pid) && showsOnScreen(e)) {
+                byID[e.id] = e
+            }
+        }
 
         var pinnedIDs = Set<String>()
         var pinned: [AppEntry] = []
@@ -313,7 +334,7 @@ final class AppCatalog: ObservableObject {
         }
 
         let hidden = prefs.hiddenApps
-        // 没窗口的运行中 App 一律不上条（固定项上面已经收走了，不受影响）：
+        // 没窗口的运行中 App 平时不上条（固定项上面已经收走了），有注意请求时暂时显示：
         // 「只显示有窗口的 App」开着就直接不显示，关着就收进条尾巴后面的「背景執行」资料夹
         // 收进资料夹时访达不算：它是桌面本身，没窗口是常态，留在条上（同开始菜单的「背景執行」）
         let windowless = prefs.onlyWindowedApps
@@ -321,20 +342,16 @@ final class AppCatalog: ObservableObject {
             : WindowPresence.shared.windowless.subtracting(
                 NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder")
                     .map(\.processIdentifier))
-        // 多屏各屏一条：只留窗口在这块屏上的。没有辅助功能权限就量不出窗口在哪，每条都放全部。
-        // 没窗口的 App 不在任何屏上，admits 只放进主屏那条 —— 资料夹也就只跟着主条
-        let scope = WindowBridge.isTrusted ? screenScope : nil
-        let live = Set(NSScreen.screens.compactMap(\.displayID))
-        let screensByPID = WindowPresence.shared.screensByPID
         let candidates = running.filter { e in
-            !pinnedIDs.contains(e.id) && hidden[e.id] == nil
-                && (scope?.admits(screensByPID[e.pid], live: live) ?? true)
+            !pinnedIDs.contains(e.id) && hidden[e.id] == nil && showsOnScreen(e)
         }
         // 固定项同一套判定：只上窗口所在那（几）块屏的条。没在运行（pid 0）/ 没窗口的
         // 不在任何屏上，admits 只放进主屏那条 —— 每个固定项至少留在主条上，点得到、能启动
-        pinned.removeAll { !(scope?.admits(screensByPID[$0.pid], live: live) ?? true) }
-        let others = candidates.filter { !windowless.contains($0.pid) }
-        let background = prefs.onlyWindowedApps ? [] : candidates.filter { windowless.contains($0.pid) }
+        pinned.removeAll { !showsOnScreen($0) }
+        let others = candidates.filter { !windowless.contains($0.pid) || attention.contains($0.pid) }
+        let background = prefs.onlyWindowedApps ? [] : candidates.filter {
+            windowless.contains($0.pid) && !attention.contains($0.pid)
+        }
         // 窗口数（图标角落的数字圆圈）：各屏一条数这块屏上的，单条模式数全部。
         // 同一个 App 在好几块屏都有窗口（好几条上都有它）：名字后面再带上这块屏上那扇窗口的分页标题
         let titles = WindowPresence.shared.frontTitles
@@ -538,10 +555,12 @@ final class AppCatalog: ObservableObject {
         guard !menuTracking, drag == nil else { return }
         let frontmost = NSWorkspace.shared.frontmostApplication
         let frontPID = frontmost?.processIdentifier ?? -1
+        let attention = attentionPIDs.subtracting([frontPID])
 
-        let collected = collect()
+        let collected = collect(attention: attention)
         let newGroups = expandWindows(group(pinned: collected.pinned, running: collected.running))
         let newBackground = sorted(collected.background)
+        let attentionTabs = Self.attentionTabs(in: newGroups, for: attention)
         // 条上有 Chromium 系浏览器就先在后台把设定档读好（节流，非浏览器直接跳过）
         for g in newGroups { for e in g.entries { BrowserProfiles.prefetch(e.appID) } }
 
@@ -553,17 +572,33 @@ final class AppCatalog: ObservableObject {
         }.joined(separator: "|") + "|active:\(frontPID)"
             + "|bg:" + newBackground.map { "\($0.id)#\($0.pid)" }.joined(separator: ",")
 
-        guard signature != lastSignature else { return }
+        guard signature != lastSignature else {
+            if attentionTabs != attentionTabIDs { attentionTabIDs = attentionTabs }
+            return
+        }
         lastSignature = signature
 
         let countChanged = newGroups.map { $0.entries.count } != groups.map { $0.entries.count }
         groups = newGroups
         if newBackground != backgroundApps { backgroundApps = newBackground }
         activePID = frontPID
+        if attentionTabs != attentionTabIDs { attentionTabIDs = attentionTabs }
         // 不经过悬浮条换的前台（点 Dock / 系统 ⌘Tab）也记进「最近使用」
         noteActive(frontPID)
 
         if countChanged { onLayoutNeeded?() }
+    }
+
+    /// Dock 只提供 App 层的注意状态。展开视窗时标在首个未最小化的按钮上。
+    private static func attentionTabs(in groups: [AppGroup], for pids: Set<pid_t>) -> Set<String> {
+        guard !pids.isEmpty else { return [] }
+        var representative: [pid_t: AppEntry] = [:]
+        for entry in groups.flatMap(\.entries) where pids.contains(entry.pid) {
+            if let first = representative[entry.pid],
+               first.window?.minimized != true || entry.window?.minimized == true { continue }
+            representative[entry.pid] = entry
+        }
+        return Set(representative.values.map(\.id))
     }
 
     // MARK: - Actions

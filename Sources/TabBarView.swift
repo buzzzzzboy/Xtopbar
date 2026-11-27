@@ -263,6 +263,7 @@ struct AppTab: View {
     let entry: AppEntry
     /// 前台 App：蓝底 + 描边（不论指针在不在条上，一眼看出谁在前台）
     let isActive: Bool
+    let needsAttention: Bool
     var animated: Bool = true
     /// Dock 风格：只画大图标 + 运行小圆点，名字放进悬停提示
     var iconOnly: Bool = false
@@ -306,7 +307,8 @@ struct AppTab: View {
         // 最小化的视窗按钮整格淡一点（同 Windows：一眼看出哪扇收起来了）
         .opacity(entry.window?.minimized == true ? 0.55 : 1)
         // 右键菜单开着时整个拿掉（给空字符串没用，提示照样弹出来盖在菜单上）
-        .modifier(OptionalHelp(text: suppressHelp ? nil : helpText))
+        .modifier(OptionalHelp(text: suppressHelp ? nil : helpText + (needsAttention ? "（需要注意）" : "")))
+        .accessibilityValue(needsAttention ? Text("需要注意") : Text(""))
         .background(
             GeometryReader { geo in
                 Color.clear
@@ -336,6 +338,12 @@ struct AppTab: View {
                 .interpolation(.high)
                 .frame(width: TTLayout.s(36), height: TTLayout.s(36))
                 .overlay(alignment: .topTrailing) { windowBadge(size: 16) }
+                .overlay(alignment: .topLeading) {
+                    attentionDot(size: 7)
+                        .overlay { Circle().strokeBorder(.white, lineWidth: 1) }
+                        .opacity(needsAttention ? 1 : 0)
+                        .offset(y: TTLayout.s(-2))
+                }
             runningDot(visible: entry.isRunning)
         }
         .padding(.horizontal, TTLayout.s(6))
@@ -367,6 +375,13 @@ struct AppTab: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: !entry.titleTruncated, vertical: false)
+                    .overlay(alignment: .leading) {
+                        // 用标题前本来就有的间距，按钮宽度和合并判断不变。
+                        let gap = TTLayout.s(0.5)
+                        attentionDot(size: 4)
+                            .opacity(needsAttention ? 1 : 0)
+                            .alignmentGuide(.leading) { $0[.trailing] + gap }
+                    }
             }
         }
         // 只有图标时左右也收成 6pt，和上下一样，成一个方块
@@ -374,6 +389,14 @@ struct AppTab: View {
         .padding(.vertical, TTLayout.s(6))
         // 标题太长的视窗按钮才定宽（截断）；其余按标题实际宽度撑开，跟名字一样长
         .frame(width: entry.titleTruncated ? TTLayout.s(entry.buttonWidth) : nil, alignment: .leading)
+    }
+
+    private func attentionDot(size: CGFloat) -> some View {
+        Circle()
+            .fill(Color(nsColor: .systemBlue))
+            .frame(width: TTLayout.s(size), height: TTLayout.s(size))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// 浏览器视窗按钮标题前面的设定档标签：配色同悬停预览卡片上的那个
@@ -500,10 +523,22 @@ struct TabBarView: View {
     /// 条本体（标签那段）。开始按钮拆出去时宽度扣掉那颗圆和缝
     private var bar: some View {
         let width = catalog.barWidth - TTLayout.detachedStartWidth
-        return ScrollView(.horizontal, showsIndicators: false) {
-            // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
-            content
-                .frame(minWidth: width)
+        return ScrollViewReader { scroll in
+            ScrollView(.horizontal, showsIndicators: false) {
+                // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
+                content
+                    .frame(minWidth: width)
+            }
+            .onChange(of: catalog.attentionTabIDs, initial: true) { previous, current in
+                let added = previous == current ? current : current.subtracting(previous)
+                guard !added.isEmpty,
+                      let tab = catalog.groups.lazy.flatMap(\.entries).first(where: { added.contains($0.id) })
+                else { return }
+                let visible = CGRect(x: TTLayout.detachedStartWidth, y: 0,
+                                     width: width, height: TTLayout.barHeight).insetBy(dx: TTLayout.s(12), dy: 0)
+                if let frame = catalog.tabFrames[tab.id], visible.contains(frame) { return }
+                scroll.scrollTo(tab.id, anchor: .center)
+            }
         }
         .frame(width: width, height: TTLayout.barHeight)
         // 溢出时两端渐隐。顺序很关键：fade 打在滚动内容上并立刻
@@ -582,6 +617,7 @@ struct TabBarView: View {
                     let dragged = catalog.isDragging(entry.id)
                     AppTab(entry: entry,
                                isActive: isActive(entry),
+                               needsAttention: catalog.attentionTabIDs.contains(entry.id),
                                animated: prefs.animationsEnabled,
                                iconOnly: prefs.iconOnly,
                                // 拖动中指针扫过的标签不亮悬停底
@@ -601,6 +637,7 @@ struct TabBarView: View {
                                        catalog.onTabHoverEnd?()
                                    }
                                })
+                    .id(entry.id)
                     .padding(.horizontal, TTLayout.s(1))
                     // 被拖的跟手（不加动画），其它的让位 / 落位用弹簧滑过去
                     .offset(x: catalog.dragOffset(for: entry.id))
