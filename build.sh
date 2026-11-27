@@ -80,18 +80,13 @@ echo "→ 生成 App 图标"
 xcrun swiftc -O -sdk "$SDK" -o "build/make-icons" scripts/make-icons.swift
 "build/make-icons" build Resources/Logo.png
 
-for arch in arm64 x86_64; do
-  echo "→ compiling ${arch}"
-  xcrun swiftc -O -sdk "$SDK" -target "${arch}-apple-macosx${MIN_OS}" \
-    -parse-as-library \
-    -framework AppKit -framework SwiftUI -framework ApplicationServices \
-    -framework ScreenCaptureKit \
-    -o "build/${NAME}_${arch}" \
-    Sources/*.swift
-done
-
-echo "→ lipo"
-xcrun lipo -create -output "build/${NAME}" "build/${NAME}_arm64" "build/${NAME}_x86_64"
+echo "→ compiling arm64"
+xcrun swiftc -O -sdk "$SDK" -target "arm64-apple-macosx${MIN_OS}" \
+  -parse-as-library \
+  -framework AppKit -framework SwiftUI -framework ApplicationServices \
+  -framework ScreenCaptureKit \
+  -o "build/${NAME}" \
+  Sources/*.swift
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "build/${NAME}" "$APP/Contents/MacOS/${NAME}"

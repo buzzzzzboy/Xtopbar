@@ -33,7 +33,7 @@ GITHUB_TOKEN=<你的 token> ./scripts/make-release.sh 1.3.0 "新增線上更新
 腳本會做四件事：
 
 1. 把版本號寫進 `Resources/Info.plist`（`CFBundleVersion` 自增）
-2. `./build.sh` 雙架構編譯 + 自簽名
+2. `./build.sh` 編譯 Apple Silicon（`arm64`）版本並簽名
 3. 打成 `dist/Xtopbar-v1.3.0.zip` —— **必須是 zip**，App 要解包後替換自己
 4. 建 Release 並把 zip 傳成附件（已經有同名 Release 時會改成替換附件）
 
