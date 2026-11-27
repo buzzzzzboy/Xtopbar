@@ -34,9 +34,8 @@ struct BarViewportWidthKey: PreferenceKey {
     }
 }
 
-/// Liquid Glass 主题的标签底：仿 iOS 26/27 tab bar 选中项底下那颗玻璃药丸。
-/// macOS 26 起用系统的 glassEffect（反光、折射、深浅色都由系统画）；
-/// 更早的系统画个近似的：半透明胶囊 + 上缘反光。悬停那层很淡，两边都自己画。
+/// 标签底：仿 iOS 26/27 tab bar 选中项底下那颗玻璃药丸。
+/// 用系统的 glassEffect（反光、折射、深浅色都由系统画）；悬停那层要很淡，系统玻璃太重，自己画一层。
 struct GlassPill: View {
     enum Kind {
         /// 悬停：很淡的一层
@@ -53,10 +52,12 @@ struct GlassPill: View {
 
     var body: some View {
         Group {
-            if #available(macOS 26.0, *), kind != .hover {
-                native
+            if kind == .hover {
+                hover
             } else {
-                drawn
+                // 平时 regular（同系统控件的玻璃），按住换成更通透的 clear，像一块放大镜
+                Color.clear
+                    .glassEffect(kind == .lens ? .clear : .regular, in: Capsule(style: .continuous))
             }
         }
         .shadow(color: .black.opacity(shadow), radius: kind == .lens ? 7 : 5, y: kind == .lens ? 2.5 : 1.5)
@@ -64,55 +65,19 @@ struct GlassPill: View {
         .scaleEffect(x: kind == .lens ? 1.08 : 1, y: kind == .lens ? 1.18 : 1)
     }
 
-    /// 系统玻璃：平时 regular（同系统控件的玻璃），按住换成更通透的 clear，像一块放大镜
-    @available(macOS 26.0, *)
-    private var native: some View {
-        Color.clear
-            .glassEffect(kind == .lens ? .clear : .regular, in: Capsule(style: .continuous))
-    }
-
-    private var drawn: some View {
+    /// 悬停：淡淡一层 + 上缘一道细反光，往下淡掉
+    private var hover: some View {
         Capsule(style: .continuous)
-            .fill(fill)
+            .fill(Color.primary.opacity(0.06))
             .overlay(
-                // 上缘一道细反光，往下淡掉 —— 玻璃的厚度感就靠它
                 Capsule(style: .continuous)
                     .strokeBorder(
-                        LinearGradient(colors: [Color.white.opacity(rimTop), Color.white.opacity(rimBottom)],
+                        LinearGradient(colors: [Color.white.opacity(0.35), Color.white.opacity(0)],
                                        startPoint: .top, endPoint: .bottom),
-                        lineWidth: kind == .lens ? 1 : 0.5
+                        lineWidth: 0.5
                     )
             )
-            .overlay {
-                // 放大镜：内侧上亮下暗，像一块凸起来的透镜
-                if kind == .lens {
-                    Capsule(style: .continuous)
-                        .fill(LinearGradient(colors: [Color.white.opacity(0.22), .clear, Color.black.opacity(0.06)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .padding(1)
-                }
-            }
     }
-
-    private var fill: Color {
-        switch kind {
-        case .hover:    return Color.primary.opacity(0.06)
-        case .selected: return Color.primary.opacity(0.13)
-        case .lens:     return Color.white.opacity(0.10)
-        case .lifted:   return Color.primary.opacity(0.16)
-        }
-    }
-
-    private var rimTop: Double {
-        switch kind {
-        case .hover:    return 0.35
-        case .selected: return 0.5
-        case .lens:     return 0.85
-        case .lifted:   return 0.5
-        }
-    }
-
-    private var rimBottom: Double { kind == .lens ? 0.35 : 0 }
 
     private var shadow: Double {
         switch kind {
@@ -123,15 +88,12 @@ struct GlassPill: View {
     }
 }
 
-/// 开始按钮（条最左边）。点击同样由窗口层命中测试处理，
-/// 命中区域用保留 id `AppCatalog.startButtonID` 上报。
+/// 开始按钮：拆在条外左边，单独一颗圆形玻璃（直径 = 条高），整颗圆都是命中区域。
+/// 点击同样由窗口层命中测试处理，命中区域用保留 id `AppCatalog.startButtonID` 上报。
 struct StartButton: View {
     let iconOnly: Bool
     let isOpen: Bool
     var animated: Bool = true
-    var theme: BarTheme = .classic
-    /// Liquid Glass：拆出条外，自己一颗圆形玻璃（直径 = 条高），整颗圆都是命中区域
-    var detached: Bool = false
     var glassStyle: GlassStyle = .liquid
 
     @State private var hovering = false
@@ -156,10 +118,12 @@ struct StartButton: View {
                     .foregroundStyle(Color.primary)
             }
         }
-            .frame(width: TTLayout.s(iconOnly ? 42 : 30), height: TTLayout.s(iconOnly ? 42 : 30))
-            .scaleEffect(hovering && !isOpen && theme == .classic ? 1.08 : 1.0)
-            .modifier(StartBubble(detached: detached, style: glassStyle, highlight: background))
-            .contentShape(detached ? AnyShape(Circle()) : AnyShape(Rectangle()))
+            .frame(width: TTLayout.barHeight, height: TTLayout.barHeight)
+            // 悬停 / 打开的底铺满整颗圆，外面垫一颗和条同材质的圆形玻璃
+            .background { highlight }
+            .background(GlassBackdrop(style: glassStyle, cornerRadius: TTLayout.barHeight / 2))
+            .clipShape(Circle())
+            .contentShape(Circle())
             .onHover { hovering = $0 }
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: hovering)
             .animation(animated ? .easeOut(duration: 0.11) : nil, value: isOpen)
@@ -175,60 +139,30 @@ struct StartButton: View {
     }
 
     @ViewBuilder
-    private var background: some View {
-        switch theme {
-        case .classic:
-            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                .fill(Color.primary.opacity(isOpen ? 0.18 : (hovering ? 0.10 : 0)))
-        case .liquidGlass:
-            if isOpen {
-                GlassPill(kind: .selected)
-            } else if hovering {
-                GlassPill(kind: .hover)
-            }
+    private var highlight: some View {
+        if isOpen {
+            GlassPill(kind: .selected)
+        } else if hovering {
+            GlassPill(kind: .hover)
         }
     }
 }
 
-/// 开始按钮的外框：在条里左右留 3pt，悬停 / 打开的底只垫在图标那块；
-/// 拆出去时垫一颗和条同材质的圆形玻璃，悬停 / 打开的底铺满整颗圆
-private struct StartBubble<Highlight: View>: ViewModifier {
-    let detached: Bool
-    let style: GlassStyle
-    let highlight: Highlight
-
-    func body(content: Content) -> some View {
-        if detached {
-            content
-                .frame(width: TTLayout.barHeight, height: TTLayout.barHeight)
-                .background { highlight }
-                .background(GlassBackdrop(style: style, cornerRadius: TTLayout.barHeight / 2))
-                .clipShape(Circle())
-        } else {
-            content
-                .background { highlight }
-                .padding(.horizontal, TTLayout.s(3))
-        }
-    }
-}
-
-/// 开始按钮右边那条分隔线兼「调大小」把手：同系统 Dock 的分隔线，按住上下拖改界面缩放。
-/// 线本身照旧 1pt，命中区域铺满整条的高度（拖动由窗口层处理，id `AppCatalog.resizeHandleID`）
+/// 条左边那颗圆和条之间的缝兼「调大小」把手：同系统 Dock 的分隔线，按住上下拖改界面缩放。
+/// 平时不画线（缝本身就分开了），指到 / 拖着才浮出一条 1pt 的线；
+/// 命中区域铺满整条的高度（拖动由窗口层处理，id `AppCatalog.resizeHandleID`）
 struct ResizeHandle: View {
     let iconOnly: Bool
     /// 正在拖：线加深，看得出抓住了
     let active: Bool
-    /// 开始按钮拆出去了：把手就是那道缝，平时不画线（缝本身就分开了），指到 / 拖着才浮出来
-    var detached: Bool = false
 
     @State private var hovering = false
 
     var body: some View {
         Rectangle()
-            .fill(Color.primary.opacity(active || hovering ? 0.32 : (detached ? 0 : 0.14)))
+            .fill(Color.primary.opacity(active || hovering ? 0.32 : 0))
             .frame(width: 1, height: TTLayout.s(iconOnly ? 30 : 16))
-            .padding(.horizontal, detached ? 0 : TTLayout.s(6))
-            .frame(width: detached ? TTLayout.detachedStartGap : nil)
+            .frame(width: TTLayout.detachedStartGap)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .onHover { inside in
@@ -261,7 +195,7 @@ private struct OptionalHelp: ViewModifier {
 /// 单个 App 标签（纯视觉，左右键都由窗口层命中测试处理；右键菜单见 TaskbarMenu）
 struct AppTab: View {
     let entry: AppEntry
-    /// 前台 App：蓝底 + 描边（不论指针在不在条上，一眼看出谁在前台）
+    /// 前台 App（玻璃药丸由 TabBarView 统一画，见 pillLayer）
     let isActive: Bool
     let needsAttention: Bool
     var animated: Bool = true
@@ -274,8 +208,7 @@ struct AppTab: View {
     var dragging: Bool = false
     /// 右键菜单开着：不给悬停提示（系统提示窗口会盖在菜单上）
     var suppressHelp: Bool = false
-    /// Liquid Glass 的药丸 / 悬停底不画在标签里，由 TabBarView 统一画一颗、在标签之间滑
-    var theme: BarTheme = .classic
+    // 药丸 / 悬停底不画在标签里，由 TabBarView 统一画一颗、在标签之间滑
     var onHoverChange: (Bool) -> Void = { _ in }
 
     @State private var hovering = false
@@ -287,12 +220,9 @@ struct AppTab: View {
         Group {
             if iconOnly { dockCell } else { labelCell }
         }
-        .background { background }
-        .overlay {
-            if theme == .classic {
-                RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(isActive ? 0.55 : 0), lineWidth: 1)
-            }
+        .background {
+            // 拖着的标签自己垫一颗浮起来的，跟手走（共用的药丸拖动中不跟，见 TabBarView.pillLayer）
+            if dragging { GlassPill(kind: .lifted) }
         }
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous))
         .onHover { value in
@@ -446,25 +376,6 @@ struct AppTab: View {
             .frame(width: TTLayout.s(4), height: TTLayout.s(4))
     }
 
-    @ViewBuilder
-    private var background: some View {
-        switch theme {
-        case .classic:
-            RoundedRectangle(cornerRadius: TTLayout.s(9), style: .continuous)
-                .fill(backgroundColor)
-                .shadow(color: .black.opacity(dragging ? 0.22 : 0), radius: 5, y: 1.5)
-        case .liquidGlass:
-            // 拖着的标签自己垫一颗浮起来的，跟手走（共用的药丸拖动中不跟，见 TabBarView.pillLayer）
-            if dragging { GlassPill(kind: .lifted) }
-        }
-    }
-
-    private var backgroundColor: Color {
-        if dragging { return Color.primary.opacity(0.16) }
-        if isActive { return Color.accentColor.opacity(0.32) }
-        if hot { return Color.primary.opacity(0.12) }
-        return Color.clear
-    }
 }
 
 /// 顶栏本体
@@ -491,28 +402,28 @@ struct TabBarView: View {
     @State private var contentFrames: [String: CGRect] = [:]
     @State private var hoveredTabID: String?
 
-    private var glass: Bool { prefs.barTheme == .liquidGlass }
-    private var hasScrollingContent: Bool {
-        !catalog.groups.isEmpty || (prefs.showStartButton && !TTLayout.detachedStart)
-    }
+    private var hasScrollingContent: Bool { !catalog.groups.isEmpty }
 
     var body: some View {
         HStack(spacing: 0) {
-            // Liquid Glass：开始按钮单独一颗圆在条左边，中间的缝是调大小的把手
+            // 开始按钮、搜索按钮各自一颗圆在条左边（开始在左、搜索在右），
+            // 最后一颗和条之间的缝是调大小的把手
             if TTLayout.detachedStart {
                 StartButton(iconOnly: prefs.iconOnly,
                             isOpen: catalog.startMenuOpen,
                             animated: prefs.animationsEnabled,
-                            theme: prefs.barTheme,
-                            detached: true,
                             glassStyle: prefs.glassStyle)
-                if !catalog.groups.isEmpty {
-                    ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing, detached: true)
-                } else if prefs.showWebSearchButton {
+                if TTLayout.detachedSearch {
                     Color.clear.frame(width: TTLayout.detachedStartGap)
                 }
             }
-            if hasScrollingContent || prefs.showWebSearchButton {
+            if TTLayout.detachedSearch {
+                detachedSearchButton
+            }
+            if hasScrollingContent {
+                if TTLayout.detachedCount > 0 {
+                    ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing)
+                }
                 bar
             }
         }
@@ -530,26 +441,13 @@ struct TabBarView: View {
         }
     }
 
-    /// 条本体（标签那段）。开始按钮拆出去时宽度扣掉那颗圆和缝
+    /// 条本体（标签那段）。宽度扣掉左边拆出去的圆和缝
     private var bar: some View {
         let width = catalog.barWidth - TTLayout.detachedStartWidth
-        return HStack(spacing: 0) {
-            if hasScrollingContent {
-                scrollingBar(width: max(0, width - TTLayout.webSearchButtonWidth))
-            }
-            if prefs.showWebSearchButton {
-                webSearchButton
-            }
-        }
+        return scrollingBar(width: max(0, width))
         .frame(width: width, height: TTLayout.barHeight)
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
-        .overlay {
-            if !glass {
-                RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-            }
-        }
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
     }
 
@@ -604,25 +502,23 @@ struct TabBarView: View {
         }
     }
 
-    private var webSearchButton: some View {
+    /// 拆在条外的搜索按钮，同开始按钮一颗圆形玻璃（直径 = 条高），整颗圆都可点
+    private var detachedSearchButton: some View {
         Button { catalog.host?.toggleWebSearch() } label: {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: TTLayout.font(prefs.iconOnly ? 21 : 16), weight: .semibold))
-                .frame(width: TTLayout.s(prefs.iconOnly ? 42 : 30), height: TTLayout.s(prefs.iconOnly ? 42 : 30))
+                .foregroundStyle(Color.primary)
+                .frame(width: TTLayout.barHeight, height: TTLayout.barHeight)
                 .background {
-                    if hoveringWebSearch && catalog.pointerOverBar {
-                        if glass {
-                            GlassPill(kind: .hover)
-                        } else {
-                            RoundedRectangle(cornerRadius: TTLayout.s(9)).fill(Color.primary.opacity(0.10))
-                        }
-                    }
+                    if hoveringWebSearch && catalog.pointerOverBar { GlassPill(kind: .hover) }
                 }
-                .frame(width: TTLayout.webSearchButtonWidth, height: TTLayout.barHeight)
-                .contentShape(Rectangle())
+                .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barHeight / 2))
+                .clipShape(Circle())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .onHover { hoveringWebSearch = $0 }
+        .animation(prefs.animationsEnabled ? .easeOut(duration: 0.11) : nil, value: hoveringWebSearch)
         .accessibilityLabel("Google 搜尋")
         .help(prefs.webSearchHotKey.map { "Google 搜尋（\($0.display)）" } ?? "Google 搜尋")
         .background {
@@ -635,33 +531,14 @@ struct TabBarView: View {
 
     private var content: some View {
         HStack(spacing: 0) {
-            if prefs.showStartButton, !TTLayout.detachedStart {
-                StartButton(iconOnly: prefs.iconOnly,
-                            isOpen: catalog.startMenuOpen,
-                            animated: prefs.animationsEnabled,
-                            theme: prefs.barTheme)
-                if !catalog.groups.isEmpty {
-                    ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing)
-                }
-            }
             ForEach(Array(catalog.groups.enumerated()), id: \.element.id) { index, group in
                 if index > 0 {
-                    if prefs.showsGroupDivider {
-                        divider
-                    } else {
-                        Color.clear.frame(width: TTLayout.s(prefs.groupGap))
-                    }
+                    Color.clear.frame(width: TTLayout.s(prefs.groupGap))
                 }
-                // 拖动排序中：这组的组内分隔线先藏起来，标签让位滑动时不会压着线走
-                let reordering = catalog.drag?.groupID == group.id
                 ForEach(Array(group.entries.enumerated()), id: \.element.id) { i, entry in
-                    // Dock 风格只在组与组之间画线（固定 | 运行中），组内图标之间留白就够了
+                    // 只显示图标时图标自带留白，组内不另外留缝
                     if i > 0, !prefs.iconOnly {
-                        if prefs.showsTabDividers {
-                            divider.opacity(reordering ? 0 : 1)
-                        } else {
-                            Color.clear.frame(width: TTLayout.s(prefs.tabGap))
-                        }
+                        Color.clear.frame(width: TTLayout.s(prefs.tabGap))
                     }
                     let dragged = catalog.isDragging(entry.id)
                     AppTab(entry: entry,
@@ -673,7 +550,6 @@ struct TabBarView: View {
                                barHovered: catalog.pointerOverBar && catalog.drag == nil,
                                dragging: dragged,
                                suppressHelp: catalog.tabMenuOpen,
-                               theme: prefs.barTheme,
                                onHoverChange: { hovering in
                                    if hovering {
                                        hoveredTabID = entry.id
@@ -703,7 +579,7 @@ struct TabBarView: View {
         .background(alignment: .topLeading) { pillLayer }
         .coordinateSpace(name: TabBarView.contentSpace)
         .onPreferenceChange(TabContentFramesKey.self) { frames in
-            if glass, frames != contentFrames { contentFrames = frames }
+            if frames != contentFrames { contentFrames = frames }
         }
         // 实测内容宽度：比手算的字符宽度准，左右内边距才能真正对称
         .background(
@@ -723,10 +599,9 @@ struct TabBarView: View {
             && (entry.window == nil || entry.isFrontWindow)
     }
 
-    /// Liquid Glass 的药丸垫在谁底下：按住的 / 刚点过的标签优先（按下去药丸就过去，
+    /// 玻璃药丸垫在谁底下：按住的 / 刚点过的标签优先（按下去药丸就过去，
     /// 不用等 App 真的切过来），否则跟着前台 App
     private var pillOwner: String? {
-        guard glass else { return nil }
         if catalog.drag == nil, let id = catalog.pressedTabID ?? catalog.releasedTabID {
             return id
         }
@@ -736,52 +611,38 @@ struct TabBarView: View {
         return nil
     }
 
-    /// Liquid Glass：整条只有一颗药丸（和一层悬停底），按量到的标签位置摆，
+    /// 整条只有一颗药丸（和一层悬停底），按量到的标签位置摆，
     /// 换位置时用弹簧滑过去。
     @ViewBuilder
     private var pillLayer: some View {
-        if glass {
-            // 滑动 / 放大镜是这个主题本身，不跟「進出場動畫」开关走（那个管的是条的出现和收起），
-            // 只在系统开了「减少动态效果」时才直接跳
-            let animated = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            let lens = catalog.pressedTabID != nil && catalog.drag == nil && pillOwner == catalog.pressedTabID
-            ZStack(alignment: .topLeading) {
-                if let id = hoveredTabID, id != pillOwner, catalog.pointerOverBar, catalog.drag == nil,
-                   let rect = contentFrames[id] {
-                    GlassPill(kind: .hover)
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .transition(.opacity)
-                        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.8) : nil, value: rect)
-                }
-                // 拖着的正是前台 App：它自己垫着浮起来的那颗，这颗先收起来
-                if let id = pillOwner, !catalog.isDragging(id), let rect = contentFrames[id] {
-                    GlassPill(kind: lens ? .lens : .selected)
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .transition(.opacity)
-                        // 拖动排序中别的标签在让位，药丸要贴着前台那个走，不能慢半拍
-                        .animation(animated && catalog.drag == nil
-                                   ? .spring(response: 0.42, dampingFraction: 0.72) : nil, value: rect)
-                        // 按住 / 放开：鼓成放大镜再弹回去
-                        .animation(animated ? .spring(response: 0.28, dampingFraction: 0.62) : nil, value: lens)
-                }
+        // 滑动 / 放大镜是这个主题本身，不跟「進出場動畫」开关走（那个管的是条的出现和收起），
+        // 只在系统开了「减少动态效果」时才直接跳
+        let animated = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let lens = catalog.pressedTabID != nil && catalog.drag == nil && pillOwner == catalog.pressedTabID
+        ZStack(alignment: .topLeading) {
+            if let id = hoveredTabID, id != pillOwner, catalog.pointerOverBar, catalog.drag == nil,
+               let rect = contentFrames[id] {
+                GlassPill(kind: .hover)
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .transition(.opacity)
+                    .animation(animated ? .spring(response: 0.3, dampingFraction: 0.8) : nil, value: rect)
             }
-            .animation(animated ? .easeOut(duration: 0.15) : nil, value: hoveredTabID == nil)
-            .allowsHitTesting(false)
+            // 拖着的正是前台 App：它自己垫着浮起来的那颗，这颗先收起来
+            if let id = pillOwner, !catalog.isDragging(id), let rect = contentFrames[id] {
+                GlassPill(kind: lens ? .lens : .selected)
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .transition(.opacity)
+                    // 拖动排序中别的标签在让位，药丸要贴着前台那个走，不能慢半拍
+                    .animation(animated && catalog.drag == nil
+                               ? .spring(response: 0.42, dampingFraction: 0.72) : nil, value: rect)
+                    // 按住 / 放开：鼓成放大镜再弹回去
+                    .animation(animated ? .spring(response: 0.28, dampingFraction: 0.62) : nil, value: lens)
+            }
         }
-    }
-
-    /// 每两个标签之间都画同一条深线。
-    ///
-    /// 之前分「分类边界深线 / 组内淡线」两级，但分类是关键词启发式（见
-    /// AppCategory），大多数 App 都落到「其他」，结果后半条几乎没有线，
-    /// 看起来像坏了。统一成一种线更整齐，也不会误导用户以为它在表达语义。
-    private var divider: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.14))
-            .frame(width: 1, height: TTLayout.s(prefs.iconOnly ? 30 : 16))
-            .padding(.horizontal, TTLayout.s(6))
+        .animation(animated ? .easeOut(duration: 0.15) : nil, value: hoveredTabID == nil)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -801,9 +662,6 @@ struct TabBarView: View {
             }
         }
         Toggle("只顯示圖示", isOn: $prefs.iconOnly)
-        if !prefs.iconOnly, !glass {
-            Toggle("App 之間的分隔線", isOn: $prefs.tabDividers)
-        }
         Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
             ForEach(TaskbarGrouping.allCases) { mode in
                 Text(mode.title).tag(mode)

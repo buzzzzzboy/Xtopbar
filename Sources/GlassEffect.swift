@@ -3,12 +3,12 @@ import AppKit
 
 /// 悬浮条 / 预览面板的背景。
 ///
-/// 材质优先级：
-///   1. `NSGlassEffectView`（macOS 26 起的液态玻璃）—— 系统原生，会自动跟随
+/// 材质（用户在设置里选）：
+///   1. `NSGlassEffectView`（液态玻璃，默认）—— 系统原生，会自动跟随
 ///      外观（浅色/深色）、「降低透明度」「增强对比度」等辅助功能开关，
 ///      也会跟系统设置里的 Liquid Glass 强度一起变。不需要自己写任何适配。
-///   2. `NSVisualEffectView`（HUD 毛玻璃）—— 旧系统回退。
-///   3. 纯色层 —— 用户显式选择，或作为最低保底。
+///   2. `NSVisualEffectView`（HUD 毛玻璃）。
+///   3. 纯色层。
 struct GlassBackdrop: NSViewRepresentable {
     var style: GlassStyle = .liquid
     var cornerRadius: CGFloat = 16
@@ -30,7 +30,7 @@ final class BackdropView: NSView {
 
     private var installed: GlassStyle?
     private var radius: CGFloat = 16
-    private var glass: NSView?
+    private var glass: NSGlassEffectView?
     private var vibrancy: NSVisualEffectView?
     private var solid: CALayer?
 
@@ -52,7 +52,7 @@ final class BackdropView: NSView {
     }
 
     func apply(style: GlassStyle, radius: CGFloat) {
-        let wanted = style.resolved
+        let wanted = style
         self.radius = radius
 
         if installed != wanted {
@@ -63,12 +63,10 @@ final class BackdropView: NSView {
             case .solid:   installSolid()
             }
             installed = wanted
-            TTLog("backdrop → \(wanted.rawValue) (請求 \(style.rawValue))")
+            TTLog("backdrop → \(wanted.rawValue)")
         }
 
-        if #available(macOS 26.0, *) {
-            (glass as? NSGlassEffectView)?.cornerRadius = radius
-        }
+        glass?.cornerRadius = radius
         vibrancy?.layer?.cornerRadius = radius
         solid?.cornerRadius = radius
         needsLayout = true
@@ -77,7 +75,6 @@ final class BackdropView: NSView {
     // MARK: - 三种材质
 
     private func installGlass() {
-        guard #available(macOS 26.0, *) else { return }
         let view = NSGlassEffectView()
         view.style = .regular
         view.cornerRadius = radius

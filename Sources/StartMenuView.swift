@@ -21,6 +21,8 @@ struct StartMenuView: View {
     let onLaunch: (LibraryApp) -> Void
     /// 用浏览器的某个设定档开新窗口（右键菜单「開啟設定檔」）
     let onOpenProfile: (LibraryApp, BrowserProfiles.Profile) -> Void
+    /// 用搜索词在浏览器开 Google 搜尋 / AI Mode（搜索列表最后那行「網頁」）
+    let onOpenWeb: () -> Void
     let onWebSearch: () -> Void
     let onSettings: () -> Void
 
@@ -105,6 +107,8 @@ struct StartMenuView: View {
             // 下一拍再聚焦：面板刚 makeKey，同一拍里设焦点有时不生效
             DispatchQueue.main.async { searchFocused = true }
         }
+        // 点了切换器：焦点留在搜索框，接着打字
+        .onChange(of: model.webMode) { _, _ in searchFocused = true }
     }
 
     // MARK: - 搜索框
@@ -560,7 +564,7 @@ struct StartMenuView: View {
     private var searchResults: some View {
         let items = model.listed
         return Group {
-            if items.isEmpty {
+            if items.isEmpty && !model.hasWebRow {
                 Text(library.apps.isEmpty ? "正在建立應用索引…"
                      : model.query.isEmpty ? "還沒有最近使用的應用，輸入名稱開始搜尋。"
                      : "沒有找到「\(model.query)」")
@@ -571,37 +575,66 @@ struct StartMenuView: View {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: StartLayout.s(1)) {
-                            Text(model.query.isEmpty ? "建議" : "結果")
-                                .font(.system(size: StartLayout.font(11), weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, StartLayout.s(8))
-                                .padding(.top, StartLayout.s(10))
-                                .padding(.bottom, StartLayout.s(4))
-                            ForEach(Array(items.enumerated()), id: \.element.id) { i, app in
-                                LauncherRow(app: app, icon: library.icon(for: app.url),
-                                            detail: app.isSettingsPane ? nil : runningSubtitle(app),
-                                            selected: i == model.selection) { onLaunch(app) }
-                                    .id(app.id)
-                                    .contextMenu { itemMenu(app) }
+                            if !items.isEmpty {
+                                listHeader(model.query.isEmpty ? "建議" : "結果")
+                                ForEach(Array(items.enumerated()), id: \.element.id) { i, app in
+                                    LauncherRow(app: app, icon: library.icon(for: app.url),
+                                                detail: app.isSettingsPane ? nil : runningSubtitle(app),
+                                                selected: i == model.selection) { onLaunch(app) }
+                                        .id(app.id)
+                                        .contextMenu { itemMenu(app) }
+                                }
+                            }
+                            if model.hasWebRow {
+                                listHeader("網頁")
+                                WebSearchRow(query: model.query, mode: $model.webMode,
+                                             selected: model.selection == items.count,
+                                             action: onOpenWeb)
+                                    .id(Self.webRowID)
                             }
                         }
                         .padding(.horizontal, StartLayout.s(12))
                         .padding(.bottom, StartLayout.s(10))
                     }
                     .onChange(of: model.selection) { _, index in
-                        guard items.indices.contains(index) else { return }
-                        proxy.scrollTo(items[index].id)
+                        if items.indices.contains(index) {
+                            proxy.scrollTo(items[index].id)
+                        } else if index == items.count, model.hasWebRow {
+                            proxy.scrollTo(Self.webRowID)
+                        }
                     }
                 }
             }
         }
     }
 
+    private static let webRowID = "startMenu.web"
+
+    private func listHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: StartLayout.font(11), weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, StartLayout.s(8))
+            .padding(.top, StartLayout.s(10))
+            .padding(.bottom, StartLayout.s(4))
+    }
+
     /// 搜索模式的底栏：左边是选中项，右边是回车的动作提示
     private var actionBar: some View {
         let items = model.listed
         let current = items.indices.contains(model.selection) ? items[model.selection] : nil
+        let webSelected = current == nil && model.hasWebRow && model.selection == items.count
         return HStack(spacing: StartLayout.s(8)) {
+            if webSelected {
+                Image(systemName: model.webMode.symbol)
+                    .font(.system(size: StartLayout.font(12), weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: StartLayout.s(16), height: StartLayout.s(16))
+                Text(model.webMode.rawValue)
+                    .font(.system(size: StartLayout.font(11)))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             if let current {
                 Image(nsImage: library.icon(for: current.url))
                     .resizable()
@@ -617,6 +650,22 @@ struct StartMenuView: View {
                 Button { onLaunch(current) } label: {
                     HStack(spacing: StartLayout.s(6)) {
                         Text(current.isSettingsPane ? "開啟系統設定" : "開啟應用程式")
+                            .font(.system(size: StartLayout.font(11), weight: .medium))
+                        KeyCap("↵")
+                    }
+                }
+                .buttonStyle(PillButtonStyle())
+            }
+            if webSelected {
+                HStack(spacing: StartLayout.s(4)) {
+                    Text("切換")
+                        .font(.system(size: StartLayout.font(11)))
+                        .foregroundStyle(.secondary)
+                    KeyCap("⇥")
+                }
+                Button(action: onOpenWeb) {
+                    HStack(spacing: StartLayout.s(6)) {
+                        Text("在瀏覽器搜尋")
                             .font(.system(size: StartLayout.font(11), weight: .medium))
                         KeyCap("↵")
                     }
@@ -999,6 +1048,58 @@ private struct LauncherRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// 搜索列表最后一行「網頁」：拿搜索词去 Google 搜尋 / AI Mode，右边是 Liquid Glass 切换器。
+/// 切换器自己是按钮，不能包进整行的 Button 里，所以只有左半边是可点的按钮
+private struct WebSearchRow: View {
+    let query: String
+    @Binding var mode: WebSearchMode
+    var selected: Bool = false
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    private var title: String {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return mode == .google ? "在 Google 搜尋「\(q)」" : "向 AI Mode 提問「\(q)」"
+    }
+
+    var body: some View {
+        HStack(spacing: StartLayout.s(10)) {
+            Button(action: action) {
+                HStack(spacing: StartLayout.s(10)) {
+                    Image(systemName: mode.symbol)
+                        .font(.system(size: StartLayout.font(12), weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: StartLayout.s(22), height: StartLayout.s(22))
+                        .background(
+                            RoundedRectangle(cornerRadius: StartLayout.s(6), style: .continuous)
+                                .fill(mode == .google ? Color.blue : Color.purple)
+                        )
+                    Text(title)
+                        .font(.system(size: StartLayout.font(13)))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: StartLayout.s(8))
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            GlassModeSwitch(selection: $mode)
+                .help("按 Tab 切換搜尋方式")
+        }
+        .padding(.leading, StartLayout.s(10))
+        .padding(.trailing, StartLayout.s(4))
+        .frame(height: StartLayout.s(40))
+        .background(
+            RoundedRectangle(cornerRadius: StartLayout.s(8), style: .continuous)
+                .fill(selected ? Color.accentColor.opacity(0.28)
+                      : Color.primary.opacity(hovering ? 0.08 : 0))
+        )
         .onHover { hovering = $0 }
     }
 }

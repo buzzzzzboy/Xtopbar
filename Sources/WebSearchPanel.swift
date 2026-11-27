@@ -26,7 +26,7 @@ private struct WebSearchView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: model.mode == .google ? "magnifyingglass" : "sparkles")
+                Image(systemName: model.mode.symbol)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 22)
@@ -54,15 +54,8 @@ private struct WebSearchView: View {
             Divider().opacity(0.5)
 
             HStack(spacing: 12) {
-                Picker("搜尋方式", selection: $model.mode) {
-                    ForEach(WebSearchMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .help("按 Tab 切換搜尋方式")
+                GlassModeSwitch(selection: $model.mode)
+                    .help("按 Tab 切換搜尋方式")
 
                 Spacer(minLength: 0)
 
@@ -137,9 +130,12 @@ final class WebSearchController {
                 ?? NSScreen.main else { return }
         let visible = screen.visibleFrame
         let size = CGSize(width: min(Self.size.width, visible.width - 24), height: Self.size.height)
-        let origin = NSPoint(x: visible.midX - size.width / 2,
-                             y: visible.minY + (visible.height - size.height) * 0.63)
-        panel.setFrame(NSRect(origin: origin, size: size), display: false)
+        // 浮在工作列停靠位置上方一点点（条在顶部时就在它下方）；条自动隐藏时也照这个位置摆
+        let bar = DockGeometry.barFrame(edge: Preferences.shared.dockEdge, visible: visible,
+                                        width: size.width, height: TTLayout.barHeight, inset: TTLayout.s(6))
+        let frame = DockGeometry.popupFrame(size: size, anchorX: visible.midX, alignLeft: false,
+                                            barFrame: bar, visible: visible, gap: TTLayout.s(10))
+        panel.setFrame(frame.integral, display: false)
         model.query = ""
         model.focusToken &+= 1
         isVisible = true

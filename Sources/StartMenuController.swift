@@ -23,6 +23,8 @@ final class StartMenuModel: ObservableObject {
     @Published var openFolder: UUID?
     /// 每次打开 +1，视图据此把焦点重新放回搜索框
     @Published var focusToken = 0
+    /// 搜索结果最后一行「網頁」用 Google 搜尋还是 AI Mode（Tab 切换）
+    @Published var webMode: WebSearchMode = .google
 
     /// 搜索结果：以前用相近的词打开过的排最前（见 SearchHistory）
     var results: [LibraryApp] {
@@ -48,6 +50,10 @@ final class StartMenuModel: ObservableObject {
 
     /// 搜索模式里当前列出的项：有搜索词 = 结果，没有 = 建議
     var listed: [LibraryApp] { query.isEmpty ? suggestions : results }
+
+    /// 有搜索词就在列表最后多一行「網頁」：拿这个词去 Google / AI Mode 搜
+    var webURL: URL? { webMode.searchURL(for: query) }
+    var hasWebRow: Bool { webURL != nil }
 
     func reset() {
         query = ""
@@ -130,6 +136,7 @@ final class StartMenuController {
                 Preferences.shared.noteRecent(app.bundleID)
                 BrowserProfiles.open(profile, bundleID: app.bundleID, appURL: app.url)
             },
+            onOpenWeb: { [weak self] in self?.openWeb() },
             onWebSearch: { [weak self] in
                 guard let self else { return }
                 let screen = self.panel.screen
@@ -308,6 +315,11 @@ final class StartMenuController {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : StartLayout.s(90)
     }
 
+    private func openWeb() {
+        guard let url = model.webURL else { return }
+        if NSWorkspace.shared.open(url) { close() } else { NSSound.beep() }
+    }
+
     private func launch(_ app: LibraryApp) {
         // 搜索模式里打开的才记（首页网格 / 所有应用里点开的不算）
         if model.searching { SearchHistory.shared.record(id: app.id, query: model.query) }
@@ -388,7 +400,7 @@ final class StartMenuController {
             return true
         case 125, 126: // ↓ ↑
             guard model.searching else { return false }
-            let count = model.listed.count
+            let count = model.listed.count + (model.hasWebRow ? 1 : 0)
             guard count > 0 else { return true }
             let step = keyCode == 125 ? 1 : -1
             model.selection = min(max(model.selection + step, 0), count - 1)
@@ -396,8 +408,15 @@ final class StartMenuController {
         case 36, 76: // 回车：只在搜索模式截（打开选中项），其它时候放行给文本框（如文件夹改名）
             guard model.searching else { return false }
             let results = model.listed
-            guard results.indices.contains(model.selection) else { return true }
-            launch(results[model.selection])
+            if results.indices.contains(model.selection) {
+                launch(results[model.selection])
+            } else if model.selection == results.count, model.hasWebRow {
+                openWeb()
+            }
+            return true
+        case 48: // Tab：有「網頁」那一行时切换 Google 搜尋 / AI Mode
+            guard model.searching, model.hasWebRow else { return false }
+            model.webMode = model.webMode == .google ? .googleAI : .google
             return true
         default:
             return false

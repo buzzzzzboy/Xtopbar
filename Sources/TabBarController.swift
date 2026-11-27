@@ -201,8 +201,8 @@ final class TabBarController: TabBarHost {
         // 比系统 Dock 低一层（其它窗口照样压得住）：Dock 自动隐藏时滑鼠顶到底边把它叫出来，
         // 它盖在条上面正常用，而不是被条挡住
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
-        // Liquid Glass 的边缘交给玻璃材质，不再叠系统窗口阴影（会在条外围显出一圈深色外框）
-        panel.hasShadow = Preferences.shared.barTheme != .liquidGlass
+        // 边缘交给玻璃材质，不叠系统窗口阴影（会在条外围显出一圈深色外框）
+        panel.hasShadow = false
 
         let view = TabBarView(
             catalog: catalog,
@@ -442,18 +442,6 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.relayout() }
             .store(in: &cancellables)
 
-        // 圆角 / 主题变了（Liquid Glass 是胶囊 + 拆开的开始按钮）：面板阴影是按内容轮廓算的，等这一拍画完再重算，不然阴影还是旧圆角
-        Publishers.Merge(prefs.$barCornerRadius.dropFirst().map { _ in () },
-                         prefs.$barTheme.dropFirst().map { _ in () })
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.panel.hasShadow = self.prefs.barTheme != .liquidGlass
-                self.folder.syncShadow()
-                DispatchQueue.main.async { self.panel.invalidateShadow() }
-            }
-            .store(in: &cancellables)
-
         prefs.$hideMinimizedWindows
             .dropFirst()
             .receive(on: RunLoop.main)
@@ -475,11 +463,9 @@ final class TabBarController: TabBarHost {
             }
             .store(in: &cancellables)
 
-        // 合并方式 / 样式 / 分隔线 / 主题 / 开始按钮 / 缩放改了：视窗按钮要按新的宽度重新展开、重新判断合不合并
-        Publishers.Merge6(prefs.$taskbarGrouping.dropFirst().map { _ in () },
+        // 合并方式 / 样式 / 开始按钮 / 缩放改了：视窗按钮要按新的宽度重新展开、重新判断合不合并
+        Publishers.Merge4(prefs.$taskbarGrouping.dropFirst().map { _ in () },
                           prefs.$iconOnly.dropFirst().map { _ in () },
-                          prefs.$tabDividers.dropFirst().map { _ in () },
-                          prefs.$barTheme.dropFirst().map { _ in () },
                           prefs.$showStartButton.dropFirst().map { _ in () },
                           prefs.$uiScale.dropFirst().map { _ in () })
             .receive(on: RunLoop.main)
@@ -936,10 +922,7 @@ final class TabBarController: TabBarHost {
     /// 千万不要用 `panel.screen`：它是"面板当前停在哪个屏"，用它算热区 = 热区跟着面板搬家。
     /// 也不要用 `NSScreen.main`：它跟着"当前接收键盘事件的窗口"漂移，同样不稳。
     static var notchedFlags: [Bool] {
-        if #available(macOS 12.0, *) {
-            return NSScreen.screens.map { $0.auxiliaryTopLeftArea != nil }
-        }
-        return NSScreen.screens.map { _ in false }
+        NSScreen.screens.map { $0.auxiliaryTopLeftArea != nil }
     }
 
     static var defaultScreen: NSScreen? {

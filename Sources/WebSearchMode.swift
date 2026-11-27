@@ -11,6 +11,13 @@ enum WebSearchMode: String, CaseIterable {
         }
     }
 
+    var symbol: String {
+        switch self {
+        case .google: return "magnifyingglass"
+        case .googleAI: return "sparkles"
+        }
+    }
+
     func searchURL(for query: String) -> URL? {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }
