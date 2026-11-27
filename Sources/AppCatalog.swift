@@ -283,6 +283,7 @@ final class AppCatalog: ObservableObject {
 
     /// 开始按钮在命中区域表里的保留 id（不会和 bundle id 撞）
     nonisolated static let startButtonID = "__start__"
+    nonisolated static let webSearchButtonID = "__web_search__"
     /// 开始按钮右边的分隔线（按住上下拖调大小），命中区域的保留 id
     nonisolated static let resizeHandleID = "__resize__"
 
@@ -515,7 +516,7 @@ final class AppCatalog: ObservableObject {
     private func layoutMetrics() -> TaskbarLayout.Metrics {
         let prefs = Preferences.shared
         let iconOnly = prefs.iconOnly
-        var fixed: CGFloat = 24
+        var fixed: CGFloat = 24 + (prefs.showWebSearchButton ? TTLayout.webSearchButtonBaseWidth : 0)
         if TTLayout.detachedStart {
             fixed += TTLayout.barBaseHeight + TTLayout.detachedStartBaseGap
         } else if prefs.showStartButton {
@@ -658,6 +659,10 @@ final class AppCatalog: ObservableObject {
         }
         if let rect = tabFrames[Self.startButtonID], rect.contains(point) {
             host?.toggleStartMenu()
+            return true
+        }
+        if let rect = tabFrames[Self.webSearchButtonID], rect.contains(point) {
+            host?.toggleWebSearch()
             return true
         }
         guard let hit = entry(at: point) else { return false }
@@ -1191,16 +1196,19 @@ final class AppCatalog: ObservableObject {
     /// 内容宽度上报到位后就以实测为准。
     var preferredWidth: CGFloat {
         let prefs = Preferences.shared
+        let searchWidth = TTLayout.webSearchButtonWidth
         if groups.isEmpty {
-            guard prefs.showStartButton else { return 0 }
-            if TTLayout.detachedStart { return TTLayout.barHeight }
-            return TTLayout.s(prefs.iconOnly ? 42 : 30) + 2 * (TTLayout.s(3) + TTLayout.s(12))
+            guard prefs.showStartButton else { return searchWidth }
+            if TTLayout.detachedStart {
+                return searchWidth > 0 ? TTLayout.detachedStartWidth + searchWidth : TTLayout.barHeight
+            }
+            return TTLayout.s(prefs.iconOnly ? 42 : 30) + 2 * (TTLayout.s(3) + TTLayout.s(12)) + searchWidth
         }
         // 实测宽度是按量的那一刻的缩放量的；拖分隔线调大小时缩放每拍都在变，
         // 先按比例估一个，实测值下一拍就到 —— 不然条宽总慢一拍，一抽一抽的
         // 拆出去的开始按钮不在量的内容里，另外加上
         guard contentWidth <= 1 else {
-            return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + TTLayout.detachedStartWidth
+            return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + TTLayout.detachedStartWidth + searchWidth
         }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = prefs.iconOnly
@@ -1225,7 +1233,7 @@ final class AppCatalog: ObservableObject {
                 }
             }
         }
-        return total * TTLayout.scale
+        return total * TTLayout.scale + searchWidth
     }
 }
 

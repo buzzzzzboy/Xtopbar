@@ -130,6 +130,12 @@ final class StartMenuController {
                 Preferences.shared.noteRecent(app.bundleID)
                 BrowserProfiles.open(profile, bundleID: app.bundleID, appURL: app.url)
             },
+            onWebSearch: { [weak self] in
+                guard let self else { return }
+                let screen = self.panel.screen
+                self.close(animated: false)
+                WebSearchController.shared.show(on: screen)
+            },
             onSettings: { [weak self] in
                 self?.close()
                 SettingsWindowController.shared.show()

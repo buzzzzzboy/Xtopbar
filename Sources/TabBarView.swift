@@ -485,12 +485,16 @@ struct TabBarView: View {
 
     /// 内容比面板宽：两端加渐隐，暗示"这里还能滚"
     @State private var overflowing = false
+    @State private var hoveringWebSearch = false
 
     /// Liquid Glass：各标签在内容里的位置、指针停在哪个标签上
     @State private var contentFrames: [String: CGRect] = [:]
     @State private var hoveredTabID: String?
 
     private var glass: Bool { prefs.barTheme == .liquidGlass }
+    private var hasScrollingContent: Bool {
+        !catalog.groups.isEmpty || (prefs.showStartButton && !TTLayout.detachedStart)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -504,9 +508,11 @@ struct TabBarView: View {
                             glassStyle: prefs.glassStyle)
                 if !catalog.groups.isEmpty {
                     ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing, detached: true)
+                } else if prefs.showWebSearchButton {
+                    Color.clear.frame(width: TTLayout.detachedStartGap)
                 }
             }
-            if !catalog.groups.isEmpty || (prefs.showStartButton && !TTLayout.detachedStart) {
+            if hasScrollingContent || prefs.showWebSearchButton {
                 bar
             }
         }
@@ -527,11 +533,31 @@ struct TabBarView: View {
     /// 条本体（标签那段）。开始按钮拆出去时宽度扣掉那颗圆和缝
     private var bar: some View {
         let width = catalog.barWidth - TTLayout.detachedStartWidth
-        return ScrollViewReader { scroll in
+        return HStack(spacing: 0) {
+            if hasScrollingContent {
+                scrollingBar(width: max(0, width - TTLayout.webSearchButtonWidth))
+            }
+            if prefs.showWebSearchButton {
+                webSearchButton
+            }
+        }
+        .frame(width: width, height: TTLayout.barHeight)
+        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
+        .overlay {
+            if !glass {
+                RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
+    }
+
+    private func scrollingBar(width: CGFloat) -> some View {
+        ScrollViewReader { scroll in
             ScrollView(.horizontal, showsIndicators: false) {
                 // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
-                content
-                    .frame(minWidth: width)
+                content.frame(minWidth: width)
             }
             .onChange(of: catalog.attentionTabIDs, initial: true) { previous, current in
                 let added = previous == current ? current : current.subtracting(previous)
@@ -565,16 +591,6 @@ struct TabBarView: View {
             .allowsHitTesting(false)
         }
         .compositingGroup()
-        .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
-        // 预设主题描一圈细边；Liquid Glass 不描，玻璃边缘交给材质自己
-        .overlay {
-            if !glass {
-                RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: BarViewportWidthKey.self, value: geo.size.width)
@@ -584,6 +600,35 @@ struct TabBarView: View {
             let next = width > 1 && catalog.contentWidth > width + 1
             if next != overflowing {
                 withAnimation(.easeOut(duration: 0.15)) { overflowing = next }
+            }
+        }
+    }
+
+    private var webSearchButton: some View {
+        Button { catalog.host?.toggleWebSearch() } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: TTLayout.font(prefs.iconOnly ? 21 : 16), weight: .semibold))
+                .frame(width: TTLayout.s(prefs.iconOnly ? 42 : 30), height: TTLayout.s(prefs.iconOnly ? 42 : 30))
+                .background {
+                    if hoveringWebSearch && catalog.pointerOverBar {
+                        if glass {
+                            GlassPill(kind: .hover)
+                        } else {
+                            RoundedRectangle(cornerRadius: TTLayout.s(9)).fill(Color.primary.opacity(0.10))
+                        }
+                    }
+                }
+                .frame(width: TTLayout.webSearchButtonWidth, height: TTLayout.barHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hoveringWebSearch = $0 }
+        .accessibilityLabel("Google 搜尋")
+        .help(prefs.webSearchHotKey.map { "Google 搜尋（\($0.display)）" } ?? "Google 搜尋")
+        .background {
+            GeometryReader { geo in
+                Color.clear.preference(key: TabFramesKey.self,
+                                       value: [AppCatalog.webSearchButtonID: geo.frame(in: .named(Self.space))])
             }
         }
     }

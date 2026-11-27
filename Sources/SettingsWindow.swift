@@ -384,6 +384,15 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
 
+        Section("Google 搜尋") {
+            Toggle("在工作列顯示搜尋按鈕", isOn: $prefs.showWebSearchButton)
+                .toggleStyle(.switch)
+
+            LabeledContent("Google 搜尋快捷鍵") {
+                HotKeyRecorder(key: $prefs.webSearchHotKey)
+            }
+        }
+
         Section("表情符號") {
             LabeledContent("表情符號選擇器") {
                 HotKeyRecorder(key: $prefs.emojiHotKey)

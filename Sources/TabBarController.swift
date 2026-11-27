@@ -11,6 +11,7 @@ protocol TabBarHost: AnyObject {
     func permissionSummary() -> String
     /// 开始按钮 / 右键菜单 / 状态栏菜单：开关开始菜单
     func toggleStartMenu()
+    func toggleWebSearch()
     /// 收起窗口预览（开始拖标签时）
     func dismissPreview()
 }
@@ -104,7 +105,7 @@ final class TabBarController: TabBarHost {
     private var cancellables = Set<AnyCancellable>()
     private var currentWidth: CGFloat = 0
 
-    private var hasBarItems: Bool { !catalog.groups.isEmpty || prefs.showStartButton }
+    private var hasBarItems: Bool { !catalog.groups.isEmpty || prefs.showStartButton || prefs.showWebSearchButton }
     private var hasVisibleItems: Bool { hasBarItems || folder.hasApps }
 
     /// 面板高度 / 距菜单栏间隙随界面缩放联动（计算属性，uiScale 变了下次 relayout 生效）
@@ -220,7 +221,11 @@ final class TabBarController: TabBarHost {
         // 两段式：按下记住标签，抬起才切 App；中间拖过阈值就变成拖动排序。
         panel.onPress = { [weak self] locationInWindow in
             guard let self else { return false }
-            return self.catalog.handlePress(at: self.viewPoint(fromWindow: locationInWindow))
+            let point = self.viewPoint(fromWindow: locationInWindow)
+            if self.catalog.tabFrames[AppCatalog.webSearchButtonID]?.contains(point) != true {
+                WebSearchController.shared.close()
+            }
+            return self.catalog.handlePress(at: point)
         }
         panel.onDrag = { [weak self] locationInWindow in
             guard let self else { return }
@@ -236,6 +241,7 @@ final class TabBarController: TabBarHost {
         // 右键标签：弹自绘菜单。空白处不接管，照旧落到整条的系统菜单
         panel.onRightPress = { [weak self] locationInWindow in
             guard let self else { return false }
+            WebSearchController.shared.close()
             return self.openTaskbarMenu(at: self.viewPoint(fromWindow: locationInWindow))
         }
         taskbarMenu.onOpen = { [weak self] in
@@ -478,6 +484,16 @@ final class TabBarController: TabBarHost {
                           prefs.$uiScale.dropFirst().map { _ in () })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.catalog.invalidateLayout() }
+            .store(in: &cancellables)
+
+        prefs.$showWebSearchButton
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.catalog.invalidateLayout()
+                self.syncContent()
+            }
             .store(in: &cancellables)
 
         // 顶部唤出位置改了：立刻把面板摆到正确的那块屏上
@@ -1265,8 +1281,9 @@ final class TabBarController: TabBarHost {
 
     /// 右键落在某个 App 标签上 → 弹它的菜单，返回 true；不在标签上返回 false
     private func openTaskbarMenu(at point: NSPoint) -> Bool {
-        guard catalog.drag == nil else { return false }
-        let reserved: Set<String> = [AppCatalog.startButtonID, AppCatalog.resizeHandleID]
+        guard catalog.drag == nil,
+              catalog.tabFrames[AppCatalog.webSearchButtonID]?.contains(point) != true else { return false }
+        let reserved: Set<String> = [AppCatalog.startButtonID, AppCatalog.webSearchButtonID, AppCatalog.resizeHandleID]
         guard let (id, rect) = catalog.tabFrames.first(where: { !reserved.contains($0.key) && $0.value.contains(point) }),
               let entry = catalog.groups.lazy.flatMap(\.entries).first(where: { $0.id == id })
         else { return false }
@@ -1320,13 +1337,20 @@ final class TabBarController: TabBarHost {
     // MARK: - 开始菜单
 
     /// 别的条要开开始菜单了：这条上开着的收掉（同一时间只开一个）
-    func closeStartMenu() {
-        guard startMenu.isVisible else { return }
-        startMenu.close()
+    func closeStartMenu(animated: Bool = true) {
+        startMenu.close(animated: animated)
     }
 
     func toggleStartMenu() {
         toggleStartMenu(search: false)
+    }
+
+    func toggleWebSearch() {
+        guard !missionControl.isActive else { return }
+        startMenu.close(animated: false)
+        hidePreview()
+        folder.close(animated: false)
+        WebSearchController.shared.toggle(on: panel.screen)
     }
 
     /// 全局快捷键：开着且在搜索页 → 收起；开着在首页 → 切到搜索页；没开 → 直接开在搜索页
@@ -1344,6 +1368,7 @@ final class TabBarController: TabBarHost {
             return
         }
         guard prefs.barEnabled, !missionControl.isActive else { return }
+        WebSearchController.shared.close()
         // 从状态栏菜单 / 快捷键打开时，空条只提供定位，不需要上屏
         if !isRevealed {
             if hasVisibleItems {

@@ -82,6 +82,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        Preferences.shared.$webSearchHotKey
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { key in
+                if let key {
+                    GlobalHotKeys.shared.register(id: 3, key) { fleet.toggleWebSearch() }
+                } else {
+                    GlobalHotKeys.shared.unregister(id: 3)
+                }
+            }
+            .store(in: &cancellables)
+
         // 连按两下 ⌥ 也打开表情符號選擇器
         DoubleTapModifier.shared.onDoubleTap = {
             MainActor.assumeIsolated { EmojiPickerController.shared.toggle() }

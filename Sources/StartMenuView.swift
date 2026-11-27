@@ -21,6 +21,7 @@ struct StartMenuView: View {
     let onLaunch: (LibraryApp) -> Void
     /// 用浏览器的某个设定档开新窗口（右键菜单「開啟設定檔」）
     let onOpenProfile: (LibraryApp, BrowserProfiles.Profile) -> Void
+    let onWebSearch: () -> Void
     let onSettings: () -> Void
 
     @FocusState var searchFocused: Bool
@@ -634,6 +635,12 @@ struct StartMenuView: View {
     private var footer: some View {
         HStack(spacing: StartLayout.s(10)) {
             NowPlayingBar(nowPlaying: nowPlaying, prefs: prefs)
+            Button(action: onWebSearch) {
+                Label("Google 搜尋", systemImage: "magnifyingglass")
+                    .font(.system(size: StartLayout.font(11), weight: .medium))
+            }
+            .buttonStyle(PillButtonStyle())
+            .help("開啟 Google 搜尋與 AI Mode")
             Button(action: onSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: StartLayout.font(14)))

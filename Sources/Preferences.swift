@@ -242,6 +242,7 @@ final class Preferences: ObservableObject {
         static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let startSearchHotKey = "startSearchHotKey"
+        static let webSearchHotKey = "webSearchHotKey"
         static let emojiHotKey   = "emojiHotKey"
         static let emojiDoubleOption = "emojiDoubleOption"
         static let iconOnly      = "iconOnly"
@@ -251,6 +252,7 @@ final class Preferences: ObservableObject {
         static let windowTitleApps = "windowTitleApps"
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
+        static let showWebSearchButton = "showWebSearchButton"
         static let hideSystemDock = "hideSystemDock"
         static let avoidWindows  = "avoidWindows"
         static let allScreens    = "allScreens"
@@ -429,6 +431,12 @@ final class Preferences: ObservableObject {
         }
     }
 
+    @Published var webSearchHotKey: HotKey? = .defaultWebSearch {
+        didSet {
+            d.set(webSearchHotKey.flatMap { try? JSONEncoder().encode($0) } ?? Data(), forKey: Key.webSearchHotKey)
+        }
+    }
+
     /// 全局快捷键：打开表情符號選擇器（再按一次收起）。nil = 不用快捷键
     @Published var emojiHotKey: HotKey? = .defaultEmoji {
         didSet {
@@ -484,6 +492,10 @@ final class Preferences: ObservableObject {
     /// 条最左边显示开始按钮（Windows 风格开始菜单）。默认关：保持原版外观。
     @Published var showStartButton: Bool = true {
         didSet { d.set(showStartButton, forKey: Key.showStartButton) }
+    }
+
+    @Published var showWebSearchButton: Bool = true {
+        didSet { d.set(showWebSearchButton, forKey: Key.showWebSearchButton) }
     }
 
     /// 只显示有窗口的 App：运行中但一个窗口都没有的（关完窗口还挂着的 Safari、访达…）不上条。
@@ -635,6 +647,9 @@ final class Preferences: ObservableObject {
         if let data = d.data(forKey: Key.startSearchHotKey) {
             startSearchHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultSearch
         }
+        if let data = d.data(forKey: Key.webSearchHotKey) {
+            webSearchHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultWebSearch
+        }
         if d.object(forKey: Key.emojiDoubleOption) != nil { emojiDoubleOption = d.bool(forKey: Key.emojiDoubleOption) }
         if let data = d.data(forKey: Key.emojiHotKey) {
             emojiHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultEmoji
@@ -649,6 +664,7 @@ final class Preferences: ObservableObject {
         }
         if let map = d.dictionary(forKey: Key.windowTitleApps) as? [String: String] { windowTitleApps = map }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
+        if d.object(forKey: Key.showWebSearchButton) != nil { showWebSearchButton = d.bool(forKey: Key.showWebSearchButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
         if d.object(forKey: Key.avoidWindows) != nil { avoidWindows = d.bool(forKey: Key.avoidWindows) }
@@ -709,6 +725,14 @@ enum TTLayout {
 
     /// 未缩放的条高（拖分隔线调大小时按它换算缩放比例）
     @MainActor static var barBaseHeight: CGFloat { Preferences.shared.iconOnly ? 58 : 42 }
+
+    @MainActor static var webSearchButtonBaseWidth: CGFloat {
+        Preferences.shared.iconOnly ? 54 : 42
+    }
+
+    @MainActor static var webSearchButtonWidth: CGFloat {
+        Preferences.shared.showWebSearchButton ? s(webSearchButtonBaseWidth) : 0
+    }
 
     /// 悬浮条圆角：随界面缩放，最大到半高（胶囊）。
     /// Liquid Glass 一律胶囊，和里面的玻璃药丸同心，不看设置里的「圓角」
