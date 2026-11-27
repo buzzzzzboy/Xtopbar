@@ -129,6 +129,7 @@ final class TabBarController: TabBarHost {
     /// 巡检（全屏判断 + 挪窗口）的节拍器；一轮 AX 没跑完不叠下一轮
     private var environmentTimer: Timer?
     private var environmentPassRunning = false
+    private var holdsForAttention = false
 
     /// 调度中心开着：条淡出让位，期间不响应唤出；退出后按原模式恢复。
     /// 所有条共用一个（`TabBarFleet` 持有，进出时调各条的 `missionControlChanged`）
@@ -143,9 +144,11 @@ final class TabBarController: TabBarHost {
     /// 主条（单条模式下就是那一条）：启动时由它提示缺辅助功能权限，免得每条各弹一次
     private let isPrimary: Bool
 
-    /// 条该不该一直显示：常驻模式或「不挡窗口」，且没有 App 在全屏
+    /// 注意请求会临时常驻（含全屏）。平时全屏会覆盖常驻模式和「不挡窗口」。
     private var wantsResident: Bool {
-        (prefs.hideDelay <= 0 || prefs.avoidWindows) && !fullscreenActive && !missionControl.isActive
+        !missionControl.isActive
+            && (holdsForAttention
+                || ((prefs.hideDelay <= 0 || prefs.avoidWindows) && !fullscreenActive))
     }
 
     /// 实际生效的自动隐藏延迟。该常驻时为 0；全屏让位时，本来常驻的条退回 0.2s，
@@ -289,6 +292,22 @@ final class TabBarController: TabBarHost {
         catalog.$groups
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.relayout() }
+            .store(in: &cancellables)
+
+        catalog.$attentionTabIDs
+            .map { !$0.isEmpty }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] pending in
+                guard let self, self.holdsForAttention != pending else { return }
+                self.holdsForAttention = pending
+                if pending {
+                    self.applyResidency()
+                } else {
+                    // 最后一个请求解除后，从现在起按原来的延迟收起。
+                    self.lastInteraction = Date()
+                }
+            }
             .store(in: &cancellables)
 
         // 资料夹有没有 / 收了几个变了：条让出（或收回）尾巴的位置，小方块跟着出现 / 消失
@@ -718,7 +737,7 @@ final class TabBarController: TabBarHost {
             return
         }
         if wantsResident {
-            reveal()               // 常驻模式 / 不挡窗口
+            reveal()
         } else if !isRevealed {
             panel.alphaValue = 0
             panel.orderOut(nil)
