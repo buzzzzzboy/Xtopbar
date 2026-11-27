@@ -472,6 +472,18 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.catalog.invalidateLayout() }
             .store(in: &cancellables)
 
+        // 小工具加 / 删 / 换槽：宽度变了，重新判断合并、重算条宽
+        prefs.$taskbarWidgets
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.catalog.invalidateLayout()
+                self.syncContent()
+            }
+            .store(in: &cancellables)
+
         prefs.$showWebSearchButton
             .dropFirst()
             .receive(on: RunLoop.main)

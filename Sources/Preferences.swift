@@ -200,6 +200,7 @@ final class Preferences: ObservableObject {
         static let dockPins      = "dockPins"
         static let startPins     = "startPins"
         static let startFolders  = "startFolders"
+        static let taskbarWidgets = "taskbarWidgets"
         static let startOrder    = "startOrder"
         static let runningOrder  = "runningTabOrder"
         static let nowPlayingSource = "nowPlayingSource"
@@ -351,6 +352,14 @@ final class Preferences: ObservableObject {
     /// App 退出后从这里剔掉，再开时回到最右边（同 Windows 任务栏）。
     @Published var runningOrder: [String] = [] {
         didSet { d.set(runningOrder, forKey: Key.runningOrder) }
+    }
+
+    /// 工作列小工具：数组顺序 = 同一个槽里由左到右。默认空，没加过就什么都不变
+    @Published var taskbarWidgets: [TaskbarWidget] = [] {
+        didSet {
+            guard taskbarWidgets != oldValue else { return }
+            if let data = try? JSONEncoder().encode(taskbarWidgets) { d.set(data, forKey: Key.taskbarWidgets) }
+        }
     }
 
     /// 开始菜单「已固定」网格里的文件夹
@@ -576,6 +585,11 @@ final class Preferences: ObservableObject {
         if let pins = Self.load(Key.startPins, from: d) { startPins = pins }
         if let data = d.data(forKey: Key.startFolders),
            let folders = try? JSONDecoder().decode([StartFolder].self, from: data) { startFolders = folders }
+        if let data = d.data(forKey: Key.taskbarWidgets),
+           let widgets = try? JSONDecoder().decode([TaskbarWidget].self, from: data) {
+            // 资料夹可能在别处被删了：指向不存在资料夹的小工具顺手清掉
+            taskbarWidgets = TaskbarWidgetList.pruned(widgets, existingFolders: Set(startFolders.map(\.id)))
+        }
         if let raw = d.string(forKey: Key.nowPlayingSource),
            let s = NowPlayingSource(rawValue: raw) { nowPlayingSource = s }
         if let list = d.stringArray(forKey: Key.recentApps) { recentApps = list }

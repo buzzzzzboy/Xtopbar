@@ -1151,7 +1151,33 @@ final class AppCatalog: ObservableObject {
     }
 
     func deleteStartFolder(_ folderID: UUID) {
-        Preferences.shared.startFolders.removeAll { $0.id == folderID }
+        let prefs = Preferences.shared
+        prefs.startFolders.removeAll { $0.id == folderID }
+        // 工作列上对应的资料夹小工具一起拿掉，不留点了没反应的空壳
+        prefs.taskbarWidgets = TaskbarWidgetList.pruned(prefs.taskbarWidgets,
+                                                        existingFolders: Set(prefs.startFolders.map(\.id)))
+    }
+
+    // MARK: 工作列小工具（改完偏好，TabBarController 订阅 `taskbarWidgets` 重排）
+
+    func addTaskbarWidget(_ kind: TaskbarWidget.Kind, slot: TaskbarWidgetSlot) {
+        let prefs = Preferences.shared
+        guard TaskbarWidgetList.canAdd(kind, to: prefs.taskbarWidgets) else { return }
+        prefs.taskbarWidgets.append(TaskbarWidget(kind: kind, slot: slot))
+    }
+
+    func moveTaskbarWidget(_ id: UUID, to slot: TaskbarWidgetSlot) {
+        let prefs = Preferences.shared
+        prefs.taskbarWidgets = TaskbarWidgetList.moving(id, to: slot, in: prefs.taskbarWidgets)
+    }
+
+    func shiftTaskbarWidget(_ id: UUID, by offset: Int) {
+        let prefs = Preferences.shared
+        prefs.taskbarWidgets = TaskbarWidgetList.shifting(id, by: offset, in: prefs.taskbarWidgets)
+    }
+
+    func removeTaskbarWidget(_ id: UUID) {
+        Preferences.shared.taskbarWidgets.removeAll { $0.id == id }
     }
 
     func renameStartFolder(_ folderID: UUID, to name: String) {
