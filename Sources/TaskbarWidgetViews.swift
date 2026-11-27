@@ -336,3 +336,33 @@ struct SystemStatsWidgetView: View {
             .frame(width: TTLayout.s(7), height: height)
     }
 }
+
+/// 小工具的右键菜单（同标签右键的自绘菜单）：正在播放多一项开启播放器；共用「移到」/ 设定 / 移除
+@MainActor
+enum TaskbarWidgetMenu {
+    static func items(for widget: TaskbarWidget, catalog: AppCatalog) -> [TaskbarMenuItem] {
+        var items: [TaskbarMenuItem] = []
+        if case .nowPlaying = widget.kind {
+            let np = NowPlaying.shared
+            if let player = np.player ?? Preferences.shared.nowPlayingSource.player {
+                items.append(TaskbarMenuItem(title: "開啟 \(player == .music ? "音樂" : player.title)",
+                                             symbol: "arrow.up.forward.app") { np.openPlayer() })
+                items.append(.separator)
+            }
+        }
+        let moves = TaskbarWidgetSlot.allCases.map { slot in
+            TaskbarMenuItem(title: slot.title, checked: slot == widget.slot) {
+                catalog.moveTaskbarWidget(widget.id, to: slot)
+            }
+        }
+        items.append(TaskbarMenuItem(title: "移到", symbol: "arrow.left.arrow.right", children: moves))
+        items.append(TaskbarMenuItem(title: "在設定中調整…", symbol: "gearshape") {
+            SettingsWindowController.shared.show(page: .dock)
+        })
+        items.append(.separator)
+        items.append(TaskbarMenuItem(title: "從工作列移除", symbol: "minus.circle") {
+            catalog.removeTaskbarWidget(widget.id)
+        })
+        return items
+    }
+}

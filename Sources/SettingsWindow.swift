@@ -24,6 +24,14 @@ final class SettingsWindowController {
               + "level=\(window.level.rawValue) onScreens=\(window.isOnActiveSpace)")
     }
 
+    /// 打开并直接切到某一页（工作列小工具右键「在設定中調整…」）
+    func show(page: SettingsPage) {
+        show()
+        NotificationCenter.default.post(name: Self.pageRequest, object: page)
+    }
+
+    static let pageRequest = Notification.Name("xtopbar.settingsPageRequest")
+
     private func existingOrNewWindow() -> NSWindow {
         if let window { return window }
 
@@ -94,6 +102,9 @@ struct SettingsView: View {
                     .tag(page)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+            .onReceive(NotificationCenter.default.publisher(for: SettingsWindowController.pageRequest)) { note in
+                if let requested = note.object as? SettingsPage { page = requested }
+            }
         } detail: {
             Form {
                 switch page {

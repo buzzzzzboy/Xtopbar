@@ -1312,6 +1312,19 @@ final class TabBarController: TabBarHost {
     private func openTaskbarMenu(at point: NSPoint) -> Bool {
         guard catalog.drag == nil,
               catalog.tabFrames[AppCatalog.webSearchButtonID]?.contains(point) != true else { return false }
+        // 小工具：自己的菜单（不落到整条的 SwiftUI contextMenu）
+        if let (widget, _) = catalog.widgetHit(at: point), let rect = catalog.tabFrames[widget.hitID] {
+            hidePreview()
+            closeStartMenu()
+            folder.close(animated: false)
+            folderWidget.close(animated: false)
+            lastInteraction = Date()
+            let anchor = NSRect(x: panel.frame.minX + rect.minX, y: panel.frame.maxY - rect.maxY,
+                                width: rect.width, height: rect.height)
+            taskbarMenu.show(items: TaskbarWidgetMenu.items(for: widget, catalog: catalog),
+                             anchor: anchor, barFrame: panel.frame)
+            return true
+        }
         let reserved: Set<String> = [AppCatalog.startButtonID, AppCatalog.webSearchButtonID, AppCatalog.resizeHandleID]
         guard let (id, rect) = catalog.tabFrames.first(where: { !reserved.contains($0.key) && $0.value.contains(point) }),
               let entry = catalog.groups.lazy.flatMap(\.entries).first(where: { $0.id == id })

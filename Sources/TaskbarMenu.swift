@@ -139,7 +139,9 @@ struct TaskbarMenuView: View {
         let hot = model.highlighted == index
         let fill: Double = model.pressed == index ? 0.06 : (hot ? 0.10 : 0)
         return HStack(spacing: TTLayout.s(12)) {
-            Group {
+            // ZStack 垫一层 Color.clear：没勾也没图标时 Group 是空的，frame 会被吞掉，文字就往左缩、对不齐
+            ZStack {
+                Color.clear
                 if item.checked {
                     Image(systemName: "checkmark")
                         .font(.system(size: TTLayout.font(12), weight: .semibold))
