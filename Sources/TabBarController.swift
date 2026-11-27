@@ -477,10 +477,10 @@ final class TabBarController: TabBarHost {
             .sink { [weak self] _ in self?.catalog.invalidateLayout() }
             .store(in: &cancellables)
 
-        // 小工具加 / 删 / 换槽：宽度变了，重新判断合并、重算条宽
-        prefs.$taskbarWidgets
-            .dropFirst()
-            .removeDuplicates()
+        // 小工具加 / 删 / 换槽，或正在播放的播放器开 / 关（小工具出现 / 藏起来）：
+        // 宽度变了，重新判断合并、重算条宽
+        Publishers.Merge(prefs.$taskbarWidgets.dropFirst().removeDuplicates().map { _ in () },
+                         NowPlaying.shared.$playerRunning.dropFirst().removeDuplicates().map { _ in () })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -1347,6 +1347,17 @@ final class TabBarController: TabBarHost {
 
     func pressWidget(_ widget: TaskbarWidget, part: WidgetPart) {
         TTLog("pressWidget \(widget.kind) \(part)")
+        switch widget.kind {
+        case .nowPlaying:
+            let np = NowPlaying.shared
+            switch part {
+            case .main: np.playPause()
+            case .previous: if np.track != nil { np.previous() }
+            case .next: if np.track != nil { np.next() }
+            }
+        case .systemStats, .folder:
+            break
+        }
     }
 
     func toggleWebSearch() {

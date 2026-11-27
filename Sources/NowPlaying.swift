@@ -107,6 +107,17 @@ final class NowPlaying: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, let p = MediaPlayer.allCases.first(where: { $0.bundleID == id }) else { return }
                 self.states[p] = nil
+                // 刚收到退出通知时 runningApplications 里可能还挂着它，明确排除
+                self.recompute(terminated: p)
+            }
+        }
+        // 播放器启动：工作列的正在播放小工具要马上出现（它还没发过任何播放通知）
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let id = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            MainActor.assumeIsolated {
+                guard let self, MediaPlayer.allCases.contains(where: { $0.bundleID == id }) else { return }
                 self.recompute()
             }
         }
@@ -162,7 +173,8 @@ final class NowPlaying: ObservableObject {
         recompute()
     }
 
-    private func recompute() {
+    private func recompute(terminated: MediaPlayer? = nil) {
+        func running(_ p: MediaPlayer) -> Bool { p != terminated && p.isRunning }
         let next: MediaPlayer?
         if let pinned = Preferences.shared.nowPlayingSource.player {
             next = pinned
@@ -173,11 +185,11 @@ final class NowPlaying: ObservableObject {
         } else if let last = lastActive, states[last] != nil {
             next = last
         } else {
-            next = MediaPlayer.allCases.first { states[$0] != nil } ?? MediaPlayer.allCases.first { $0.isRunning }
+            next = MediaPlayer.allCases.first { states[$0] != nil } ?? MediaPlayer.allCases.first(where: running)
         }
         if next != player { player = next }
-        let running = next?.isRunning ?? false
-        if running != playerRunning { playerRunning = running }
+        let isUp = next.map(running) ?? false
+        if isUp != playerRunning { playerRunning = isUp }
         let t = next.flatMap { states[$0] }
         if t != track { track = t }
         loadArtwork()

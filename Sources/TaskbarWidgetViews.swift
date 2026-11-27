@@ -126,7 +126,7 @@ struct TaskbarWidgetContent: View {
     var body: some View {
         switch widget.kind {
         case .nowPlaying:
-            placeholder("music.note", "正在播放")
+            NowPlayingWidgetView(widget: widget, catalog: catalog, prefs: prefs)
         case .systemStats:
             placeholder("cpu", "CPU")
         case .folder:
@@ -142,5 +142,83 @@ struct TaskbarWidgetContent: View {
         .font(.system(size: TTLayout.font(12), weight: .medium))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .widgetHover(catalog)
+    }
+}
+
+/// 正在播放：`⏮ │ 封面 + 歌名 + ▶︎ │ ⏭`。中间整块就是播放 / 暂停键（指针一进来立刻亮），
+/// 两端各一颗切歌键，各自上报命中区域（先于整颗判断）
+struct NowPlayingWidgetView: View {
+    let widget: TaskbarWidget
+    @ObservedObject var catalog: AppCatalog
+    @ObservedObject var prefs: Preferences
+    @ObservedObject var nowPlaying = NowPlaying.shared
+
+    private var player: MediaPlayer? { nowPlaying.player ?? prefs.nowPlayingSource.player }
+    private var hasTrack: Bool { nowPlaying.track != nil }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            skipKey("backward.fill", id: widget.prevHitID)
+            HStack(spacing: TTLayout.s(6)) {
+                cover
+                if !prefs.iconOnly {
+                    Text(title)
+                        .font(.system(size: TTLayout.font(12), weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: TTLayout.s(TaskbarWidgetMetrics.nowPlayingTitleCap), alignment: .leading)
+                }
+                Image(systemName: nowPlaying.track?.playing == true ? "pause.fill" : "play.fill")
+                    .font(.system(size: TTLayout.font(12), weight: .semibold))
+                    .frame(width: TTLayout.s(14))
+            }
+            .padding(.horizontal, TTLayout.s(8))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .widgetHover(catalog)
+            .help(help)
+            skipKey("forward.fill", id: widget.nextHitID)
+        }
+        .foregroundStyle(Color.primary)
+    }
+
+    private var title: String {
+        if let t = nowPlaying.track, !t.title.isEmpty { return t.title }
+        return "未在播放"
+    }
+
+    private var help: String {
+        guard let t = nowPlaying.track else { return player.map { "\($0.title)：未在播放" } ?? "正在播放" }
+        return t.artist.isEmpty ? t.title : "\(t.title) — \(t.artist)"
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        let size = TTLayout.s(prefs.iconOnly ? 36 : 18)
+        Group {
+            if let art = nowPlaying.artwork {
+                Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+            } else if let url = player?.appURL {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().interpolation(.high)
+            } else {
+                Image(systemName: "music.note").foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(prefs.iconOnly ? 8 : 4), style: .continuous))
+    }
+
+    /// 切歌键：半个条高宽、整条高；没有曲目时变灰（点了也不动，见 `pressWidget`）
+    private func skipKey(_ symbol: String, id: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: TTLayout.font(10), weight: .semibold))
+            .frame(width: TTLayout.barHeight / 2, height: TTLayout.barHeight)
+            .opacity(hasTrack ? 1 : 0.35)
+            .widgetHover(catalog)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: TabFramesKey.self,
+                                           value: [id: geo.frame(in: .named(TabBarView.space))])
+                }
+            )
     }
 }
