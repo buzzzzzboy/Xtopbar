@@ -118,6 +118,7 @@ final class TabBarFleet {
 
     func start() {
         missionControl.onChange = { [weak self] active in
+            if active { WebSearchController.shared.close() }
             self?.controllers.forEach { $0.missionControlChanged(active) }
         }
         missionControl.start()
@@ -189,6 +190,12 @@ final class TabBarFleet {
         }?.value.controller ?? primary
         for controller in controllers where controller !== target { controller.closeStartMenu() }
         if search { target.toggleStartSearch() } else { target.toggleStartMenu() }
+    }
+
+    func toggleWebSearch() {
+        guard !missionControl.isActive else { return }
+        for controller in controllers { controller.closeStartMenu(animated: false) }
+        WebSearchController.shared.toggle()
     }
 
     func dismissPreview() {

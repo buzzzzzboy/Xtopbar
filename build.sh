@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 NAME="Xtopbar"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 APP="$(pwd)/${NAME}.app"
-MIN_OS="14.0"
+MIN_OS="26.0"
 
 # 固定签名身份：目标目录固定 + 签名不变 → 屏幕录制/辅助功能授权不会被重置
 KEYCHAIN="$HOME/Library/Keychains/xtopbar-signing.keychain-db"

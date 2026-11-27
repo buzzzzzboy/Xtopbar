@@ -9,6 +9,7 @@ struct HotKey: Codable, Equatable {
 
     /// 预设：⌥Space（同 Raycast）
     static let defaultSearch = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), display: "⌥Space")
+    static let defaultWebSearch = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey | shiftKey), display: "⌥⇧Space")
     /// 预设：⌃⌘E（E = Emoji）。系统自己的「表情與符號」是 ⌃⌘Space / 🌐E，不去抢
     static let defaultEmoji = HotKey(keyCode: UInt32(kVK_ANSI_E), modifiers: UInt32(controlKey | cmdKey), display: "⌃⌘E")
 

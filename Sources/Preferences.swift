@@ -20,7 +20,7 @@ enum GlassStyle: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .liquid:  return "macOS 26/27 原生材質，隨系統外觀與「降低透明度」自動調節"
-        case .frosted: return "經典 HUD 毛玻璃，所有系統版本都可用"
+        case .frosted: return "經典 HUD 毛玻璃"
         case .solid:   return "不透明底色，最省 GPU"
         }
     }
@@ -32,43 +32,8 @@ enum GlassStyle: String, CaseIterable, Identifiable {
         case .solid:   return "square.fill"
         }
     }
-
-    /// NSGlassEffectView 需要 macOS 26+
-    static var liquidAvailable: Bool {
-        if #available(macOS 26.0, *) { return true }
-        return false
-    }
-
-    /// 请求的样式在本机不可用时，实际会退化成什么
-    var resolved: GlassStyle {
-        if self == .liquid, !GlassStyle.liquidAvailable { return .frosted }
-        return self
-    }
 }
 
-/// 条上标签的悬停 / 选中样式（和背景材质各管各的）
-enum BarTheme: String, CaseIterable, Identifiable {
-    /// 默认：蓝底 + 描边标出前台 App
-    case classic
-    /// 仿 iOS 26/27 tab bar：前台 App 底下垫一颗玻璃药丸，按住变放大镜，切换时滑过去
-    case liquidGlass
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .classic:     return "預設"
-        case .liquidGlass: return "Liquid Glass"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .classic:     return "藍底 + 描邊標出前景 App。"
-        case .liquidGlass: return "仿 iOS 的玻璃膠囊：前景 App 底下墊一顆玻璃藥丸，按住時變成放大鏡，切換 App 時滑過去；標籤之間不畫分隔線。"
-        }
-    }
-}
 
 /// 顶部热区（鼠标顶到屏幕顶部唤出的那块区域）落在哪块屏。
 ///
@@ -220,7 +185,6 @@ final class Preferences: ObservableObject {
         static let previewEnabled = "previewEnabled"
         static let hideMinimized = "hideMinimizedWindows"
         static let glassStyle    = "glassStyle"
-        static let barTheme      = "barTheme"
         static let idleOpacity   = "idleOpacity"
         static let showStatusItem = "showStatusItem"
         static let barEnabled     = "barEnabled"
@@ -230,7 +194,6 @@ final class Preferences: ObservableObject {
         static let windowSwitcherEnabled = "windowSwitcherEnabled"
         static let hiddenApps    = "hiddenApps"
         static let uiScale       = "uiScale"
-        static let barCornerRadius = "barCornerRadius"
         static let autoCheckUpdates = "autoCheckUpdates"
         static let ignoredVersion   = "ignoredVersion"
         static let dockEdge      = "dockEdge"
@@ -242,15 +205,16 @@ final class Preferences: ObservableObject {
         static let nowPlayingSource = "nowPlayingSource"
         static let recentApps    = "recentApps"
         static let startSearchHotKey = "startSearchHotKey"
+        static let webSearchHotKey = "webSearchHotKey"
         static let emojiHotKey   = "emojiHotKey"
         static let emojiDoubleOption = "emojiDoubleOption"
         static let iconOnly      = "iconOnly"
-        static let tabDividers   = "tabDividers"
         static let taskbarGrouping = "taskbarGrouping"
         static let groupingOverrides = "groupingOverrides"
         static let windowTitleApps = "windowTitleApps"
         static let onlyWindowedApps = "onlyWindowedApps"
         static let showStartButton = "showStartButton"
+        static let showWebSearchButton = "showWebSearchButton"
         static let hideSystemDock = "hideSystemDock"
         static let avoidWindows  = "avoidWindows"
         static let allScreens    = "allScreens"
@@ -284,11 +248,6 @@ final class Preferences: ObservableObject {
     /// 背景材质
     @Published var glassStyle: GlassStyle = .liquid {
         didSet { d.set(glassStyle.rawValue, forKey: Key.glassStyle) }
-    }
-
-    /// 标签主题（悬停 / 选中的样式）
-    @Published var barTheme: BarTheme = .classic {
-        didSet { d.set(barTheme.rawValue, forKey: Key.barTheme) }
     }
 
     /// 待机（无鼠标悬停）时的不透明度；悬停时固定拉到 1.0
@@ -353,16 +312,6 @@ final class Preferences: ObservableObject {
         }
     }
 
-    /// 悬浮条圆角（未缩放的 pt，实际画时乘界面缩放）。0 = 直角；
-    /// 超过条高的一半就是胶囊形，画的时候钳到半高（见 `TTLayout.barCornerRadius`）
-    static let barCornerRange: ClosedRange<Double> = 0...30
-    @Published var barCornerRadius: Double = 16 {
-        didSet {
-            let clamped = min(max(barCornerRadius, Self.barCornerRange.lowerBound), Self.barCornerRange.upperBound)
-            if clamped != barCornerRadius { barCornerRadius = clamped; return }
-            d.set(barCornerRadius, forKey: Key.barCornerRadius)
-        }
-    }
 
     /// 启动后自动去 GitHub Releases 看一眼有没有新版本（每小时最多一次）
     @Published var autoCheckUpdates: Bool = true {
@@ -429,6 +378,12 @@ final class Preferences: ObservableObject {
         }
     }
 
+    @Published var webSearchHotKey: HotKey? = .defaultWebSearch {
+        didSet {
+            d.set(webSearchHotKey.flatMap { try? JSONEncoder().encode($0) } ?? Data(), forKey: Key.webSearchHotKey)
+        }
+    }
+
     /// 全局快捷键：打开表情符號選擇器（再按一次收起）。nil = 不用快捷键
     @Published var emojiHotKey: HotKey? = .defaultEmoji {
         didSet {
@@ -446,23 +401,11 @@ final class Preferences: ObservableObject {
         didSet { d.set(iconOnly, forKey: Key.iconOnly) }
     }
 
-    /// 图标 + 名称样式下，同组相邻两个按钮之间画分隔线。关掉 = 不画线、间距收紧（见 `tabGap`）
-    @Published var tabDividers: Bool = true {
-        didSet { d.set(tabDividers, forKey: Key.tabDividers) }
-    }
+    /// 同组相邻两个按钮之间的距离（未缩放的 pt）。同 iOS tab bar，标签之间不画分隔线
+    var tabGap: CGFloat { 4 }
 
-    /// 实际画不画组内分隔线：Liquid Glass 主题同 iOS tab bar，一律不画
-    var showsTabDividers: Bool { tabDividers && barTheme == .classic }
-
-    /// 同组相邻两个按钮之间的距离（未缩放的 pt）：分隔线 1 + 左右各 6；不画分隔线只留 4
-    var tabGap: CGFloat { showsTabDividers ? 13 : 4 }
-
-    /// 固定组和运行中组之间那条线：图标 + 名称样式跟着组内分隔线一起开关；
-    /// 只显示图标时组内本来就不画线，只靠这条分组，照画（Liquid Glass 一律不画）
-    var showsGroupDivider: Bool { iconOnly ? barTheme == .classic : showsTabDividers }
-
-    /// 两组之间的距离（未缩放的 pt），同 `tabGap`
-    var groupGap: CGFloat { showsGroupDivider ? 13 : 4 }
+    /// 两组（固定 / 运行中）之间的距离（未缩放的 pt），同 `tabGap`
+    var groupGap: CGFloat { 4 }
 
     /// 工作列按钮的合并方式。图标 + 名称、只显示图标两种样式都照它走；没有辅助功能权限时一律按 App 合并
     @Published var taskbarGrouping: TaskbarGrouping = .whenFull {
@@ -484,6 +427,10 @@ final class Preferences: ObservableObject {
     /// 条最左边显示开始按钮（Windows 风格开始菜单）。默认关：保持原版外观。
     @Published var showStartButton: Bool = true {
         didSet { d.set(showStartButton, forKey: Key.showStartButton) }
+    }
+
+    @Published var showWebSearchButton: Bool = true {
+        didSet { d.set(showWebSearchButton, forKey: Key.showWebSearchButton) }
     }
 
     /// 只显示有窗口的 App：运行中但一个窗口都没有的（关完窗口还挂着的 Safari、访达…）不上条。
@@ -607,7 +554,8 @@ final class Preferences: ObservableObject {
         if d.object(forKey: Key.previewEnabled) != nil { previewEnabled = d.bool(forKey: Key.previewEnabled) }
         if d.object(forKey: Key.hideMinimized) != nil { hideMinimizedWindows = d.bool(forKey: Key.hideMinimized) }
         if let raw = d.string(forKey: Key.glassStyle), let s = GlassStyle(rawValue: raw) { glassStyle = s }
-        if let raw = d.string(forKey: Key.barTheme), let t = BarTheme(rawValue: raw) { barTheme = t }
+        // 经典主题（连同它的圆角 / 分隔线设置）已移除，清掉旧版留下的值
+        for key in ["barTheme", "barCornerRadius", "tabDividers"] { d.removeObject(forKey: key) }
         if d.object(forKey: Key.idleOpacity) != nil { idleOpacity = d.double(forKey: Key.idleOpacity) }
         if d.object(forKey: Key.showStatusItem) != nil { showStatusItem = d.bool(forKey: Key.showStatusItem) }
         if d.object(forKey: Key.barEnabled) != nil { barEnabled = d.bool(forKey: Key.barEnabled) }
@@ -621,7 +569,6 @@ final class Preferences: ObservableObject {
         }
         if let map = d.dictionary(forKey: Key.hiddenApps) as? [String: String] { hiddenApps = map }
         if d.object(forKey: Key.uiScale) != nil { uiScale = min(max(d.double(forKey: Key.uiScale), 0.8), 1.3) }
-        if d.object(forKey: Key.barCornerRadius) != nil { barCornerRadius = d.double(forKey: Key.barCornerRadius) }
         if d.object(forKey: Key.autoCheckUpdates) != nil { autoCheckUpdates = d.bool(forKey: Key.autoCheckUpdates) }
         ignoredVersion = d.string(forKey: Key.ignoredVersion) ?? ""
         if let raw = d.string(forKey: Key.dockEdge), let e = DockEdge(rawValue: raw) { dockEdge = e }
@@ -635,6 +582,9 @@ final class Preferences: ObservableObject {
         if let data = d.data(forKey: Key.startSearchHotKey) {
             startSearchHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultSearch
         }
+        if let data = d.data(forKey: Key.webSearchHotKey) {
+            webSearchHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultWebSearch
+        }
         if d.object(forKey: Key.emojiDoubleOption) != nil { emojiDoubleOption = d.bool(forKey: Key.emojiDoubleOption) }
         if let data = d.data(forKey: Key.emojiHotKey) {
             emojiHotKey = data.isEmpty ? nil : (try? JSONDecoder().decode(HotKey.self, from: data)) ?? .defaultEmoji
@@ -642,13 +592,13 @@ final class Preferences: ObservableObject {
         if let list = d.stringArray(forKey: Key.startOrder) { startOrder = list }
         if let list = d.stringArray(forKey: Key.runningOrder) { runningOrder = list }
         if d.object(forKey: Key.iconOnly) != nil { iconOnly = d.bool(forKey: Key.iconOnly) }
-        if d.object(forKey: Key.tabDividers) != nil { tabDividers = d.bool(forKey: Key.tabDividers) }
         if let raw = d.string(forKey: Key.taskbarGrouping), let v = TaskbarGrouping(rawValue: raw) { taskbarGrouping = v }
         if let map = d.dictionary(forKey: Key.groupingOverrides) as? [String: String] {
             groupingOverrides = map.compactMapValues { TaskbarGrouping(rawValue: $0) }.filter { $0.value != .whenFull }
         }
         if let map = d.dictionary(forKey: Key.windowTitleApps) as? [String: String] { windowTitleApps = map }
         if d.object(forKey: Key.showStartButton) != nil { showStartButton = d.bool(forKey: Key.showStartButton) }
+        if d.object(forKey: Key.showWebSearchButton) != nil { showWebSearchButton = d.bool(forKey: Key.showWebSearchButton) }
         if d.object(forKey: Key.onlyWindowedApps) != nil { onlyWindowedApps = d.bool(forKey: Key.onlyWindowedApps) }
         if d.object(forKey: Key.hideSystemDock) != nil { hideSystemDock = d.bool(forKey: Key.hideSystemDock) }
         if d.object(forKey: Key.avoidWindows) != nil { avoidWindows = d.bool(forKey: Key.avoidWindows) }
@@ -659,9 +609,6 @@ final class Preferences: ObservableObject {
            let list = try? JSONDecoder().decode([AppSource].self, from: data) { appSources = list }
         if let map = d.dictionary(forKey: Key.searchHiddenApps) as? [String: String] { searchHiddenApps = map }
         if d.object(forKey: Key.showHiddenInSearch) != nil { showHiddenInSearch = d.bool(forKey: Key.showHiddenInSearch) }
-
-        // 老系统上把存下来的「液态玻璃」降级成毛玻璃，避免设置面板显示一个用不了的选项
-        if !GlassStyle.liquidAvailable, glassStyle == .liquid { glassStyle = .frosted }
     }
 
     /// 自动隐藏延迟的可选档位（秒）；0 表示常驻
@@ -710,26 +657,33 @@ enum TTLayout {
     /// 未缩放的条高（拖分隔线调大小时按它换算缩放比例）
     @MainActor static var barBaseHeight: CGFloat { Preferences.shared.iconOnly ? 58 : 42 }
 
-    /// 悬浮条圆角：随界面缩放，最大到半高（胶囊）。
-    /// Liquid Glass 一律胶囊，和里面的玻璃药丸同心，不看设置里的「圓角」
-    @MainActor static var barCornerRadius: CGFloat {
-        if Preferences.shared.barTheme == .liquidGlass { return barHeight / 2 }
-        return min(s(CGFloat(Preferences.shared.barCornerRadius)), barHeight / 2)
-    }
+    /// 悬浮条一律胶囊，和里面的玻璃药丸同心
+    @MainActor static var barCornerRadius: CGFloat { barHeight / 2 }
 
-    /// Liquid Glass：开始按钮拆出条外，左边单独一颗圆形玻璃（同 iOS tab bar 旁边那颗搜索钮）
-    @MainActor static var detachedStart: Bool {
-        Preferences.shared.showStartButton && Preferences.shared.barTheme == .liquidGlass
-    }
+    /// 开始按钮拆在条外，左边单独一颗圆形玻璃（同 iOS tab bar 旁边那颗搜索钮）
+    @MainActor static var detachedStart: Bool { Preferences.shared.showStartButton }
 
     /// 拆出去的开始按钮和条之间的缝（未缩放的 pt）。缝本身就是调大小的把手
     static let detachedStartBaseGap: CGFloat = 10
 
     @MainActor static var detachedStartGap: CGFloat { s(detachedStartBaseGap) }
 
-    /// 拆出去的开始按钮连缝一共占多宽：圆的直径 = 条高。没拆 = 0
+    /// 搜索按钮也拆在条外，单独一颗圆形玻璃，排在开始按钮右边
+    @MainActor static var detachedSearch: Bool { Preferences.shared.showWebSearchButton }
+
+    /// 条左边拆出去的圆有几颗（开始 / 搜索）
+    @MainActor static var detachedCount: Int {
+        (detachedStart ? 1 : 0) + (detachedSearch ? 1 : 0)
+    }
+
+    /// 拆出去的圆连各自右边的缝一共占多宽：圆的直径 = 条高。没拆 = 0
     @MainActor static var detachedStartWidth: CGFloat {
-        detachedStart ? barHeight + detachedStartGap : 0
+        CGFloat(detachedCount) * (barHeight + detachedStartGap)
+    }
+
+    /// 同上，未缩放的 pt
+    @MainActor static var detachedStartBaseWidth: CGFloat {
+        CGFloat(detachedCount) * (barBaseHeight + detachedStartBaseGap)
     }
 
     /// 缩放一个字号（取半 pt 对齐，避免奇奇怪怪的亚像素位置）

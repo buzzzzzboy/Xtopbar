@@ -283,6 +283,7 @@ final class AppCatalog: ObservableObject {
 
     /// 开始按钮在命中区域表里的保留 id（不会和 bundle id 撞）
     nonisolated static let startButtonID = "__start__"
+    nonisolated static let webSearchButtonID = "__web_search__"
     /// 开始按钮右边的分隔线（按住上下拖调大小），命中区域的保留 id
     nonisolated static let resizeHandleID = "__resize__"
 
@@ -511,16 +512,12 @@ final class AppCatalog: ObservableObject {
 
     /// 按钮宽度估算（未缩放的 pt），数字同 `AppTab` 的布局：
     /// 标签 = 左右 9 + 图标 18 + 间距 6 + 文字；没在运行的固定项只放图标（6 + 18 + 6）；
-    /// 只显示图标 = 左右 6 + 图标 36。每个按钮外边距 1 + 1，同组相邻按钮之间一条分隔线（1 + 6 + 6，关分隔线只留 4，见 `Preferences.tabGap`）
+    /// 只显示图标 = 左右 6 + 图标 36。每个按钮外边距 1 + 1，同组相邻按钮之间留 4（见 `Preferences.tabGap`）
     private func layoutMetrics() -> TaskbarLayout.Metrics {
         let prefs = Preferences.shared
         let iconOnly = prefs.iconOnly
-        var fixed: CGFloat = 24
-        if TTLayout.detachedStart {
-            fixed += TTLayout.barBaseHeight + TTLayout.detachedStartBaseGap
-        } else if prefs.showStartButton {
-            fixed += (iconOnly ? 54 : 44) + 13
-        }
+        // 24 = 左右内边距；开始 / 搜索两颗圆拆在条外，连缝一起算
+        let fixed: CGFloat = 24 + TTLayout.detachedStartBaseWidth
         if iconOnly {
             return TaskbarLayout.Metrics(titleCap: Self.titleCap, minTitleCap: Self.titleCap,
                                          windowButton: { _, _ in 48 }, buttonPadding: 2,
@@ -658,6 +655,10 @@ final class AppCatalog: ObservableObject {
         }
         if let rect = tabFrames[Self.startButtonID], rect.contains(point) {
             host?.toggleStartMenu()
+            return true
+        }
+        if let rect = tabFrames[Self.webSearchButtonID], rect.contains(point) {
+            host?.toggleWebSearch()
             return true
         }
         guard let hit = entry(at: point) else { return false }
@@ -1192,26 +1193,21 @@ final class AppCatalog: ObservableObject {
     var preferredWidth: CGFloat {
         let prefs = Preferences.shared
         if groups.isEmpty {
-            guard prefs.showStartButton else { return 0 }
-            if TTLayout.detachedStart { return TTLayout.barHeight }
-            return TTLayout.s(prefs.iconOnly ? 42 : 30) + 2 * (TTLayout.s(3) + TTLayout.s(12))
+            // 只剩拆出去的圆（开始 / 搜索）：最后一颗右边不用留缝
+            guard TTLayout.detachedCount > 0 else { return 0 }
+            return TTLayout.detachedStartWidth - TTLayout.detachedStartGap
         }
         // 实测宽度是按量的那一刻的缩放量的；拖分隔线调大小时缩放每拍都在变，
         // 先按比例估一个，实测值下一拍就到 —— 不然条宽总慢一拍，一抽一抽的
-        // 拆出去的开始按钮不在量的内容里，另外加上
+        // 拆出去的开始 / 搜索按钮不在量的内容里，另外加上
         guard contentWidth <= 1 else {
             return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + TTLayout.detachedStartWidth
         }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = prefs.iconOnly
         let gap = prefs.tabGap
-        // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算；拆出去的是圆 + 缝）
-        var total: CGFloat = 24
-        if TTLayout.detachedStart {
-            total += TTLayout.barBaseHeight + TTLayout.detachedStartBaseGap
-        } else if prefs.showStartButton {
-            total += (iconOnly ? 54 : 44) + 13
-        }
+        // 24 = 左右内边距；后面那段 = 拆在条外的开始 / 搜索圆 + 缝
+        var total: CGFloat = 24 + TTLayout.detachedStartBaseWidth
         for (index, group) in groups.enumerated() {
             if index > 0 { total += prefs.groupGap }
             for entry in group.entries {

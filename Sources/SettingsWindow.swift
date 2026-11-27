@@ -250,14 +250,6 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Toggle("App 之間的分隔線", isOn: $prefs.tabDividers)
-                .toggleStyle(.switch)
-                .disabled(prefs.iconOnly || prefs.barTheme == .liquidGlass)
-
-            Text("圖示 + 名稱樣式下，相鄰 App 之間畫一條細線。關掉不畫線，間距也跟著收緊。固定和執行中兩組之間的線也一起拿掉。Liquid Glass 主題一律不畫。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
             WindowTitleAppsRow(prefs: prefs)
 
             Picker("工作列按鈕", selection: $prefs.taskbarGrouping) {
@@ -272,19 +264,8 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Picker("主題", selection: $prefs.barTheme) {
-                ForEach(BarTheme.allCases) { theme in
-                    Text(theme.title).tag(theme)
-                }
-            }
-            .pickerStyle(.radioGroup)
-
-            Text(prefs.barTheme.subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
             Picker("背景材質", selection: $prefs.glassStyle) {
-                ForEach(GlassStyle.allCases.filter { $0 != .liquid || GlassStyle.liquidAvailable }) { style in
+                ForEach(GlassStyle.allCases) { style in
                     Label(style.title, systemImage: style.symbol).tag(style)
                 }
             }
@@ -305,21 +286,7 @@ struct SettingsView: View {
                     .frame(width: 44, alignment: .trailing)
             }
 
-            Text("懸浮條與視窗預覽的整體大小（80%–130%）。拖曳即時生效；也可以按住開始按鈕旁的分隔線上下拖。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Text("圓角")
-                Slider(value: $prefs.barCornerRadius, in: Preferences.barCornerRange, step: 1)
-                Text(String(format: "%.0f pt", prefs.barCornerRadius))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, alignment: .trailing)
-            }
-            .disabled(prefs.barTheme == .liquidGlass)
-
-            Text("懸浮條四角的弧度：0 是直角，拉到底是膠囊形。Liquid Glass 主題一律是膠囊形。")
+            Text("懸浮條與視窗預覽的整體大小（80%–130%）。拖曳即時生效；也可以按住工作列左邊圓鈕旁的縫上下拖。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -382,6 +349,15 @@ struct SettingsView: View {
             Text("開始選單底部的播放控制。自動：誰在播就顯示誰；也可以固定為 Spotify 或 Apple Music。")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+        }
+
+        Section("Google 搜尋") {
+            Toggle("在工作列顯示搜尋按鈕", isOn: $prefs.showWebSearchButton)
+                .toggleStyle(.switch)
+
+            LabeledContent("Google 搜尋快捷鍵") {
+                HotKeyRecorder(key: $prefs.webSearchHotKey)
+            }
         }
 
         Section("表情符號") {
