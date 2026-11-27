@@ -105,6 +105,13 @@ final class StartMenuController {
     var isVisible: Bool { panel.isVisible && !closing }
     var isSearching: Bool { model.searching }
 
+    /// 菜单开着时展开某个文件夹（工作列资料夹小工具的「在開始選單中編輯」）
+    func showFolder(_ id: UUID) {
+        model.searching = false
+        model.showAll = false
+        model.openFolder = id
+    }
+
     /// 菜单开着时切到搜索页（焦点回搜索框）
     func enterSearch() {
         model.openFolder = nil

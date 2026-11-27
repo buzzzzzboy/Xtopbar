@@ -93,8 +93,10 @@ enum TaskbarWidgetMetrics {
     /// - Parameters:
     ///   - hasTrack: 正在播放有没有曲目。没有就缩成「播放器图标 + ▶」一小颗
     ///   - titleWidth: 歌名量出来的宽（未缩放），超过 `nowPlayingTitleCap` 按上限算；nil = 按上限
+    ///   - nameWidth: 资料夹名字量出来的宽（未缩放），超过 `folderNameCap` 按上限算；nil = 按字数粗估
     static func width(_ kind: TaskbarWidget.Kind, iconOnly: Bool, barBaseHeight: CGFloat,
-                      folderName: String?, hasTrack: Bool = true, titleWidth: CGFloat? = nil) -> CGFloat {
+                      folderName: String?, hasTrack: Bool = true, titleWidth: CGFloat? = nil,
+                      nameWidth: CGFloat? = nil) -> CGFloat {
         switch kind {
         case .nowPlaying:
             if !hasTrack { return iconOnly ? 16 + 30 + 6 + 14 : 16 + 18 + 6 + 14 + 4 }
@@ -108,8 +110,10 @@ enum TaskbarWidgetMetrics {
             return iconOnly ? (barBaseHeight * 0.8).rounded() : 150
         case .folder:
             if iconOnly { return barBaseHeight }
+            // 左右内距 8+8 + 图标（0.6 个条高）+ 间距 6 + 名字
             let chars = CGFloat((folderName?.isEmpty == false ? folderName! : "未命名").count)
-            return barBaseHeight + min(chars * 12, folderNameCap) + 8
+            let name = min(ceil(nameWidth ?? chars * 12), folderNameCap)
+            return 16 + (barBaseHeight * 0.6).rounded() + 6 + name
         }
     }
 }

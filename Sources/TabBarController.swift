@@ -177,6 +177,8 @@ final class TabBarController: TabBarHost {
     private lazy var startMenu = StartMenuController(catalog: catalog)
     /// 条尾巴后面的「背景執行」资料夹（没窗口的 App）
     private lazy var folder = BackgroundFolderController(catalog: catalog)
+    /// 工作列资料夹小工具点开的卡片
+    private lazy var folderWidget = FolderWidgetPopup(catalog: catalog)
     private var previewWork: DispatchWorkItem?
     private var hoveredEntry: AppEntry?
     /// 鼠标离开标签的时刻：留一点宽限期，让光标能顺利从标签滑进预览面板
@@ -335,9 +337,25 @@ final class TabBarController: TabBarHost {
             guard let self else { return }
             self.hidePreview()
             self.startMenu.close()
+            self.folderWidget.close(animated: false)
             self.lastInteraction = Date()
         }
         folder.onClose = { [weak self] in self?.lastInteraction = Date() }
+        // 资料夹卡片和开始菜单 / 背景网格 / 预览一次只开一个
+        folderWidget.onOpen = { [weak self] in
+            guard let self else { return }
+            self.hidePreview()
+            self.startMenu.close(animated: false)
+            self.folder.close(animated: false)
+            WebSearchController.shared.close()
+            self.lastInteraction = Date()
+        }
+        folderWidget.onClose = { [weak self] in self?.lastInteraction = Date() }
+        folderWidget.onEditInStartMenu = { [weak self] id in
+            guard let self else { return }
+            if !self.startMenu.isVisible { self.toggleStartMenu() }
+            self.startMenu.showFolder(id)
+        }
 
         // 隐藏列表 / 任务栏固定变化 → 立刻重采（否则要等 1.2s 兜底轮询）
         prefs.$hiddenApps
@@ -465,6 +483,7 @@ final class TabBarController: TabBarHost {
                 self.hidePreview()
                 self.startMenu.close(animated: false)
                 self.folder.close(animated: false)
+                self.folderWidget.close(animated: false)
                 self.currentWidth = 0
                 self.syncContent()
             }
@@ -549,6 +568,7 @@ final class TabBarController: TabBarHost {
         hidePreview()
         startMenu.close(animated: false)
         folder.close(animated: false)
+        folderWidget.close(animated: false)
         currentWidth = 0
         relayout()
     }
@@ -1078,6 +1098,7 @@ final class TabBarController: TabBarHost {
             hidePreview()
             startMenu.close(animated: false)
             folder.close(animated: false)
+            folderWidget.close(animated: false)
             hide(fade: true)
         } else {
             // 从这一刻重新计时，别一回来就被判定为"闲置太久"立刻又收掉
@@ -1112,7 +1133,7 @@ final class TabBarController: TabBarHost {
         let panelZone = hasBarItems ? panel.frame.insetBy(dx: -1, dy: -1) : NSRect.null
         let inPanel = isRevealed && panelZone.contains(mouse)
         // 条尾巴后面的资料夹（小方块 / 弹出的网格）算条的一部分
-        let inFolder = isRevealed && folder.contains(mouse)
+        let inFolder = isRevealed && (folder.contains(mouse) || folderWidget.contains(mouse))
         let inPreview = preview.isVisible && preview.frame.insetBy(dx: -1, dy: -1).contains(mouse)
         let hot = hotZone
         let inHot = hot.contains(mouse)
@@ -1132,7 +1153,7 @@ final class TabBarController: TabBarHost {
             catalog.pointerOverBar = pointerNear
         }
 
-        if menuTracking || startMenu.isVisible || folder.isOpen || catalog.isPressing {
+        if menuTracking || startMenu.isVisible || folder.isOpen || folderWidget.isOpen || catalog.isPressing {
             // 菜单开着：指针在菜单上（面板的子窗口），条不能收。
             // 开始菜单开着：它是贴着条弹出的，条收了菜单就悬空了。
             // 按住标签 / 拖动排序中：拖出条外也不能收，松手后再按正常延迟。
@@ -1152,7 +1173,7 @@ final class TabBarController: TabBarHost {
         guard isRevealed else { return }
 
         // 悬停时更实一点，便于阅读
-        let target: CGFloat = (inPanel || inFolder || startMenu.isVisible || folder.isOpen)
+        let target: CGFloat = (inPanel || inFolder || startMenu.isVisible || folder.isOpen || folderWidget.isOpen)
             ? 1.0 : CGFloat(prefs.idleOpacity)
         if abs(panel.alphaValue - target) > 0.02 {
             animateAlpha(to: target, duration: 0.12)
@@ -1271,12 +1292,14 @@ final class TabBarController: TabBarHost {
         menuTracking = true
         catalog.menuTracking = true
         folder.menuOpen = true
+        folderWidget.menuOpen = true
     }
 
     private func endMenuTracking() {
         menuTracking = false
         catalog.menuTracking = false
         folder.menuOpen = false
+        folderWidget.menuOpen = false
         // 菜单开着期间暂停了重采，这里补一次（菜单项的动作也可能刚改了固定）
         catalog.refresh()
         // 从关菜单这一刻重新计时，别一关就瞬间消失
@@ -1295,6 +1318,7 @@ final class TabBarController: TabBarHost {
         hidePreview()
         closeStartMenu()
         folder.close(animated: false)
+        folderWidget.close(animated: false)
         lastInteraction = Date()
 
         let anchor = NSRect(x: panel.frame.minX + rect.minX, y: panel.frame.maxY - rect.maxY,
@@ -1365,8 +1389,12 @@ final class TabBarController: TabBarHost {
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.ActivityMonitor") {
                 NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
             }
-        case .folder:
-            break
+        case .folder(let id):
+            // 小工具在屏幕上的位置（命中区域是窗口坐标，原点左上）
+            guard let r = catalog.tabFrames[widget.hitID] else { return }
+            let anchor = NSRect(x: panel.frame.minX + r.minX, y: panel.frame.maxY - r.maxY,
+                                width: r.width, height: r.height)
+            folderWidget.toggle(folderID: id, anchor: anchor, barFrame: panel.frame)
         }
     }
 
@@ -1375,6 +1403,7 @@ final class TabBarController: TabBarHost {
         startMenu.close(animated: false)
         hidePreview()
         folder.close(animated: false)
+        folderWidget.close(animated: false)
         WebSearchController.shared.toggle(on: panel.screen)
     }
 
@@ -1404,6 +1433,7 @@ final class TabBarController: TabBarHost {
         }
         hidePreview()
         folder.close(animated: false)
+        folderWidget.close(animated: false)
         lastInteraction = Date()
 
         let buttonRect = catalog.tabFrames[AppCatalog.startButtonID]

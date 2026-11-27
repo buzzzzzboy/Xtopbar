@@ -83,6 +83,17 @@ do {
     check(ok, "iconOnlyIsNarrower")
 }
 
+// folderWidthFollowsName：资料夹宽度跟着名字量出来的宽走，有上限；只显示图标样式就是一个条高
+do {
+    func f(_ w: CGFloat, _ iconOnly: Bool = false) -> CGFloat {
+        TaskbarWidgetMetrics.width(.folder(UUID()), iconOnly: iconOnly, barBaseHeight: 42, folderName: "x",
+                                   nameWidth: w)
+    }
+    check(f(80) - f(30) == 50, "folderWidthFollowsName")
+    check(f(999) == f(TaskbarWidgetMetrics.folderNameCap), "folderWidthCapped")
+    check(f(30, true) == 42 && f(200, true) == 42, "folderIconOnlyIsBarHeight")
+}
+
 // canAddRejectsDuplicates
 do {
     let x = UUID(), y = UUID()

@@ -347,6 +347,8 @@ struct StartMenuView: View {
     private func folderMenu(_ folder: StartFolder) -> some View {
         Button("開啟") { openFolder(folder.id) }
         Button("重新命名") { openFolder(folder.id, rename: true) }
+        Button("放到工作列") { catalog.addTaskbarWidget(.folder(folder.id), slot: .afterBar) }
+            .disabled(!TaskbarWidgetList.canAdd(.folder(folder.id), to: prefs.taskbarWidgets))
         Divider()
         Button("刪除資料夾") { catalog.deleteStartFolder(folder.id) }
     }
@@ -955,20 +957,8 @@ private struct FolderTile: View {
 
     var body: some View {
         VStack(spacing: StartLayout.s(6)) {
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(StartLayout.s(16)), spacing: StartLayout.s(3)), count: 2),
-                      spacing: StartLayout.s(3)) {
-                ForEach(icons.indices, id: \.self) { i in
-                    Image(nsImage: icons[i])
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: StartLayout.s(16), height: StartLayout.s(16))
-                }
-            }
-            .frame(width: StartLayout.s(40), height: StartLayout.s(40))
-            .background(
-                RoundedRectangle(cornerRadius: StartLayout.s(9), style: .continuous)
-                    .fill(Color.primary.opacity(0.09))
-            )
+            FolderIconSquare(icons: icons, mini: StartLayout.s(16), spacing: StartLayout.s(3),
+                             side: StartLayout.s(40), cornerRadius: StartLayout.s(9))
             Text(name)
                 .font(.system(size: StartLayout.font(11)))
                 .lineLimit(2)

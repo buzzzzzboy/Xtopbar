@@ -28,14 +28,20 @@ enum TaskbarWidgets {
         return TaskbarWidgetMetrics.width(widget.kind, iconOnly: prefs.iconOnly,
                                           barBaseHeight: TTLayout.barBaseHeight, folderName: name,
                                           hasTrack: track != nil,
-                                          titleWidth: track.map { nowPlayingTitleWidth($0.title) })
+                                          titleWidth: track.map { nowPlayingTitleWidth($0.title) },
+                                          nameWidth: name.map { labelWidth($0.isEmpty ? "未命名" : $0) })
+    }
+
+    /// 12pt medium 的字量出来的宽（未缩放），+3 余量同 `nowPlayingTitleWidth`
+    static func labelWidth(_ text: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width) + 3
     }
 
     /// 歌名在小工具里的宽（未缩放），字体同 `NowPlayingWidgetView`。+3：字号按缩放取半 pt 时
     /// 会比等比例略大（例如 90% 下 10.8 → 11），留一点余量免得刚好量满被截成「…」
     static func nowPlayingTitleWidth(_ title: String) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        return ceil(((title.isEmpty ? "未在播放" : title) as NSString).size(withAttributes: [.font: font]).width) + 3
+        labelWidth(title.isEmpty ? "未在播放" : title)
     }
 }
 
@@ -139,19 +145,39 @@ struct TaskbarWidgetContent: View {
             NowPlayingWidgetView(widget: widget, catalog: catalog, prefs: prefs)
         case .systemStats:
             SystemStatsWidgetView(catalog: catalog, prefs: prefs)
-        case .folder:
-            placeholder("folder", "資料夾")
+        case .folder(let id):
+            FolderWidgetView(folderID: id, catalog: catalog, prefs: prefs)
         }
     }
+}
 
-    private func placeholder(_ symbol: String, _ name: String) -> some View {
+/// 资料夹：2×2 迷你图标（同开始菜单的资料夹格），标签样式下旁边加名字。不显示数字，和「背景執行」小方块区分
+struct FolderWidgetView: View {
+    let folderID: UUID
+    @ObservedObject var catalog: AppCatalog
+    @ObservedObject var prefs: Preferences
+
+    private var folder: StartFolder? { prefs.startFolders.first { $0.id == folderID } }
+    private var name: String { folder.map { $0.name.isEmpty ? "未命名" : $0.name } ?? "資料夾" }
+
+    var body: some View {
+        let side = TTLayout.barHeight * (prefs.iconOnly ? 0.62 : 0.6)
+        let spacing = TTLayout.s(2)
+        let icons = (folder.map(FolderWidgetCard.apps(in:)) ?? []).prefix(4).map { AppLibrary.shared.icon(for: $0.url) }
         HStack(spacing: TTLayout.s(6)) {
-            Image(systemName: symbol)
-            if !prefs.iconOnly { Text(name).lineLimit(1) }
+            FolderIconSquare(icons: Array(icons), mini: (side - spacing * 3) / 2, spacing: spacing,
+                             side: side, cornerRadius: TTLayout.s(7))
+            if !prefs.iconOnly {
+                Text(name)
+                    .font(.system(size: TTLayout.font(12), weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
-        .font(.system(size: TTLayout.font(12), weight: .medium))
+        .padding(.horizontal, TTLayout.s(prefs.iconOnly ? 0 : 8))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .widgetHover(catalog)
+        .help(name)
     }
 }
 
