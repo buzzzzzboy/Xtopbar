@@ -105,7 +105,10 @@ final class TabBarController: TabBarHost {
     private var cancellables = Set<AnyCancellable>()
     private var currentWidth: CGFloat = 0
 
-    private var hasBarItems: Bool { !catalog.groups.isEmpty || prefs.showStartButton || prefs.showWebSearchButton }
+    private var hasBarItems: Bool {
+        !catalog.groups.isEmpty || prefs.showStartButton || prefs.showWebSearchButton
+            || !TaskbarWidgets.current(hasTabs: false).isEmpty
+    }
     private var hasVisibleItems: Bool { hasBarItems || folder.hasApps }
 
     /// 面板高度 / 距菜单栏间隙随界面缩放联动（计算属性，uiScale 变了下次 relayout 生效）

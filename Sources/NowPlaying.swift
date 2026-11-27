@@ -81,6 +81,8 @@ final class NowPlaying: ObservableObject {
     @Published private(set) var player: MediaPlayer?
     @Published private(set) var track: NowPlayingTrack?
     @Published private(set) var artwork: NSImage?
+    /// 当前该显示的播放器在不在跑：工作列的正在播放小工具据此显示 / 藏起来
+    @Published private(set) var playerRunning = false
 
     /// 每个播放器各自的最新状态（预览面板的播放条按悬停的 App 取，不跟「当前显示哪个」走）
     @Published private(set) var states: [MediaPlayer: NowPlayingTrack] = [:]
@@ -174,6 +176,8 @@ final class NowPlaying: ObservableObject {
             next = MediaPlayer.allCases.first { states[$0] != nil } ?? MediaPlayer.allCases.first { $0.isRunning }
         }
         if next != player { player = next }
+        let running = next?.isRunning ?? false
+        if running != playerRunning { playerRunning = running }
         let t = next.flatMap { states[$0] }
         if t != track { track = t }
         loadArtwork()

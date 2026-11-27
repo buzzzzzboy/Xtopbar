@@ -516,8 +516,10 @@ final class AppCatalog: ObservableObject {
     private func layoutMetrics() -> TaskbarLayout.Metrics {
         let prefs = Preferences.shared
         let iconOnly = prefs.iconOnly
-        // 24 = 左右内边距；开始 / 搜索两颗圆拆在条外，连缝一起算
-        let fixed: CGFloat = 24 + TTLayout.detachedStartBaseWidth
+        // 24 = 左右内边距；开始 / 搜索两颗圆和条外的小工具连缝一起算，条内两端的小工具也占宽
+        let widgets = TaskbarWidgets.current(hasTabs: true)
+        let fixed: CGFloat = 24 + TTLayout.leftOuterBaseWidth(widgets)
+            + TTLayout.rightOuterBaseWidth(widgets) + TTLayout.innerBaseWidth(widgets)
         if iconOnly {
             return TaskbarLayout.Metrics(titleCap: Self.titleCap, minTitleCap: Self.titleCap,
                                          windowButton: { _, _ in 48 }, buttonPadding: 2,
@@ -1219,21 +1221,26 @@ final class AppCatalog: ObservableObject {
     var preferredWidth: CGFloat {
         let prefs = Preferences.shared
         if groups.isEmpty {
-            // 只剩拆出去的圆（开始 / 搜索）：最后一颗右边不用留缝
-            guard TTLayout.detachedCount > 0 else { return 0 }
-            return TTLayout.detachedStartWidth - TTLayout.detachedStartGap
+            // 只剩条外的东西（开始 / 搜索圆、小工具）：一颗接一颗，最外那道缝不留
+            let widgets = TaskbarWidgets.current(hasTabs: false)
+            let total = TTLayout.leftOuterWidth(widgets) + TTLayout.rightOuterWidth(widgets)
+            return total > 0 ? total - TTLayout.detachedStartGap : 0
         }
+        let widgets = TaskbarWidgets.current(hasTabs: true)
+        // 实测只量滚动内容里的标签：条外的圆、小工具和条内两端的小工具另外加
+        let outside = TTLayout.leftOuterWidth(widgets) + TTLayout.rightOuterWidth(widgets)
+            + TTLayout.innerWidth(widgets)
         // 实测宽度是按量的那一刻的缩放量的；拖分隔线调大小时缩放每拍都在变，
         // 先按比例估一个，实测值下一拍就到 —— 不然条宽总慢一拍，一抽一抽的
         // 拆出去的开始 / 搜索按钮不在量的内容里，另外加上
         guard contentWidth <= 1 else {
-            return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + TTLayout.detachedStartWidth
+            return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + outside
         }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
         let iconOnly = prefs.iconOnly
         let gap = prefs.tabGap
-        // 24 = 左右内边距；后面那段 = 拆在条外的开始 / 搜索圆 + 缝
-        var total: CGFloat = 24 + TTLayout.detachedStartBaseWidth
+        // 24 = 左右内边距；条外 / 条内两端的东西最后按缩放后的宽另外加
+        var total: CGFloat = 24
         for (index, group) in groups.enumerated() {
             if index > 0 { total += prefs.groupGap }
             for entry in group.entries {
@@ -1247,7 +1254,7 @@ final class AppCatalog: ObservableObject {
                 }
             }
         }
-        return total * TTLayout.scale
+        return total * TTLayout.scale + outside
     }
 }
 

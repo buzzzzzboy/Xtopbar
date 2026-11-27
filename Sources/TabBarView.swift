@@ -443,15 +443,18 @@ struct TabBarView: View {
 
     /// 条本体（标签那段）。宽度扣掉左边拆出去的圆和缝
     private var bar: some View {
-        let width = catalog.barWidth - TTLayout.detachedStartWidth
-        return scrollingBar(width: max(0, width))
+        let widgets = TaskbarWidgets.current(hasTabs: true)
+        let width = catalog.barWidth - TTLayout.leftOuterWidth(widgets) - TTLayout.rightOuterWidth(widgets)
+        return scrollingBar(width: max(0, width - TTLayout.innerWidth(widgets)),
+                            leadingInset: TTLayout.leftOuterWidth(widgets) + TTLayout.innerLeadingWidth(widgets))
         .frame(width: width, height: TTLayout.barHeight)
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
     }
 
-    private func scrollingBar(width: CGFloat) -> some View {
+    /// - Parameter leadingInset: 滚动那段的左缘在窗口坐标里的 x（条外左边的东西 + 条内开头的小工具）
+    private func scrollingBar(width: CGFloat, leadingInset: CGFloat) -> some View {
         ScrollViewReader { scroll in
             ScrollView(.horizontal, showsIndicators: false) {
                 // 内容比面板窄时（宽度被最小值兜住）居中，不会只在右边留白
@@ -462,7 +465,7 @@ struct TabBarView: View {
                 guard !added.isEmpty,
                       let tab = catalog.groups.lazy.flatMap(\.entries).first(where: { added.contains($0.id) })
                 else { return }
-                let visible = CGRect(x: TTLayout.detachedStartWidth, y: 0,
+                let visible = CGRect(x: leadingInset, y: 0,
                                      width: width, height: TTLayout.barHeight).insetBy(dx: TTLayout.s(12), dy: 0)
                 if let frame = catalog.tabFrames[tab.id], visible.contains(frame) { return }
                 scroll.scrollTo(tab.id, anchor: .center)
