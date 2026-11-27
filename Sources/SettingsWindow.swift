@@ -336,6 +336,8 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
 
+        TaskbarWidgetsSection(prefs: prefs)
+
         Section("開始選單") {
             Toggle("顯示開始按鈕", isOn: $prefs.showStartButton)
                 .toggleStyle(.switch)
@@ -972,5 +974,91 @@ private struct HotKeyRecorder: View {
         monitor = nil
         recording = false
         GlobalHotKeys.shared.resume()
+    }
+}
+
+/// 设定 → Dock 与开始菜单 →「工作列小工具」：一列一颗（名字 / 槽位 / 上下移 / 移除）+ 新增菜单。
+/// 直接改偏好（规则同 `AppCatalog` 那几个方法，都走 `TaskbarWidgetList`），条订阅偏好自己重排
+private struct TaskbarWidgetsSection: View {
+    @ObservedObject var prefs: Preferences
+
+    var body: some View {
+        Section("工作列小工具") {
+            if prefs.taskbarWidgets.isEmpty {
+                Text("還沒有加入小工具")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(prefs.taskbarWidgets) { widget in
+                HStack(spacing: 8) {
+                    Label(name(widget), systemImage: symbol(widget))
+                    Spacer()
+                    Picker("位置", selection: Binding(
+                        get: { widget.slot },
+                        set: { prefs.taskbarWidgets = TaskbarWidgetList.moving(widget.id, to: $0, in: prefs.taskbarWidgets) }
+                    )) {
+                        ForEach(TaskbarWidgetSlot.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    Button { shift(widget, -1) } label: { Image(systemName: "chevron.up") }
+                        .help("在同一個位置裡往左移")
+                    Button { shift(widget, 1) } label: { Image(systemName: "chevron.down") }
+                        .help("在同一個位置裡往右移")
+                    Button { prefs.taskbarWidgets.removeAll { $0.id == widget.id } } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .help("從工作列移除")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Menu("新增小工具") {
+                addButton("正在播放", .nowPlaying)
+                addButton("CPU 與記憶體", .systemStats)
+                Menu("資料夾") {
+                    if prefs.startFolders.isEmpty {
+                        Text("開始選單裡還沒有資料夾")
+                    }
+                    ForEach(prefs.startFolders) { folder in
+                        addButton(folder.name.isEmpty ? "未命名" : folder.name, .folder(folder.id))
+                    }
+                }
+            }
+            .fixedSize()
+
+            Text("把正在播放、CPU 與記憶體、開始選單的資料夾放到工作列上。位置可以選開始按鈕左右、搜尋右邊、工作列開頭 / 結尾或最右邊；在小工具上按右鍵也能調整。")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func addButton(_ title: String, _ kind: TaskbarWidget.Kind) -> some View {
+        Button(title) {
+            guard TaskbarWidgetList.canAdd(kind, to: prefs.taskbarWidgets) else { return }
+            prefs.taskbarWidgets.append(TaskbarWidget(kind: kind, slot: .afterBar))
+        }
+        .disabled(!TaskbarWidgetList.canAdd(kind, to: prefs.taskbarWidgets))
+    }
+
+    private func shift(_ widget: TaskbarWidget, _ offset: Int) {
+        prefs.taskbarWidgets = TaskbarWidgetList.shifting(widget.id, by: offset, in: prefs.taskbarWidgets)
+    }
+
+    private func name(_ widget: TaskbarWidget) -> String {
+        switch widget.kind {
+        case .nowPlaying: return "正在播放"
+        case .systemStats: return "CPU 與記憶體"
+        case .folder(let id):
+            let name = prefs.startFolders.first { $0.id == id }?.name ?? ""
+            return "資料夾：" + (name.isEmpty ? "未命名" : name)
+        }
+    }
+
+    private func symbol(_ widget: TaskbarWidget) -> String {
+        switch widget.kind {
+        case .nowPlaying: return "music.note"
+        case .systemStats: return "cpu"
+        case .folder: return "folder"
+        }
     }
 }
