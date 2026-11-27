@@ -173,7 +173,7 @@ final class AppCatalog: ObservableObject {
 
     func reportContentWidth(_ width: CGFloat) {
         TTLog("reportContentWidth \(width) (prev \(contentWidth), barWidth \(barWidth))")
-        guard width > 1, abs(width - contentWidth) > 0.5 else { return }
+        guard !groups.isEmpty, width > 1, abs(width - contentWidth) > 0.5 else { return }
         contentWidth = width
         contentWidthScale = TTLayout.scale
         // 在视图更新过程中回调会触发 "Modifying state during view update"，推到下一轮
@@ -579,6 +579,7 @@ final class AppCatalog: ObservableObject {
         lastSignature = signature
 
         let countChanged = newGroups.map { $0.entries.count } != groups.map { $0.entries.count }
+        if newGroups.isEmpty { contentWidth = 0 }
         groups = newGroups
         if newBackground != backgroundApps { backgroundApps = newBackground }
         activePID = frontPID
@@ -1189,6 +1190,12 @@ final class AppCatalog: ObservableObject {
     /// 面板理想宽度（首帧兜底）：内容实测 + 内边距，上限交给控制器按屏幕裁。
     /// 内容宽度上报到位后就以实测为准。
     var preferredWidth: CGFloat {
+        let prefs = Preferences.shared
+        if groups.isEmpty {
+            guard prefs.showStartButton else { return 0 }
+            if TTLayout.detachedStart { return TTLayout.barHeight }
+            return TTLayout.s(prefs.iconOnly ? 42 : 30) + 2 * (TTLayout.s(3) + TTLayout.s(12))
+        }
         // 实测宽度是按量的那一刻的缩放量的；拖分隔线调大小时缩放每拍都在变，
         // 先按比例估一个，实测值下一拍就到 —— 不然条宽总慢一拍，一抽一抽的
         // 拆出去的开始按钮不在量的内容里，另外加上
@@ -1196,17 +1203,17 @@ final class AppCatalog: ObservableObject {
             return (contentWidth * TTLayout.scale / contentWidthScale).rounded(.up) + TTLayout.detachedStartWidth
         }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        let iconOnly = Preferences.shared.iconOnly
-        let gap = Preferences.shared.tabGap
+        let iconOnly = prefs.iconOnly
+        let gap = prefs.tabGap
         // 24 = 左右内边距；后面那段 = 开始按钮 + 分隔线（开着才算；拆出去的是圆 + 缝）
         var total: CGFloat = 24
         if TTLayout.detachedStart {
             total += TTLayout.barBaseHeight + TTLayout.detachedStartBaseGap
-        } else if Preferences.shared.showStartButton {
+        } else if prefs.showStartButton {
             total += (iconOnly ? 54 : 44) + 13
         }
         for (index, group) in groups.enumerated() {
-            if index > 0 { total += Preferences.shared.groupGap }
+            if index > 0 { total += prefs.groupGap }
             for entry in group.entries {
                 if iconOnly {
                     total += 36 + 12 + 2
