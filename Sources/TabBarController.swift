@@ -14,6 +14,8 @@ protocol TabBarHost: AnyObject {
     func toggleWebSearch()
     /// 收起窗口预览（开始拖标签时）
     func dismissPreview()
+    /// 按下工作列小工具（窗口层命中测试判出来的）
+    func pressWidget(_ widget: TaskbarWidget, part: WidgetPart)
 }
 
 /// 停靠边相关的几何：纯矩形运算，不碰 NSScreen / 面板，
@@ -1341,6 +1343,10 @@ final class TabBarController: TabBarHost {
 
     func toggleStartMenu() {
         toggleStartMenu(search: false)
+    }
+
+    func pressWidget(_ widget: TaskbarWidget, part: WidgetPart) {
+        TTLog("pressWidget \(widget.kind) \(part)")
     }
 
     func toggleWebSearch() {

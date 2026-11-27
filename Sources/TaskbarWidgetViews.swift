@@ -69,3 +69,78 @@ extension TTLayout {
         detachedCount + a.leftOuter.count
     }
 }
+
+/// 点到小工具的哪一块：正在播放两端是上一首 / 下一首，其它都算 `.main`
+enum WidgetPart { case main, previous, next }
+
+/// 一颗小工具在条上的外壳：按估宽定宽（和 `TTLayout` 的宽度描述对得上），条外的垫一颗胶囊玻璃，
+/// 条内的直接画在条的玻璃上。整颗的命中区域用 `widget.hitID` 上报（窗口坐标，同开始按钮）
+struct TaskbarWidgetItem: View {
+    let widget: TaskbarWidget
+    let inBar: Bool
+    @ObservedObject var catalog: AppCatalog
+    @ObservedObject var prefs: Preferences
+
+    var body: some View {
+        let width = TTLayout.s(TaskbarWidgets.baseWidth(widget))
+        TaskbarWidgetContent(widget: widget, catalog: catalog, prefs: prefs)
+            .frame(width: width, height: TTLayout.barHeight)
+            .background {
+                if !inBar { GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barHeight / 2) }
+            }
+            .clipShape(Capsule(style: .continuous))
+            .contentShape(Capsule(style: .continuous))
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: TabFramesKey.self,
+                                           value: [widget.hitID: geo.frame(in: .named(TabBarView.space))])
+                }
+            )
+    }
+}
+
+/// 悬停底：指针一进来立刻亮（不加动画），拖标签时不亮
+struct WidgetHover: ViewModifier {
+    @ObservedObject var catalog: AppCatalog
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if hovering && catalog.pointerOverBar && catalog.drag == nil { GlassPill(kind: .hover) }
+            }
+            .onHover { hovering = $0 }
+    }
+}
+
+extension View {
+    func widgetHover(_ catalog: AppCatalog) -> some View { modifier(WidgetHover(catalog: catalog)) }
+}
+
+/// 按种类分派
+struct TaskbarWidgetContent: View {
+    let widget: TaskbarWidget
+    @ObservedObject var catalog: AppCatalog
+    @ObservedObject var prefs: Preferences
+
+    var body: some View {
+        switch widget.kind {
+        case .nowPlaying:
+            placeholder("music.note", "正在播放")
+        case .systemStats:
+            placeholder("cpu", "CPU")
+        case .folder:
+            placeholder("folder", "資料夾")
+        }
+    }
+
+    private func placeholder(_ symbol: String, _ name: String) -> some View {
+        HStack(spacing: TTLayout.s(6)) {
+            Image(systemName: symbol)
+            if !prefs.iconOnly { Text(name).lineLimit(1) }
+        }
+        .font(.system(size: TTLayout.font(12), weight: .medium))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .widgetHover(catalog)
+    }
+}

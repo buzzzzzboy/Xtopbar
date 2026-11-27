@@ -663,6 +663,10 @@ final class AppCatalog: ObservableObject {
             host?.toggleWebSearch()
             return true
         }
+        if let (widget, part) = widgetHit(at: point) {
+            host?.pressWidget(widget, part: part)
+            return true
+        }
         guard let hit = entry(at: point) else { return false }
         pressedEntry = hit
         pressPoint = point
@@ -1158,6 +1162,18 @@ final class AppCatalog: ObservableObject {
         // 工作列上对应的资料夹小工具一起拿掉，不留点了没反应的空壳
         prefs.taskbarWidgets = TaskbarWidgetList.pruned(prefs.taskbarWidgets,
                                                         existingFolders: Set(prefs.startFolders.map(\.id)))
+    }
+
+    /// 指针落在哪颗小工具的哪一块：先比正在播放两端的上一首 / 下一首，没中才算整颗
+    func widgetHit(at point: NSPoint) -> (TaskbarWidget, WidgetPart)? {
+        for widget in Preferences.shared.taskbarWidgets {
+            if tabFrames[widget.prevHitID]?.contains(point) == true { return (widget, .previous) }
+            if tabFrames[widget.nextHitID]?.contains(point) == true { return (widget, .next) }
+        }
+        for widget in Preferences.shared.taskbarWidgets where tabFrames[widget.hitID]?.contains(point) == true {
+            return (widget, .main)
+        }
+        return nil
     }
 
     // MARK: 工作列小工具（改完偏好，TabBarController 订阅 `taskbarWidgets` 重排）

@@ -405,26 +405,24 @@ struct TabBarView: View {
     private var hasScrollingContent: Bool { !catalog.groups.isEmpty }
 
     var body: some View {
+        let widgets = TaskbarWidgets.current(hasTabs: hasScrollingContent)
         HStack(spacing: 0) {
-            // 开始按钮、搜索按钮各自一颗圆在条左边（开始在左、搜索在右），
-            // 最后一颗和条之间的缝是调大小的把手
-            if TTLayout.detachedStart {
-                StartButton(iconOnly: prefs.iconOnly,
-                            isOpen: catalog.startMenuOpen,
-                            animated: prefs.animationsEnabled,
-                            glassStyle: prefs.glassStyle)
-                if TTLayout.detachedSearch {
-                    Color.clear.frame(width: TTLayout.detachedStartGap)
-                }
-            }
-            if TTLayout.detachedSearch {
-                detachedSearchButton
-            }
+            // 条左边条外的东西一颗接一颗（槽 1 → 开始 → 槽 2 → 搜索 → 槽 3），中间留缝；
+            // 最后一颗和条之间的缝是调大小的把手。没有标签时条不画，右边条外的小工具直接接上
+            let left = leftOuterItems(widgets)
+            let right = widgets.afterBar.map(OuterItem.widget)
             if hasScrollingContent {
-                if TTLayout.detachedCount > 0 {
+                outerRow(left)
+                if !left.isEmpty {
                     ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing)
                 }
-                bar
+                bar(widgets)
+                ForEach(right) { item in
+                    Color.clear.frame(width: TTLayout.detachedStartGap)
+                    outerItem(item)
+                }
+            } else {
+                outerRow(left + right)
             }
         }
         .frame(width: catalog.barWidth, height: TTLayout.barHeight)
@@ -441,12 +439,61 @@ struct TabBarView: View {
         }
     }
 
-    /// 条本体（标签那段）。宽度扣掉左边拆出去的圆和缝
-    private var bar: some View {
-        let widgets = TaskbarWidgets.current(hasTabs: true)
+    /// 条外的一颗东西：开始圆 / 搜索圆 / 小工具
+    private enum OuterItem: Identifiable {
+        case start, search, widget(TaskbarWidget)
+
+        var id: String {
+            switch self {
+            case .start: return AppCatalog.startButtonID
+            case .search: return AppCatalog.webSearchButtonID
+            case .widget(let w): return w.hitID
+            }
+        }
+    }
+
+    private func leftOuterItems(_ widgets: WidgetArrangement) -> [OuterItem] {
+        var items = widgets.beforeStart.map(OuterItem.widget)
+        if TTLayout.detachedStart { items.append(.start) }
+        items += widgets.afterStart.map(OuterItem.widget)
+        if TTLayout.detachedSearch { items.append(.search) }
+        items += widgets.beforeBar.map(OuterItem.widget)
+        return items
+    }
+
+    /// 一排条外的东西，两两之间留缝（首尾不留）
+    private func outerRow(_ items: [OuterItem]) -> some View {
+        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            if index > 0 { Color.clear.frame(width: TTLayout.detachedStartGap) }
+            outerItem(item)
+        }
+    }
+
+    @ViewBuilder
+    private func outerItem(_ item: OuterItem) -> some View {
+        switch item {
+        case .start:
+            StartButton(iconOnly: prefs.iconOnly,
+                        isOpen: catalog.startMenuOpen,
+                        animated: prefs.animationsEnabled,
+                        glassStyle: prefs.glassStyle)
+        case .search:
+            detachedSearchButton
+        case .widget(let widget):
+            TaskbarWidgetItem(widget: widget, inBar: false, catalog: catalog, prefs: prefs)
+        }
+    }
+
+    /// 条本体：条内开头的小工具 + 滚动的标签 + 条内结尾的小工具，共用一块玻璃。
+    /// 宽度扣掉左右条外的东西和缝
+    private func bar(_ widgets: WidgetArrangement) -> some View {
         let width = catalog.barWidth - TTLayout.leftOuterWidth(widgets) - TTLayout.rightOuterWidth(widgets)
-        return scrollingBar(width: max(0, width - TTLayout.innerWidth(widgets)),
-                            leadingInset: TTLayout.leftOuterWidth(widgets) + TTLayout.innerLeadingWidth(widgets))
+        return HStack(spacing: 0) {
+            ForEach(widgets.barLeading) { TaskbarWidgetItem(widget: $0, inBar: true, catalog: catalog, prefs: prefs) }
+            scrollingBar(width: max(0, width - TTLayout.innerWidth(widgets)),
+                         leadingInset: TTLayout.leftOuterWidth(widgets) + TTLayout.innerLeadingWidth(widgets))
+            ForEach(widgets.barTrailing) { TaskbarWidgetItem(widget: $0, inBar: true, catalog: catalog, prefs: prefs) }
+        }
         .frame(width: width, height: TTLayout.barHeight)
         .background(GlassBackdrop(style: prefs.glassStyle, cornerRadius: TTLayout.barCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: TTLayout.barCornerRadius, style: .continuous))
