@@ -367,7 +367,7 @@ Google Chrome          2              7
 ## 建置
 
 ```bash
-./build.sh          # 生成圖示 + 雙架構編譯 + 自簽名 + 驗證
+./build.sh          # 生成圖示 + arm64 編譯 + 自簽名 + 驗證
 open Xtopbar.app
 ```
 

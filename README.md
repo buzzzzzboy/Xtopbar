@@ -4,7 +4,7 @@
 
 Fork 自 [lrylnx/TopTab](https://github.com/lrylnx/TopTab)（螢幕頂部的懸浮 App 切換條），在它的基礎上改成了工作列 / Dock 的替代品，並改名為 Xtopbar。
 
-要求 macOS 14.0+（液態玻璃背景需要 macOS 26+，更早的系統自動換成毛玻璃）。
+系統需求為搭載 Apple Silicon 的 Mac 與 macOS 14.0 以上。液態玻璃背景需要 macOS 26 以上，更早的系統自動換成毛玻璃。
 
 ## 下載安裝
 
@@ -183,7 +183,7 @@ Raycast 式的表情符號選擇器，分類同 macOS「字元檢視器」。在
 需要 Xcode 命令列工具。
 
 ```bash
-./build.sh          # 生成圖示 + 雙架構（arm64 / x86_64）編譯 + 自簽名 + 驗證
+./build.sh          # 生成圖示 + arm64 編譯 + 自簽名 + 驗證
                     # 沒有正式簽名憑證的電腦會自動改用本機憑證簽開發版（發版仍只認正式憑證，見 RELEASING.md）
 open Xtopbar.app
 ```
