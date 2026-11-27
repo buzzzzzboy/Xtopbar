@@ -85,19 +85,24 @@ struct WidgetArrangement: Equatable {
 
 /// 估宽（未缩放的 pt，不含膠囊外的缝）。同 `TaskbarLayout`：一律估，不等 SwiftUI 量回来
 enum TaskbarWidgetMetrics {
-    /// 正在播放的歌名一律按上限估：换歌不改条宽，不会引发重新合并
+    /// 正在播放的歌名最宽多少（超过就截断）：宽度跟着歌名长短走，到这里封顶
     static let nowPlayingTitleCap: CGFloat = 140
     /// 资料夹名称最宽
     static let folderNameCap: CGFloat = 120
 
+    /// - Parameters:
+    ///   - hasTrack: 正在播放有没有曲目。没有就缩成「播放器图标 + ▶」一小颗
+    ///   - titleWidth: 歌名量出来的宽（未缩放），超过 `nowPlayingTitleCap` 按上限算；nil = 按上限
     static func width(_ kind: TaskbarWidget.Kind, iconOnly: Bool, barBaseHeight: CGFloat,
-                      folderName: String?) -> CGFloat {
+                      folderName: String?, hasTrack: Bool = true, titleWidth: CGFloat? = nil) -> CGFloat {
         switch kind {
         case .nowPlaying:
+            if !hasTrack { return iconOnly ? 16 + 30 + 6 + 14 : 16 + 18 + 6 + 14 + 4 }
             // 两端 ⏮⏭ 各半个条高 + 中间：左右内距 8+8、封面、间距、（歌名）、状态图标
             let ends = (barBaseHeight / 2) * 2
             if iconOnly { return ends + 16 + 36 + 6 + 14 }
-            return ends + 16 + 18 + 6 + nowPlayingTitleCap + 6 + 14
+            let title = min(ceil(titleWidth ?? nowPlayingTitleCap), nowPlayingTitleCap)
+            return ends + 16 + 18 + 6 + title + 6 + 14
         case .systemStats:
             // 两组「标签 + 100% + 迷你横条 24」；只显示图标 = 两条竖条
             return iconOnly ? (barBaseHeight * 0.8).rounded() : 150

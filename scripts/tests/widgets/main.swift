@@ -45,11 +45,32 @@ do {
           "arrangementNotEmpty")
 }
 
-// nowPlayingWidthIgnoresTitle
+// nowPlayingWidthFollowsTitle：宽度跟着歌名长度走，超过上限就不再变宽
 do {
-    let a = TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: false, barBaseHeight: 42, folderName: nil)
-    let b = TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: false, barBaseHeight: 42, folderName: nil)
-    check(a == b && a >= 42 / 2 * 2 + 140, "nowPlayingWidthIgnoresTitle")
+    func np(_ t: CGFloat) -> CGFloat {
+        TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: false, barBaseHeight: 42, folderName: nil,
+                                   hasTrack: true, titleWidth: t)
+    }
+    check(np(60) < np(120), "nowPlayingWidthFollowsTitle")
+    check(np(120) - np(60) == 60, "nowPlayingWidthGrowsByTitleDelta")
+    check(np(500) == np(TaskbarWidgetMetrics.nowPlayingTitleCap), "nowPlayingWidthCapped")
+    // 只显示图标样式不画歌名：歌名长短不影响
+    let a = TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: true, barBaseHeight: 58, folderName: nil,
+                                       hasTrack: true, titleWidth: 20)
+    let b = TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: true, barBaseHeight: 58, folderName: nil,
+                                       hasTrack: true, titleWidth: 140)
+    check(a == b, "nowPlayingIconOnlyIgnoresTitle")
+}
+
+// nowPlayingCompactWithoutTrack：没有歌时缩成「图标 + ▶」，比有歌时窄很多，且两种样式都不超过 1.5 个条高
+do {
+    for (iconOnly, h) in [(false, CGFloat(42)), (true, CGFloat(58))] {
+        let full = TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: iconOnly, barBaseHeight: h,
+                                              folderName: nil, hasTrack: true)
+        let compact = TaskbarWidgetMetrics.width(.nowPlaying, iconOnly: iconOnly, barBaseHeight: h,
+                                                 folderName: nil, hasTrack: false)
+        check(compact < full && compact <= h * 1.5, "nowPlayingCompactWithoutTrack iconOnly=\(iconOnly)")
+    }
 }
 
 // iconOnlyIsNarrower

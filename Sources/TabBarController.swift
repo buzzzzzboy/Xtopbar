@@ -16,6 +16,8 @@ protocol TabBarHost: AnyObject {
     func dismissPreview()
     /// 按下工作列小工具（窗口层命中测试判出来的）
     func pressWidget(_ widget: TaskbarWidget, part: WidgetPart)
+    /// 这扇窗口是不是条本身（浮窗判断「点外面收起」时把条上的小工具除外）
+    func isBarWindow(_ window: NSWindow) -> Bool
 }
 
 /// 停靠边相关的几何：纯矩形运算，不碰 NSScreen / 面板，
@@ -479,8 +481,10 @@ final class TabBarController: TabBarHost {
 
         // 小工具加 / 删 / 换槽，或正在播放的播放器开 / 关（小工具出现 / 藏起来）：
         // 宽度变了，重新判断合并、重算条宽
-        Publishers.Merge(prefs.$taskbarWidgets.dropFirst().removeDuplicates().map { _ in () },
-                         NowPlaying.shared.$playerRunning.dropFirst().removeDuplicates().map { _ in () })
+        // 曲目也算：没歌时正在播放缩成一小颗，有歌时宽度跟着歌名长短走
+        Publishers.Merge3(prefs.$taskbarWidgets.dropFirst().removeDuplicates().map { _ in () },
+                          NowPlaying.shared.$playerRunning.dropFirst().removeDuplicates().map { _ in () },
+                          NowPlaying.shared.$track.map { $0?.title }.removeDuplicates().dropFirst().map { _ in () })
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -1344,6 +1348,8 @@ final class TabBarController: TabBarHost {
     func toggleStartMenu() {
         toggleStartMenu(search: false)
     }
+
+    func isBarWindow(_ window: NSWindow) -> Bool { window === panel }
 
     func pressWidget(_ widget: TaskbarWidget, part: WidgetPart) {
         TTLog("pressWidget \(widget.kind) \(part)")

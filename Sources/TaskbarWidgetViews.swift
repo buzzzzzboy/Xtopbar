@@ -24,8 +24,18 @@ enum TaskbarWidgets {
         let prefs = Preferences.shared
         var name: String?
         if case .folder(let id) = widget.kind { name = prefs.startFolders.first { $0.id == id }?.name }
+        let track = NowPlaying.shared.track
         return TaskbarWidgetMetrics.width(widget.kind, iconOnly: prefs.iconOnly,
-                                          barBaseHeight: TTLayout.barBaseHeight, folderName: name)
+                                          barBaseHeight: TTLayout.barBaseHeight, folderName: name,
+                                          hasTrack: track != nil,
+                                          titleWidth: track.map { nowPlayingTitleWidth($0.title) })
+    }
+
+    /// 歌名在小工具里的宽（未缩放），字体同 `NowPlayingWidgetView`。+3：字号按缩放取半 pt 时
+    /// 会比等比例略大（例如 90% 下 10.8 → 11），留一点余量免得刚好量满被截成「…」
+    static func nowPlayingTitleWidth(_ title: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        return ceil(((title.isEmpty ? "未在播放" : title) as NSString).size(withAttributes: [.font: font]).width) + 3
     }
 }
 
@@ -157,28 +167,39 @@ struct NowPlayingWidgetView: View {
     private var hasTrack: Bool { nowPlaying.track != nil }
 
     var body: some View {
-        HStack(spacing: 0) {
-            skipKey("backward.fill", id: widget.prevHitID)
-            HStack(spacing: TTLayout.s(6)) {
-                cover
-                if !prefs.iconOnly {
-                    Text(title)
-                        .font(.system(size: TTLayout.font(12), weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: TTLayout.s(TaskbarWidgetMetrics.nowPlayingTitleCap), alignment: .leading)
+        Group {
+            if hasTrack {
+                HStack(spacing: 0) {
+                    skipKey("backward.fill", id: widget.prevHitID)
+                    playArea
+                    skipKey("forward.fill", id: widget.nextHitID)
                 }
-                Image(systemName: nowPlaying.track?.playing == true ? "pause.fill" : "play.fill")
-                    .font(.system(size: TTLayout.font(12), weight: .semibold))
-                    .frame(width: TTLayout.s(14))
+            } else {
+                // 没有曲目：缩成「播放器图标 + ▶」一小颗，整颗都是播放键，不画用不到的切歌键
+                playArea
             }
-            .padding(.horizontal, TTLayout.s(8))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .widgetHover(catalog)
-            .help(help)
-            skipKey("forward.fill", id: widget.nextHitID)
         }
         .foregroundStyle(Color.primary)
+    }
+
+    /// 中间的播放 / 暂停区：封面 + 歌名 + ▶。整颗的宽度按歌名量出来的宽定（见 `TaskbarWidgets.baseWidth`）
+    private var playArea: some View {
+        HStack(spacing: TTLayout.s(6)) {
+            cover
+            if hasTrack && !prefs.iconOnly {
+                Text(title)
+                    .font(.system(size: TTLayout.font(12), weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Image(systemName: nowPlaying.track?.playing == true ? "pause.fill" : "play.fill")
+                .font(.system(size: TTLayout.font(12), weight: .semibold))
+                .frame(width: TTLayout.s(14))
+        }
+        .padding(.horizontal, TTLayout.s(8))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .widgetHover(catalog)
+        .help(help)
     }
 
     private var title: String {
@@ -193,7 +214,7 @@ struct NowPlayingWidgetView: View {
 
     @ViewBuilder
     private var cover: some View {
-        let size = TTLayout.s(prefs.iconOnly ? 36 : 18)
+        let size = TTLayout.s(prefs.iconOnly ? (hasTrack ? 36 : 30) : 18)
         Group {
             if let art = nowPlaying.artwork {
                 Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
@@ -207,12 +228,11 @@ struct NowPlayingWidgetView: View {
         .clipShape(RoundedRectangle(cornerRadius: TTLayout.s(prefs.iconOnly ? 8 : 4), style: .continuous))
     }
 
-    /// 切歌键：半个条高宽、整条高；没有曲目时变灰（点了也不动，见 `pressWidget`）
+    /// 切歌键：半个条高宽、整条高（只在有曲目时画）
     private func skipKey(_ symbol: String, id: String) -> some View {
         Image(systemName: symbol)
             .font(.system(size: TTLayout.font(10), weight: .semibold))
             .frame(width: TTLayout.barHeight / 2, height: TTLayout.barHeight)
-            .opacity(hasTrack ? 1 : 0.35)
             .widgetHover(catalog)
             .background(
                 GeometryReader { geo in
