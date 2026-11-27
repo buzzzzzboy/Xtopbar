@@ -479,9 +479,13 @@ struct TabBarView: View {
                             theme: prefs.barTheme,
                             detached: true,
                             glassStyle: prefs.glassStyle)
-                ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing, detached: true)
+                if !catalog.groups.isEmpty {
+                    ResizeHandle(iconOnly: prefs.iconOnly, active: catalog.isResizing, detached: true)
+                }
             }
-            bar
+            if !catalog.groups.isEmpty || (prefs.showStartButton && !TTLayout.detachedStart) {
+                bar
+            }
         }
         .frame(width: catalog.barWidth, height: TTLayout.barHeight)
         .onHover { inside in

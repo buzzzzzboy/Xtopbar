@@ -104,6 +104,9 @@ final class TabBarController: TabBarHost {
     private var cancellables = Set<AnyCancellable>()
     private var currentWidth: CGFloat = 0
 
+    private var hasBarItems: Bool { !catalog.groups.isEmpty || prefs.showStartButton }
+    private var hasVisibleItems: Bool { hasBarItems || folder.hasApps }
+
     /// 面板高度 / 距菜单栏间隙随界面缩放联动（计算属性，uiScale 变了下次 relayout 生效）
     private var barHeight: CGFloat { TTLayout.barHeight }
     private var topInset: CGFloat { TTLayout.s(6) }
@@ -288,13 +291,13 @@ final class TabBarController: TabBarHost {
 
         catalog.$groups
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.relayout() }
+            .sink { [weak self] _ in self?.syncContent() }
             .store(in: &cancellables)
 
         // 资料夹有没有 / 收了几个变了：条让出（或收回）尾巴的位置，小方块跟着出现 / 消失
         catalog.$backgroundApps
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.syncFolder() }
+            .sink { [weak self] _ in self?.syncContent() }
             .store(in: &cancellables)
         folder.onOpen = { [weak self] in
             guard let self else { return }
@@ -443,7 +446,7 @@ final class TabBarController: TabBarHost {
                 self.startMenu.close(animated: false)
                 self.folder.close(animated: false)
                 self.currentWidth = 0
-                self.relayout()
+                self.syncContent()
             }
             .store(in: &cancellables)
 
@@ -712,6 +715,7 @@ final class TabBarController: TabBarHost {
     func applyBarEnabled() {
         guard prefs.barEnabled else {
             hidePreview()
+            startMenu.close(animated: false)
             hide()
             catalog.pointerOverBar = false
             panel.orderOut(nil)
@@ -747,6 +751,7 @@ final class TabBarController: TabBarHost {
 
     /// - fade: 纯淡入、不滑动、稍慢一点（从调度中心回来时用，跟系统的过渡节奏一致）
     private func beginReveal(animated: Bool = true, fade: Bool = false) {
+        guard hasVisibleItems else { return }
         isRevealed = true
         lastInteraction = Date()
         relayout()
@@ -755,7 +760,7 @@ final class TabBarController: TabBarHost {
         guard animated, prefs.animationsEnabled else {
             panel.setFrame(panel.frame, display: true)
             panel.alphaValue = idle
-            panel.orderFrontRegardless()
+            if hasBarItems { panel.orderFrontRegardless() }
             folder.reveal(barFrame: panel.frame, dy: 0, alpha: idle, duration: nil)
             warmup()
             return
@@ -769,7 +774,7 @@ final class TabBarController: TabBarHost {
         start.origin.y += (fade ? 0 : 14) * DockGeometry.slideSign(edge: prefs.dockEdge)
         panel.alphaValue = 0
         panel.setFrame(start, display: false)
-        panel.orderFrontRegardless()
+        if hasBarItems { panel.orderFrontRegardless() }
         animateWindow(to: target, alpha: idle, duration: fade ? 0.2 : 0.05, timing: .easeOut)
         folder.reveal(barFrame: target, dy: start.minY - target.minY, alpha: idle,
                       duration: fade ? 0.2 : 0.05)
@@ -779,7 +784,7 @@ final class TabBarController: TabBarHost {
     /// 面板一出现就在后台把窗口快照和缩略图备好 ——
     /// 等用户真的悬停到某个标签时，图已经在缓存里，弹出即完整。
     private func warmup() {
-        guard prefs.previewEnabled else { return }
+        guard prefs.previewEnabled, !catalog.groups.isEmpty else { return }
         guard ScreenCaptureEngine.hasPermission else {
             ScreenCaptureEngine.requestPermissionIfNeeded()
             return
@@ -802,6 +807,7 @@ final class TabBarController: TabBarHost {
         hidePreview()
         startMenu.close()
         // 整条要离场了，高亮状态跟着复位，下次唤出时不会残留
+        isHoveringBar = false
         catalog.pointerOverBar = false
 
         guard animated, prefs.animationsEnabled else {
@@ -994,7 +1000,7 @@ final class TabBarController: TabBarHost {
                                                 width: catalog.preferredWidth,
                                                 height: barHeight, inset: topInset)
         // 用户正按着鼠标（拖窗口 / 拉窗口边）时别抢，松手后下一轮再挪
-        let adjust = prefs.avoidWindows && isRevealed
+        let adjust = prefs.avoidWindows && isRevealed && hasBarItems
             && NSEvent.pressedMouseButtons == 0
         let bar = AvoidGeometry.cgRect(rest)
         let screenCG = AvoidGeometry.cgRect(screen.frame)
@@ -1048,7 +1054,7 @@ final class TabBarController: TabBarHost {
             return
         }
         // 调度中心开着：条已经淡出，期间唤出区、自动隐藏计时一概不管
-        guard !missionControl.isActive else { return }
+        guard !missionControl.isActive, hasVisibleItems else { return }
 
         let mouse = NSEvent.mouseLocation
         let now = Date()
@@ -1064,7 +1070,7 @@ final class TabBarController: TabBarHost {
             releasedWhilePressing = 0
         }
 
-        let panelZone = panel.frame.insetBy(dx: -1, dy: -1)
+        let panelZone = hasBarItems ? panel.frame.insetBy(dx: -1, dy: -1) : NSRect.null
         let inPanel = isRevealed && panelZone.contains(mouse)
         // 条尾巴后面的资料夹（小方块 / 弹出的网格）算条的一部分
         let inFolder = isRevealed && folder.contains(mouse)
@@ -1319,8 +1325,14 @@ final class TabBarController: TabBarHost {
             return
         }
         guard prefs.barEnabled, !missionControl.isActive else { return }
-        // 从状态栏菜单 / 快捷入口打开时条可能还藏着：先把条唤出来，菜单要贴着开始按钮弹
-        if !isRevealed { beginReveal(animated: false) }
+        // 从状态栏菜单 / 快捷键打开时，空条只提供定位，不需要上屏
+        if !isRevealed {
+            if hasVisibleItems {
+                beginReveal(animated: false)
+            } else {
+                relayout()
+            }
+        }
         hidePreview()
         folder.close(animated: false)
         lastInteraction = Date()
@@ -1409,13 +1421,30 @@ final class TabBarController: TabBarHost {
         if folder.isChipVisible { folder.place(barFrame: target) }
     }
 
-    /// 资料夹里的 App 变了：条让位 / 收回，小方块跟着条的显示状态出现或消失
-    private func syncFolder() {
+    /// 标签、开始按钮或资料夹变了：空条收起，有内容时按常驻设置恢复
+    private func syncContent() {
         relayout()
         folder.appsChanged()
+        guard hasVisibleItems else {
+            hide(animated: false)
+            return
+        }
+        guard isRevealed else {
+            applyResidency()
+            return
+        }
+
+        if hasBarItems, !panel.isVisible {
+            panel.orderFrontRegardless()
+        } else if !hasBarItems, panel.isVisible {
+            panel.orderOut(nil)
+            isHoveringBar = false
+            catalog.pointerOverBar = false
+            hidePreview()
+        }
         if !folder.hasApps {
             folder.conceal(dy: 0, duration: prefs.animationsEnabled ? 0.12 : nil)
-        } else if isRevealed, !folder.isChipVisible {
+        } else if !folder.isChipVisible {
             folder.reveal(barFrame: panel.frame, dy: 0, alpha: panel.alphaValue,
                           duration: prefs.animationsEnabled ? 0.12 : nil)
         }
